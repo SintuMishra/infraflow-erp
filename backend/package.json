@@ -1,0 +1,38 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test tests/*.test.js",
+    "verify:app": "node -e \"require('./src/app'); console.log('app-ok')\"",
+    "verify:owner-lock": "node src/scripts/verifyOwnerLockConfig.js",
+    "verify:go-live": "node src/scripts/verifyGoLiveReadiness.js",
+    "migrate": "node src/scripts/runMigrations.js",
+    "smoke:dashboard-audit": "node src/scripts/smokeDashboardAuditFlow.js",
+    "smoke:core-sections": "node src/scripts/smokeCoreSectionsFlow.js",
+    "smoke:core-sections-write": "node src/scripts/smokeCoreSectionsWriteFlow.js",
+    "smoke:owner-governance": "node src/scripts/smokeOwnerGovernanceFlow.js",
+    "bootstrap:owner": "node src/scripts/bootstrapCompanyOwner.js",
+    "reset:trial": "node src/scripts/resetTrialBaseline.js",
+    "report:missing-hsn": "node src/scripts/reportMissingMaterialHsnSac.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.1",
+    "express": "^5.2.1",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "morgan": "^1.10.1",
+    "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

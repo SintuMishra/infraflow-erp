@@ -1,0 +1,199 @@
+const dotenv = require("dotenv");
+
+dotenv.config();
+
+const requireEnv = (key, fallback) => {
+  const value = process.env[key];
+
+  if (value !== undefined && value !== null && String(value).trim() !== "") {
+    return value;
+  }
+
+  if (fallback !== undefined) {
+    return fallback;
+  }
+
+  throw new Error(`Missing required environment variable: ${key}`);
+};
+
+const parseIntegerEnv = (key, fallback, { min = null, max = null } = {}) => {
+  const rawValue =
+    process.env[key] !== undefined && process.env[key] !== null && String(process.env[key]).trim() !== ""
+      ? process.env[key]
+      : fallback;
+
+  const numericValue = Number(rawValue);
+
+  if (!Number.isInteger(numericValue)) {
+    throw new Error(`Environment variable ${key} must be an integer`);
+  }
+
+  if (min !== null && numericValue < min) {
+    throw new Error(`Environment variable ${key} must be at least ${min}`);
+  }
+
+  if (max !== null && numericValue > max) {
+    throw new Error(`Environment variable ${key} must be at most ${max}`);
+  }
+
+  return numericValue;
+};
+
+const parseOptionalIntegerEnv = (key, { min = null, max = null } = {}) => {
+  const rawValue = process.env[key];
+
+  if (rawValue === undefined || rawValue === null || String(rawValue).trim() === "") {
+    return null;
+  }
+
+  const numericValue = Number(rawValue);
+
+  if (!Number.isInteger(numericValue)) {
+    throw new Error(`Environment variable ${key} must be an integer`);
+  }
+
+  if (min !== null && numericValue < min) {
+    throw new Error(`Environment variable ${key} must be at least ${min}`);
+  }
+
+  if (max !== null && numericValue > max) {
+    throw new Error(`Environment variable ${key} must be at most ${max}`);
+  }
+
+  return numericValue;
+};
+
+const parseBooleanEnv = (key, fallback) => {
+  const rawValue =
+    process.env[key] !== undefined && process.env[key] !== null && String(process.env[key]).trim() !== ""
+      ? process.env[key]
+      : fallback;
+
+  const normalizedValue = String(rawValue).trim().toLowerCase();
+
+  if (normalizedValue === "true") {
+    return true;
+  }
+
+  if (normalizedValue === "false") {
+    return false;
+  }
+
+  throw new Error(`Environment variable ${key} must be true or false`);
+};
+
+const looksLikePlaceholderSecret = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  if (!normalized) {
+    return true;
+  }
+
+  return (
+    normalized.includes("replace_with") ||
+    normalized.includes("change_this") ||
+    normalized === "secret" ||
+    normalized === "test-secret" ||
+    normalized === "unit-test-secret"
+  );
+};
+
+const env = {
+  port: parseIntegerEnv("PORT", 5000, { min: 1, max: 65535 }),
+  nodeEnv: process.env.NODE_ENV || "development",
+  logLevel: process.env.LOG_LEVEL || "info",
+  corsOrigin: process.env.CORS_ORIGIN || "*",
+  enforceCompanyScope: parseBooleanEnv("ENFORCE_COMPANY_SCOPE", "true"),
+  loginRateLimitWindowMs: parseIntegerEnv(
+    "LOGIN_RATE_LIMIT_WINDOW_MS",
+    15 * 60 * 1000,
+    { min: 1 }
+  ),
+  loginRateLimitMaxAttempts: parseIntegerEnv(
+    "LOGIN_RATE_LIMIT_MAX_ATTEMPTS",
+    5,
+    { min: 1 }
+  ),
+  passwordResetRateLimitWindowMs: parseIntegerEnv(
+    "PASSWORD_RESET_RATE_LIMIT_WINDOW_MS",
+    15 * 60 * 1000,
+    { min: 1 }
+  ),
+  passwordResetRateLimitMaxAttempts: parseIntegerEnv(
+    "PASSWORD_RESET_RATE_LIMIT_MAX_ATTEMPTS",
+    5,
+    { min: 1 }
+  ),
+  onboardingRateLimitWindowMs: parseIntegerEnv(
+    "ONBOARDING_RATE_LIMIT_WINDOW_MS",
+    15 * 60 * 1000,
+    { min: 1 }
+  ),
+  onboardingRateLimitMaxAttempts: parseIntegerEnv(
+    "ONBOARDING_RATE_LIMIT_MAX_ATTEMPTS",
+    10,
+    { min: 1 }
+  ),
+  passwordResetTokenTtlMinutes: parseIntegerEnv(
+    "PASSWORD_RESET_TOKEN_TTL_MINUTES",
+    15,
+    { min: 1 }
+  ),
+  exposePasswordResetToken: parseBooleanEnv(
+    "EXPOSE_PASSWORD_RESET_TOKEN",
+    process.env.NODE_ENV === "production" ? "false" : "true"
+  ),
+  onboardingBootstrapSecret: process.env.ONBOARDING_BOOTSTRAP_SECRET || "",
+  platformOwnerCompanyId: parseOptionalIntegerEnv("PLATFORM_OWNER_COMPANY_ID", {
+    min: 1,
+  }),
+  jwtSecret: requireEnv("JWT_SECRET"),
+  dbHost: requireEnv("DB_HOST"),
+  dbPort: parseIntegerEnv("DB_PORT", 5432, { min: 1, max: 65535 }),
+  dbName: requireEnv("DB_NAME"),
+  dbUser: requireEnv("DB_USER"),
+  dbPassword: requireEnv("DB_PASSWORD"),
+};
+
+if (env.nodeEnv === "production" && env.exposePasswordResetToken) {
+  throw new Error(
+    "EXPOSE_PASSWORD_RESET_TOKEN must be false in production"
+  );
+}
+
+if (env.nodeEnv === "production") {
+  if (env.corsOrigin === "*") {
+    throw new Error("CORS_ORIGIN cannot be * in production");
+  }
+
+  const normalizedCorsOrigin = String(env.corsOrigin || "").toLowerCase();
+  if (
+    normalizedCorsOrigin.includes("localhost") ||
+    normalizedCorsOrigin.includes("127.0.0.1")
+  ) {
+    throw new Error(
+      "CORS_ORIGIN cannot point to localhost or 127.0.0.1 in production"
+    );
+  }
+
+  if (looksLikePlaceholderSecret(env.jwtSecret) || env.jwtSecret.length < 32) {
+    throw new Error(
+      "JWT_SECRET must be a strong non-placeholder secret with minimum length 32 in production"
+    );
+  }
+
+  const onboardingSecret = String(env.onboardingBootstrapSecret || "").trim();
+
+  if (onboardingSecret) {
+    if (
+      looksLikePlaceholderSecret(onboardingSecret) ||
+      onboardingSecret.length < 24
+    ) {
+      throw new Error(
+        "ONBOARDING_BOOTSTRAP_SECRET must be a strong non-placeholder secret with minimum length 24 in production"
+      );
+    }
+  }
+}
+
+module.exports = env;

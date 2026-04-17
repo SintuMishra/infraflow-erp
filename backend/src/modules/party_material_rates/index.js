@@ -1,0 +1,1 @@
+module.exports = require("./party_material_rates.routes");
