@@ -148,6 +148,7 @@ function LoginPage({ loginMode = "default" }) {
       );
 
       const token = response.data?.data?.token;
+      const refreshToken = response.data?.data?.refreshToken;
       const mustChangePassword = response.data?.data?.mustChangePassword;
       const userPayload = response.data?.data?.user || null;
       const company = response.data?.data?.company || null;
@@ -200,7 +201,7 @@ function LoginPage({ loginMode = "default" }) {
         return;
       }
 
-      updateSession({ token, user });
+      updateSession({ token, refreshToken, user });
 
       if (mustChangePassword) {
         navigate("/change-password");

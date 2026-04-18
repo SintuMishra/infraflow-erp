@@ -42,7 +42,7 @@ function Header({
 }) {
   return (
     <header style={styles.header}>
-      <div style={styles.left}>
+      <div style={styles.titleBlock}>
         <div style={styles.headerTopRow}>
           {isMobile ? (
             <button type="button" onClick={onMenuToggle} style={styles.menuButton}>
@@ -51,18 +51,28 @@ function Header({
           ) : null}
           <div style={styles.badge}>Construction ERP Control Room</div>
         </div>
+
         <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>{title}</h1>
-        <p style={styles.subtitle}>{subtitle}</p>
+
+        <p style={{ ...styles.subtitle, ...(isMobile ? styles.subtitleMobile : {}) }}>
+          {subtitle}
+        </p>
       </div>
 
-      <div style={{ ...styles.right, ...(isMobile ? styles.rightMobile : {}) }}>
-        <div style={{ ...styles.dateCard, ...(isMobile ? styles.cardMobile : {}) }}>
+      <div style={{ ...styles.metaGrid, ...(isMobile ? styles.metaGridMobile : {}) }}>
+        <div
+          style={{
+            ...styles.dateCard,
+            ...(isMobile ? styles.cardMobile : {}),
+            ...(isMobile ? styles.gridSpanMobile : styles.gridSpanDate),
+          }}
+        >
           <p style={styles.dateLabel}>Today</p>
           <p style={styles.dateValue}>{formatTodayLabel()}</p>
         </div>
 
         {!isMobile ? (
-          <div style={styles.statusCard}>
+          <div style={{ ...styles.statusCard, ...styles.gridSpanStatus }}>
             <span style={styles.statusDot} />
             <div>
               <p style={styles.statusLabel}>Platform</p>
@@ -71,7 +81,13 @@ function Header({
           </div>
         ) : null}
 
-        <div style={{ ...styles.scopeCard, ...(isMobile ? styles.cardMobile : {}) }}>
+        <div
+          style={{
+            ...styles.scopeCard,
+            ...(isMobile ? styles.cardMobile : {}),
+            ...(isMobile ? styles.gridSpanMobile : styles.gridSpanScope),
+          }}
+        >
           <p style={styles.userLabel}>Active Scope</p>
           <p style={styles.userName}>{formatCompanyLabel(currentUser)}</p>
           <p style={styles.scopeMeta}>
@@ -81,7 +97,13 @@ function Header({
           </p>
         </div>
 
-        <div style={{ ...styles.userCard, ...(isMobile ? styles.cardMobile : {}) }}>
+        <div
+          style={{
+            ...styles.userCard,
+            ...(isMobile ? styles.cardMobile : {}),
+            ...(isMobile ? styles.gridSpanMobile : styles.gridSpanUser),
+          }}
+        >
           <p style={styles.userLabel}>Signed In</p>
           <p style={styles.userName}>
             {currentUser?.fullName || currentUser?.username || "ERP User"}
@@ -93,6 +115,7 @@ function Header({
           style={{
             ...styles.logoutButton,
             ...(isMobile ? styles.logoutButtonMobile : {}),
+            ...(isMobile ? styles.gridSpanMobile : styles.gridSpanLogout),
           }}
           onClick={onLogout}
         >
@@ -106,26 +129,26 @@ function Header({
 const styles = {
   header: {
     display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
+    flexDirection: "column",
     gap: "18px",
-    marginBottom: "6px",
+    marginBottom: "8px",
     padding: "4px 2px 2px",
-    flexWrap: "wrap",
   },
-  left: {
+
+  titleBlock: {
     display: "flex",
     flexDirection: "column",
-    gap: "8px",
+    gap: "10px",
     minWidth: 0,
-    flex: 1,
   },
+
   headerTopRow: {
     display: "flex",
     alignItems: "center",
     gap: "8px",
     flexWrap: "wrap",
   },
+
   menuButton: {
     border: "1px solid rgba(15,118,110,0.26)",
     borderRadius: "999px",
@@ -138,6 +161,7 @@ const styles = {
     textTransform: "uppercase",
     cursor: "pointer",
   },
+
   badge: {
     display: "inline-flex",
     alignItems: "center",
@@ -153,6 +177,7 @@ const styles = {
     border: "1px solid rgba(15,118,110,0.16)",
     boxShadow: "0 10px 28px rgba(148, 131, 107, 0.08)",
   },
+
   title: {
     margin: 0,
     fontSize: "34px",
@@ -161,42 +186,120 @@ const styles = {
     fontWeight: "800",
     letterSpacing: "-0.03em",
   },
+
   titleMobile: {
     fontSize: "26px",
     lineHeight: 1.15,
   },
+
   subtitle: {
     margin: 0,
     color: "#5b6776",
     fontSize: "14px",
     lineHeight: 1.6,
-    maxWidth: "760px",
+    maxWidth: "820px",
+    whiteSpace: "normal",
+    wordBreak: "normal",
+    overflowWrap: "break-word",
   },
-  right: {
-    display: "flex",
-    alignItems: "center",
+
+  subtitleMobile: {
+    maxWidth: "100%",
+  },
+
+  metaGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
     gap: "12px",
-    flexWrap: "wrap",
+    alignItems: "stretch",
   },
-  rightMobile: {
-    width: "100%",
+
+  metaGridMobile: {
+    gridTemplateColumns: "1fr",
     gap: "10px",
   },
+
+  gridSpanDate: {
+    gridColumn: "span 2",
+  },
+
+  gridSpanStatus: {
+    gridColumn: "span 3",
+  },
+
+  gridSpanScope: {
+    gridColumn: "span 3",
+  },
+
+  gridSpanUser: {
+    gridColumn: "span 3",
+  },
+
+  gridSpanLogout: {
+    gridColumn: "span 1",
+  },
+
+  gridSpanMobile: {
+    gridColumn: "auto",
+  },
+
   dateCard: {
     display: "flex",
     flexDirection: "column",
-    gap: "2px",
-    padding: "10px 14px",
+    justifyContent: "center",
+    gap: "4px",
+    padding: "12px 14px",
     borderRadius: "16px",
     background: "rgba(255,255,255,0.82)",
     border: "1px solid rgba(148, 131, 107, 0.14)",
     boxShadow: "0 14px 34px rgba(43, 34, 22, 0.06)",
-    minWidth: "150px",
-  },
-  cardMobile: {
     minWidth: 0,
-    width: "100%",
   },
+
+  statusCard: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: "10px",
+    padding: "12px 14px",
+    borderRadius: "16px",
+    background: "rgba(255,255,255,0.82)",
+    border: "1px solid rgba(148, 131, 107, 0.14)",
+    boxShadow: "0 14px 34px rgba(43, 34, 22, 0.06)",
+    minWidth: 0,
+  },
+
+  scopeCard: {
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    gap: "4px",
+    padding: "12px 14px",
+    borderRadius: "16px",
+    background: "rgba(248,255,252,0.88)",
+    border: "1px solid rgba(15,118,110,0.14)",
+    boxShadow: "0 14px 34px rgba(43, 34, 22, 0.06)",
+    minWidth: 0,
+  },
+
+  userCard: {
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    gap: "4px",
+    padding: "12px 14px",
+    borderRadius: "16px",
+    background: "rgba(255,255,255,0.82)",
+    border: "1px solid rgba(148, 131, 107, 0.14)",
+    boxShadow: "0 14px 34px rgba(43, 34, 22, 0.06)",
+    minWidth: 0,
+  },
+
+  cardMobile: {
+    width: "100%",
+    minWidth: 0,
+  },
+
   dateLabel: {
     margin: 0,
     fontSize: "11px",
@@ -205,22 +308,14 @@ const styles = {
     letterSpacing: "0.6px",
     fontWeight: "700",
   },
+
   dateValue: {
     margin: 0,
     fontSize: "14px",
     color: "#1f2933",
     fontWeight: "700",
   },
-  statusCard: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    padding: "10px 14px",
-    borderRadius: "16px",
-    background: "rgba(255,255,255,0.82)",
-    border: "1px solid rgba(148, 131, 107, 0.14)",
-    boxShadow: "0 14px 34px rgba(43, 34, 22, 0.06)",
-  },
+
   statusDot: {
     width: "10px",
     height: "10px",
@@ -229,6 +324,7 @@ const styles = {
     boxShadow: "0 0 0 6px rgba(15,118,110,0.12)",
     flexShrink: 0,
   },
+
   statusLabel: {
     margin: 0,
     fontSize: "11px",
@@ -237,34 +333,14 @@ const styles = {
     letterSpacing: "0.5px",
     fontWeight: "700",
   },
+
   statusValue: {
     margin: "2px 0 0",
     fontSize: "13px",
     color: "#1f2933",
     fontWeight: "700",
   },
-  userCard: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "2px",
-    padding: "10px 14px",
-    borderRadius: "16px",
-    background: "rgba(255,255,255,0.82)",
-    border: "1px solid rgba(148, 131, 107, 0.14)",
-    boxShadow: "0 14px 34px rgba(43, 34, 22, 0.06)",
-    minWidth: "170px",
-  },
-  scopeCard: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "2px",
-    padding: "10px 14px",
-    borderRadius: "16px",
-    background: "rgba(248,255,252,0.88)",
-    border: "1px solid rgba(15,118,110,0.14)",
-    boxShadow: "0 14px 34px rgba(43, 34, 22, 0.06)",
-    minWidth: "190px",
-  },
+
   userLabel: {
     margin: 0,
     fontSize: "11px",
@@ -273,38 +349,47 @@ const styles = {
     letterSpacing: "0.5px",
     fontWeight: "700",
   },
+
   userName: {
     margin: 0,
     fontSize: "14px",
     color: "#1f2933",
     fontWeight: "800",
+    lineHeight: 1.35,
   },
+
   userRole: {
     margin: 0,
     fontSize: "12px",
     color: "#115e59",
     fontWeight: "700",
   },
+
   scopeMeta: {
     margin: 0,
     fontSize: "12px",
     color: "#4b5563",
     fontWeight: "600",
-    maxWidth: "220px",
     lineHeight: 1.4,
   },
+
   logoutButton: {
-    padding: "11px 18px",
+    width: "100%",
+    minHeight: "100%",
     border: "1px solid rgba(31, 41, 51, 0.08)",
-    borderRadius: "14px",
+    borderRadius: "16px",
     background: "linear-gradient(135deg, #1f2933 0%, #334155 100%)",
     color: "#fff",
     cursor: "pointer",
     fontWeight: "700",
+    fontSize: "14px",
     boxShadow: "0 14px 28px rgba(31, 41, 51, 0.14)",
+    padding: "12px 16px",
   },
+
   logoutButtonMobile: {
     width: "100%",
+    minHeight: "48px",
   },
 };
 

@@ -58,13 +58,26 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      clearSession();
+      setCurrentUser(null);
+      setSessionLoading(false);
+    };
+
+    window.addEventListener("erp:session-expired", handleSessionExpired);
+    return () => {
+      window.removeEventListener("erp:session-expired", handleSessionExpired);
+    };
+  }, []);
+
   const value = useMemo(
     () => ({
       currentUser,
       sessionLoading,
       isAuthenticated: Boolean(getToken()),
       hasRole: (allowedRoles = []) => hasRoleInSession(allowedRoles),
-      updateSession: ({ token, user }) => {
+      updateSession: ({ token, refreshToken, user }) => {
         const mergedUser = user
           ? {
               ...(getStoredUser() || {}),
@@ -72,7 +85,7 @@ export function AuthProvider({ children }) {
             }
           : getStoredUser();
 
-        setSession({ token, user: mergedUser });
+        setSession({ token, refreshToken, user: mergedUser });
         setCurrentUser(mergedUser);
       },
       clearAuth: () => {

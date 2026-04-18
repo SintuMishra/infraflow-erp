@@ -356,9 +356,6 @@ function DashboardPage() {
               <p style={styles.scopeEyebrow}>Live Company Scope</p>
               <strong style={styles.scopeTitle}>{workspaceScopeLabel}</strong>
             </div>
-            <span style={styles.scopeNote}>
-              This dashboard now reads from the authenticated company scope, so the command view stays relevant for each client workspace.
-            </span>
           </div>
 
           <div style={styles.hero}>

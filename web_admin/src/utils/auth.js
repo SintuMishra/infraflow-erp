@@ -1,4 +1,5 @@
 const TOKEN_KEY = "erp_token";
+const REFRESH_TOKEN_KEY = "erp_refresh_token";
 const USER_KEY = "erp_user";
 
 const parseJwtPayload = (token) => {
@@ -20,12 +21,17 @@ export const getToken = () => {
   return localStorage.getItem(TOKEN_KEY);
 };
 
+export const getRefreshToken = () => {
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
+};
+
 export const getStoredUser = () => {
   const raw = localStorage.getItem(USER_KEY);
 
+  let storedUser = null;
   if (raw) {
     try {
-      return JSON.parse(raw);
+      storedUser = JSON.parse(raw);
     } catch {
       localStorage.removeItem(USER_KEY);
     }
@@ -34,10 +40,11 @@ export const getStoredUser = () => {
   const decoded = parseJwtPayload(getToken());
 
   if (!decoded) {
-    return null;
+    return storedUser;
   }
 
   return {
+    ...(storedUser || {}),
     id: decoded.userId || null,
     employeeId: decoded.employeeId || null,
     username: decoded.username || "",
@@ -54,9 +61,13 @@ export const getCurrentCompanyId = () => {
   return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
 };
 
-export const setSession = ({ token, user }) => {
+export const setSession = ({ token, refreshToken, user }) => {
   if (token) {
     localStorage.setItem(TOKEN_KEY, token);
+  }
+
+  if (refreshToken) {
+    localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
   }
 
   if (user) {
@@ -66,6 +77,7 @@ export const setSession = ({ token, user }) => {
 
 export const clearSession = () => {
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
 };
 

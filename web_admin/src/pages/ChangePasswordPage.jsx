@@ -23,6 +23,7 @@ function ChangePasswordPage() {
         newPassword,
       });
       const token = response.data?.data?.token;
+      const refreshToken = response.data?.data?.refreshToken;
       const existingUser = JSON.parse(localStorage.getItem("erp_user") || "null");
       const userPayload = response.data?.data?.user || null;
       const user = userPayload
@@ -33,7 +34,7 @@ function ChangePasswordPage() {
         : null;
 
       if (token) {
-        updateSession({ token, user });
+        updateSession({ token, refreshToken, user });
       }
 
       setSuccess("Password changed successfully. Redirecting...");

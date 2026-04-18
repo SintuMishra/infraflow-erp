@@ -514,7 +514,7 @@ function EmployeesPage() {
   return (
     <AppShell
       title="Employees"
-      subtitle="Premium workforce operations with fast actions and clean visibility"
+      subtitle="Manage your workforce with real-time insights, streamlined onboarding, and comprehensive employee records."
     >
       <div style={styles.stack}>
         <section style={styles.hero}>

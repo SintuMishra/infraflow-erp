@@ -39,6 +39,18 @@ const TenantOnboardingPage = lazy(() => import("../pages/TenantOnboardingPage"))
 const PartiesPage = lazy(() => import("../pages/PartiesPage"));
 const AuditLogsPage = lazy(() => import("../pages/AuditLogsPage"));
 const UnauthorizedPage = lazy(() => import("../pages/UnauthorizedPage"));
+const AccountsDashboardPage = lazy(() => import("../pages/AccountsDashboardPage"));
+const AccountsChartOfAccountsPage = lazy(
+  () => import("../pages/AccountsChartOfAccountsPage")
+);
+const AccountsLedgerPage = lazy(() => import("../pages/AccountsLedgerPage"));
+const AccountsVoucherEntryPage = lazy(() => import("../pages/AccountsVoucherEntryPage"));
+const AccountsReceivablesPage = lazy(() => import("../pages/AccountsReceivablesPage"));
+const AccountsPayablesPage = lazy(() => import("../pages/AccountsPayablesPage"));
+const AccountsCashBankPage = lazy(() => import("../pages/AccountsCashBankPage"));
+const AccountsReportsPage = lazy(() => import("../pages/AccountsReportsPage"));
+const AccountsPeriodsControlPage = lazy(() => import("../pages/AccountsPeriodsControlPage"));
+const AccountsFinancePolicyPage = lazy(() => import("../pages/AccountsFinancePolicyPage"));
 
 export function AppRouter() {
   return (
@@ -324,6 +336,126 @@ export function AppRouter() {
               allowWhen={canAccessOwnerControlPanel}
             >
               <AuditLogsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/accounts/dashboard"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.accountsDashboard}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <AccountsDashboardPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/accounts/chart-of-accounts"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.accountsChartOfAccounts}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <AccountsChartOfAccountsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/accounts/ledger"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.accountsLedger}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <AccountsLedgerPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/accounts/vouchers"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.accountsVoucherEntry}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <AccountsVoucherEntryPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/accounts/receivables"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.accountsReceivables}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <AccountsReceivablesPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/accounts/payables"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.accountsPayables}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <AccountsPayablesPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/accounts/cash-bank"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.accountsCashBank}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <AccountsCashBankPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/accounts/policy-controls"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.accountsPolicyControls}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <AccountsFinancePolicyPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/accounts/period-controls"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.accountsPeriodControls}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <AccountsPeriodsControlPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/accounts/reports"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.accountsReports}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <AccountsReportsPage />
             </ProtectedRoute>
           }
         />

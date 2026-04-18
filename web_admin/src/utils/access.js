@@ -3,6 +3,7 @@ export const ROLE_GROUPS = {
   ops: ["super_admin", "manager", "hr", "crusher_supervisor", "site_engineer"],
   crusher: ["super_admin", "manager", "hr", "crusher_supervisor"],
   projects: ["super_admin", "manager", "hr", "site_engineer"],
+  finance: ["super_admin", "manager", "hr"],
 };
 
 const PLATFORM_OWNER_COMPANY_ID = (() => {
@@ -77,6 +78,16 @@ export const ROUTE_ACCESS = {
   parties: ROLE_GROUPS.admin,
   auditLogs: ROLE_GROUPS.admin,
   tenantOnboarding: ["super_admin"],
+  accountsDashboard: ROLE_GROUPS.finance,
+  accountsChartOfAccounts: ROLE_GROUPS.finance,
+  accountsLedger: ROLE_GROUPS.finance,
+  accountsVoucherEntry: ROLE_GROUPS.finance,
+  accountsReceivables: ROLE_GROUPS.finance,
+  accountsPayables: ROLE_GROUPS.finance,
+  accountsCashBank: ROLE_GROUPS.finance,
+  accountsPeriodControls: ROLE_GROUPS.finance,
+  accountsPolicyControls: ROLE_GROUPS.finance,
+  accountsReports: ROLE_GROUPS.finance,
 };
 
 export const SIDEBAR_MENU_GROUPS = [
@@ -188,6 +199,81 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/commercial-exceptions",
         hint: "Overdue, unlinked, and closure gaps",
         allowedRoles: ROUTE_ACCESS.commercialExceptions,
+        workspace: "client",
+      },
+    ],
+  },
+  {
+    label: "Accounts",
+    items: [
+      {
+        label: "Accounts Dashboard",
+        path: "/accounts/dashboard",
+        hint: "Finance KPI and controls",
+        allowedRoles: ROUTE_ACCESS.accountsDashboard,
+        workspace: "client",
+      },
+      {
+        label: "Chart of Accounts",
+        path: "/accounts/chart-of-accounts",
+        hint: "Account groups, chart and ledgers",
+        allowedRoles: ROUTE_ACCESS.accountsChartOfAccounts,
+        workspace: "client",
+      },
+      {
+        label: "Ledger",
+        path: "/accounts/ledger",
+        hint: "Ledger drill and books",
+        allowedRoles: ROUTE_ACCESS.accountsLedger,
+        workspace: "client",
+      },
+      {
+        label: "Voucher Entry",
+        path: "/accounts/vouchers",
+        hint: "Journal, payment, receipt, contra",
+        allowedRoles: ROUTE_ACCESS.accountsVoucherEntry,
+        workspace: "client",
+      },
+      {
+        label: "Receivables",
+        path: "/accounts/receivables",
+        hint: "Dispatch-linked AR and settlements",
+        allowedRoles: ROUTE_ACCESS.accountsReceivables,
+        workspace: "client",
+      },
+      {
+        label: "Payables",
+        path: "/accounts/payables",
+        hint: "Bills, AP and settlements",
+        allowedRoles: ROUTE_ACCESS.accountsPayables,
+        workspace: "client",
+      },
+      {
+        label: "Cash/Bank",
+        path: "/accounts/cash-bank",
+        hint: "Bank accounts and cash movement",
+        allowedRoles: ROUTE_ACCESS.accountsCashBank,
+        workspace: "client",
+      },
+      {
+        label: "Policy Controls",
+        path: "/accounts/policy-controls",
+        hint: "Maker-checker control settings",
+        allowedRoles: ROUTE_ACCESS.accountsPolicyControls,
+        workspace: "client",
+      },
+      {
+        label: "Period Controls",
+        path: "/accounts/period-controls",
+        hint: "Close/reopen periods with evidence",
+        allowedRoles: ROUTE_ACCESS.accountsPeriodControls,
+        workspace: "client",
+      },
+      {
+        label: "Finance Reports",
+        path: "/accounts/reports",
+        hint: "Trial balance, ageing and books",
+        allowedRoles: ROUTE_ACCESS.accountsReports,
         workspace: "client",
       },
     ],
