@@ -6,6 +6,18 @@ export const accountsStyles = {
     alignItems: "center",
     marginBottom: "16px",
   },
+  filtersWrap: {
+    display: "grid",
+    gap: "10px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    marginBottom: "12px",
+  },
+  sectionNote: {
+    margin: "0 0 8px",
+    color: "#334155",
+    fontSize: "13px",
+    lineHeight: 1.5,
+  },
   input: {
     border: "1px solid #cbd5e1",
     borderRadius: "12px",
@@ -123,6 +135,21 @@ export const accountsStyles = {
     margin: "6px 0 0",
     color: "#64748b",
     fontSize: "12px",
+  },
+  inlineMeta: {
+    margin: "0",
+    color: "#475569",
+    fontSize: "12px",
+    fontWeight: 600,
+  },
+  emptyState: {
+    border: "1px dashed #cbd5e1",
+    borderRadius: "14px",
+    background: "#f8fafc",
+    padding: "16px",
+    color: "#475569",
+    fontSize: "13px",
+    lineHeight: 1.5,
   },
 };
 

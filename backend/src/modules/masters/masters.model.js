@@ -1,8 +1,104 @@
 const { pool } = require("../../config/db");
-const { hasColumn } = require("../../utils/companyScope.util");
+const { hasColumn, tableExists } = require("../../utils/companyScope.util");
 
 const buildScopedParams = (companyEnabled, companyId, values = []) =>
   companyEnabled && companyId !== null ? [...values, companyId] : values;
+
+const countScopedRowsById = async ({
+  tableName,
+  idColumn,
+  idValue,
+  companyId,
+}) => {
+  if (!(await tableExists(tableName))) {
+    return 0;
+  }
+
+  if (!(await hasColumn(tableName, idColumn))) {
+    return 0;
+  }
+
+  const hasCompany = await hasColumn(tableName, "company_id");
+  const query = `
+    SELECT COUNT(*)::int AS "count"
+    FROM ${tableName}
+    WHERE ${idColumn} = $1
+    ${hasCompany && companyId !== null ? `AND company_id = $2` : ""}
+  `;
+
+  const result = await pool.query(
+    query,
+    buildScopedParams(hasCompany, companyId, [idValue])
+  );
+  return Number(result.rows[0]?.count || 0);
+};
+
+const findScopedMasterLabel = async ({
+  tableName,
+  idColumn = "id",
+  labelColumn,
+  idValue,
+  companyId,
+}) => {
+  if (!(await tableExists(tableName))) {
+    return "";
+  }
+
+  if (!(await hasColumn(tableName, labelColumn))) {
+    return "";
+  }
+
+  const hasCompany = await hasColumn(tableName, "company_id");
+  const query = `
+    SELECT ${labelColumn} AS "label"
+    FROM ${tableName}
+    WHERE ${idColumn} = $1
+    ${hasCompany && companyId !== null ? `AND company_id = $2` : ""}
+    LIMIT 1
+  `;
+
+  const result = await pool.query(
+    query,
+    buildScopedParams(hasCompany, companyId, [idValue])
+  );
+
+  return String(result.rows[0]?.label || "").trim();
+};
+
+const countScopedRowsByText = async ({
+  tableName,
+  textColumn,
+  textValue,
+  companyId,
+}) => {
+  const normalizedText = String(textValue || "").trim();
+
+  if (!normalizedText) {
+    return 0;
+  }
+
+  if (!(await tableExists(tableName))) {
+    return 0;
+  }
+
+  if (!(await hasColumn(tableName, textColumn))) {
+    return 0;
+  }
+
+  const hasCompany = await hasColumn(tableName, "company_id");
+  const query = `
+    SELECT COUNT(*)::int AS "count"
+    FROM ${tableName}
+    WHERE LOWER(BTRIM(${textColumn})) = LOWER(BTRIM($1))
+    ${hasCompany && companyId !== null ? `AND company_id = $2` : ""}
+  `;
+
+  const result = await pool.query(
+    query,
+    buildScopedParams(hasCompany, companyId, [normalizedText])
+  );
+  return Number(result.rows[0]?.count || 0);
+};
 
 const findCrusherUnits = async (companyId = null) => {
   const hasCompany = await hasColumn("crusher_units", "company_id");
@@ -603,6 +699,118 @@ const setVehicleTypeStatus = async ({ id, isActive, companyId }) => {
   return result.rows[0] || null;
 };
 
+const getMaterialUsageSummary = async ({ id, companyId }) => {
+  const usageChecks = [
+    { tableName: "dispatch_reports", idColumn: "material_id", label: "dispatch reports" },
+    { tableName: "party_orders", idColumn: "material_id", label: "party orders" },
+    { tableName: "party_material_rates", idColumn: "material_id", label: "party material rates" },
+    { tableName: "transport_rates", idColumn: "material_id", label: "transport rates" },
+  ];
+
+  const usage = [];
+  for (const check of usageChecks) {
+    const count = await countScopedRowsById({
+      tableName: check.tableName,
+      idColumn: check.idColumn,
+      idValue: id,
+      companyId,
+    });
+    if (count > 0) {
+      usage.push({ label: check.label, count });
+    }
+  }
+
+  return {
+    totalReferences: usage.reduce((sum, item) => sum + item.count, 0),
+    usage,
+  };
+};
+
+const getVehicleTypeUsageSummary = async ({ id, companyId }) => {
+  const typeName = await findScopedMasterLabel({
+    tableName: "vehicle_type_master",
+    labelColumn: "type_name",
+    idValue: id,
+    companyId,
+  });
+
+  const vehiclesCount = await countScopedRowsByText({
+    tableName: "vehicles",
+    textColumn: "vehicle_type",
+    textValue: typeName,
+    companyId,
+  });
+
+  const usage = vehiclesCount > 0 ? [{ label: "vehicles", count: vehiclesCount }] : [];
+
+  return {
+    totalReferences: vehiclesCount,
+    usage,
+  };
+};
+
+const getCrusherUnitUsageSummary = async ({ id, companyId }) => {
+  const unitName = await findScopedMasterLabel({
+    tableName: "crusher_units",
+    labelColumn: "unit_name",
+    idValue: id,
+    companyId,
+  });
+
+  const crusherReportsCount = await countScopedRowsByText({
+    tableName: "crusher_daily_reports",
+    textColumn: "crusher_unit_name",
+    textValue: unitName,
+    companyId,
+  });
+
+  const usage =
+    crusherReportsCount > 0
+      ? [{ label: "crusher daily reports", count: crusherReportsCount }]
+      : [];
+
+  return {
+    totalReferences: crusherReportsCount,
+    usage,
+  };
+};
+
+const getShiftUsageSummary = async ({ id, companyId }) => {
+  const shiftName = await findScopedMasterLabel({
+    tableName: "shift_master",
+    labelColumn: "shift_name",
+    idValue: id,
+    companyId,
+  });
+
+  const projectShiftCount = await countScopedRowsByText({
+    tableName: "project_daily_reports",
+    textColumn: "shift",
+    textValue: shiftName,
+    companyId,
+  });
+
+  const crusherShiftCount = await countScopedRowsByText({
+    tableName: "crusher_daily_reports",
+    textColumn: "shift_name",
+    textValue: shiftName,
+    companyId,
+  });
+
+  const usage = [];
+  if (projectShiftCount > 0) {
+    usage.push({ label: "project daily reports", count: projectShiftCount });
+  }
+  if (crusherShiftCount > 0) {
+    usage.push({ label: "crusher daily reports", count: crusherShiftCount });
+  }
+
+  return {
+    totalReferences: projectShiftCount + crusherShiftCount,
+    usage,
+  };
+};
+
 module.exports = {
   findCrusherUnits,
   findMaterials,
@@ -625,4 +833,8 @@ module.exports = {
   setMaterialHsnSacCode,
   setShiftStatus,
   setVehicleTypeStatus,
+  getMaterialUsageSummary,
+  getVehicleTypeUsageSummary,
+  getCrusherUnitUsageSummary,
+  getShiftUsageSummary,
 };

@@ -10,9 +10,32 @@ const formatMetric = (value) =>
     maximumFractionDigits: 2,
   }).format(Number(value || 0));
 
+const OTHER_PREFIX_PATTERN = /^other\s*:\s*/i;
+const isOtherCustomValue = (value) => OTHER_PREFIX_PATTERN.test(String(value || "").trim());
+const getOtherCustomLabel = (value) =>
+  String(value || "").trim().replace(OTHER_PREFIX_PATTERN, "").trim();
+const buildOtherValue = (customValue) => `Other: ${String(customValue || "").trim()}`;
+const getDisplayVendorType = (value) => {
+  if (!isOtherCustomValue(value)) {
+    return value || "-";
+  }
+  const custom = getOtherCustomLabel(value);
+  return custom ? `Other (${custom})` : "Other";
+};
+
+const VENDOR_TYPE_OPTIONS = [
+  "Transporter",
+  "Equipment Supplier",
+  "Manpower Supplier",
+  "Consultant",
+  "Subcontractor",
+  "Other",
+];
+
 const createVendorFormState = () => ({
   vendorName: "",
   vendorType: "",
+  vendorTypeCustom: "",
   contactPerson: "",
   mobileNumber: "",
   address: "",
@@ -44,14 +67,14 @@ function VendorsPage() {
   const [selectedVendor, setSelectedVendor] = useState(null);
   const [editForm, setEditForm] = useState(createVendorFormState);
 
-  const vendorTypeOptions = [
-    "Transporter",
-    "Equipment Supplier",
-    "Manpower Supplier",
-    "Consultant",
-    "Subcontractor",
-    "Other",
-  ];
+  const filterVendorTypeOptions = useMemo(() => {
+    const dynamic = vendors
+      .map((vendor) => String(vendor.vendorType || "").trim())
+      .filter(Boolean);
+    return Array.from(new Set([...VENDOR_TYPE_OPTIONS, ...dynamic])).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [vendors]);
 
   useEffect(() => {
     const hasSearch =
@@ -236,9 +259,26 @@ function VendorsPage() {
       return;
     }
 
+    if (
+      formData.vendorType === "Other" &&
+      !String(formData.vendorTypeCustom || "").trim()
+    ) {
+      setError("Please enter custom vendor type when selecting Other");
+      return;
+    }
+
+    const payload = {
+      ...formData,
+      vendorType:
+        formData.vendorType === "Other"
+          ? buildOtherValue(formData.vendorTypeCustom)
+          : formData.vendorType,
+    };
+    delete payload.vendorTypeCustom;
+
     try {
       setIsSubmitting(true);
-      await api.post("/vendors", formData);
+      await api.post("/vendors", payload);
 
       setSuccess("Vendor added successfully");
       setFormData(createVendorFormState());
@@ -253,10 +293,15 @@ function VendorsPage() {
   };
 
   const openEditPanel = (vendor) => {
+    const rawVendorType = String(vendor.vendorType || "");
+    const hasCustomVendorType = isOtherCustomValue(rawVendorType);
     setSelectedVendor(vendor);
     setEditForm({
       vendorName: vendor.vendorName || "",
-      vendorType: vendor.vendorType || "",
+      vendorType: hasCustomVendorType ? "Other" : rawVendorType || "",
+      vendorTypeCustom: hasCustomVendorType
+        ? getOtherCustomLabel(rawVendorType)
+        : "",
       contactPerson: vendor.contactPerson || "",
       mobileNumber: vendor.mobileNumber || "",
       address: vendor.address || "",
@@ -271,9 +316,26 @@ function VendorsPage() {
     setError("");
     setSuccess("");
 
+    if (
+      editForm.vendorType === "Other" &&
+      !String(editForm.vendorTypeCustom || "").trim()
+    ) {
+      setError("Please enter custom vendor type when selecting Other");
+      return;
+    }
+
+    const payload = {
+      ...editForm,
+      vendorType:
+        editForm.vendorType === "Other"
+          ? buildOtherValue(editForm.vendorTypeCustom)
+          : editForm.vendorType,
+    };
+    delete payload.vendorTypeCustom;
+
     try {
       setIsUpdating(true);
-      await api.patch(`/vendors/${selectedVendor.id}`, editForm);
+      await api.patch(`/vendors/${selectedVendor.id}`, payload);
       setSuccess("Vendor updated successfully");
       setSelectedVendor(null);
       await loadVendors();
@@ -501,9 +563,9 @@ function VendorsPage() {
               style={styles.input}
             >
               <option value="">All Types</option>
-              {vendorTypeOptions.map((type) => (
+              {filterVendorTypeOptions.map((type) => (
                 <option key={type} value={type}>
-                  {type}
+                  {getDisplayVendorType(type)}
                 </option>
               ))}
             </select>
@@ -612,7 +674,9 @@ function VendorsPage() {
                       {filteredVendors.map((vendor) => (
                         <tr key={vendor.id}>
                           <td style={styles.td}>{vendor.vendorName}</td>
-                          <td style={styles.td}>{vendor.vendorType}</td>
+                          <td style={styles.td}>
+                            {getDisplayVendorType(vendor.vendorType)}
+                          </td>
                           <td style={styles.td}>{vendor.contactPerson || "-"}</td>
                           <td style={styles.td}>{vendor.mobileNumber || "-"}</td>
                           <td style={styles.td}>{vendor.address || "-"}</td>
@@ -702,12 +766,21 @@ function VendorsPage() {
                   style={styles.input}
                 >
                   <option value="">Select Vendor Type</option>
-                  {vendorTypeOptions.map((type) => (
+                  {VENDOR_TYPE_OPTIONS.map((type) => (
                     <option key={type} value={type}>
                       {type}
                     </option>
                   ))}
                 </select>
+                {formData.vendorType === "Other" ? (
+                  <input
+                    name="vendorTypeCustom"
+                    placeholder="Enter custom vendor type"
+                    value={formData.vendorTypeCustom}
+                    onChange={handleChange(setFormData)}
+                    style={styles.input}
+                  />
+                ) : null}
 
                 <input
                   name="contactPerson"
@@ -766,12 +839,21 @@ function VendorsPage() {
                 style={styles.input}
               >
                 <option value="">Select Vendor Type</option>
-                {vendorTypeOptions.map((type) => (
+                {VENDOR_TYPE_OPTIONS.map((type) => (
                   <option key={type} value={type}>
                     {type}
                   </option>
                 ))}
               </select>
+              {editForm.vendorType === "Other" ? (
+                <input
+                  name="vendorTypeCustom"
+                  placeholder="Enter custom vendor type"
+                  value={editForm.vendorTypeCustom}
+                  onChange={handleChange(setEditForm)}
+                  style={styles.input}
+                />
+              ) : null}
 
               <input
                 name="contactPerson"

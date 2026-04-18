@@ -61,6 +61,33 @@ const buildAccessTokenPayload = ({
   tokenType: "access",
 });
 
+const resolveCompanyContext = async (companyId) => {
+  const normalizedCompanyId = normalizeCompanyId(companyId);
+
+  if (normalizedCompanyId === null) {
+    return null;
+  }
+
+  const [companyProfile, companyAccess] = await Promise.all([
+    getCompanyProfile(normalizedCompanyId),
+    findCompanyAccessById(normalizedCompanyId),
+  ]);
+
+  const companyName =
+    companyProfile?.companyName || companyAccess?.companyName || null;
+  const branchName = companyProfile?.branchName || "";
+
+  if (!companyName) {
+    return null;
+  }
+
+  return {
+    id: normalizedCompanyId,
+    companyName,
+    branchName,
+  };
+};
+
 const issueAuthSession = async ({
   user,
   companyId,
@@ -296,7 +323,7 @@ const loginUser = async ({
 
   await updateLastLogin(user.id);
 
-  const companyProfile = await getCompanyProfile(resolvedCompanyId);
+  const company = await resolveCompanyContext(resolvedCompanyId);
 
   const session = await issueAuthSession({
     user,
@@ -323,13 +350,7 @@ const loginUser = async ({
       companyId: resolvedCompanyId,
       mustChangePassword: Boolean(user.mustChangePassword),
     },
-    company: companyProfile
-      ? {
-          id: companyProfile.id,
-          companyName: companyProfile.companyName,
-          branchName: companyProfile.branchName,
-        }
-      : null,
+    company,
   };
 };
 
@@ -700,7 +721,22 @@ const getAuthenticatedUserProfile = async ({
     throw new Error("USER_NOT_FOUND");
   }
 
-  return profile;
+  const company = await resolveCompanyContext(profile.companyId || companyId);
+
+  return {
+    ...profile,
+    companyName: company?.companyName || profile.companyName || null,
+    branchName: company?.branchName || profile.branchName || "",
+    company:
+      company ||
+      (profile.companyId
+        ? {
+            id: profile.companyId,
+            companyName: null,
+            branchName: "",
+          }
+        : null),
+  };
 };
 
 const updateAuthenticatedUserProfile = async ({

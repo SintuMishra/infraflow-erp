@@ -6,7 +6,8 @@ const allowedPlantTypes = [
   "Asphalt",
   "Other",
 ];
-const allowedPowerSourceTypes = ["diesel", "electric", "hybrid", "other"];
+const allowedPowerSourceTypes = ["diesel", "electric", "electricity", "hybrid", "other"];
+const isOtherCustomValue = (value) => /^other\s*:\s*\S+/i.test(String(value || "").trim());
 
 const isBlank = (value) => String(value || "").trim() === "";
 
@@ -20,7 +21,10 @@ const validatePlantPayload = (req, res, next) => {
     });
   }
 
-  if (!allowedPlantTypes.includes(String(plantType).trim())) {
+  if (
+    !allowedPlantTypes.includes(String(plantType).trim()) &&
+    !isOtherCustomValue(plantType)
+  ) {
     return res.status(400).json({
       success: false,
       message: "Invalid plantType",
@@ -31,7 +35,8 @@ const validatePlantPayload = (req, res, next) => {
     powerSourceType !== undefined &&
     powerSourceType !== null &&
     powerSourceType !== "" &&
-    !allowedPowerSourceTypes.includes(String(powerSourceType).trim().toLowerCase())
+    !allowedPowerSourceTypes.includes(String(powerSourceType).trim().toLowerCase()) &&
+    !isOtherCustomValue(powerSourceType)
   ) {
     return res.status(400).json({
       success: false,

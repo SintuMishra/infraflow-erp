@@ -45,6 +45,19 @@ const ID_PROOF_TYPE_OPTIONS = [
   "passport",
   "other",
 ];
+const OTHER_PREFIX_PATTERN = /^other\s*:\s*/i;
+const isOtherCustomValue = (value) => OTHER_PREFIX_PATTERN.test(String(value || "").trim());
+const getOtherCustomLabel = (value) =>
+  String(value || "").trim().replace(OTHER_PREFIX_PATTERN, "").trim();
+const buildOtherValue = (customValue) => `other:${String(customValue || "").trim()}`;
+const formatDropdownValue = (value) => {
+  if (!isOtherCustomValue(value)) {
+    return value;
+  }
+
+  const custom = getOtherCustomLabel(value);
+  return custom ? `other (${custom})` : "other";
+};
 
 const toTitleCase = (value) =>
   String(value || "")
@@ -89,7 +102,9 @@ function EmployeesPage() {
     emergencyContactNumber: "",
     address: "",
     employmentType: "",
+    employmentTypeCustom: "",
     idProofType: "",
+    idProofTypeCustom: "",
     idProofNumber: "",
     department: "",
     designation: "",
@@ -106,7 +121,9 @@ function EmployeesPage() {
     emergencyContactNumber: "",
     address: "",
     employmentType: "",
+    employmentTypeCustom: "",
     idProofType: "",
+    idProofTypeCustom: "",
     idProofNumber: "",
     department: "",
     designation: "",
@@ -221,21 +238,51 @@ function EmployeesPage() {
       return;
     }
 
+    if (
+      formData.employmentType === "other" &&
+      !String(formData.employmentTypeCustom || "").trim()
+    ) {
+      setError("Please enter custom employment type when selecting Other");
+      return;
+    }
+
+    if (
+      formData.idProofType === "other" &&
+      !String(formData.idProofTypeCustom || "").trim()
+    ) {
+      setError("Please enter custom ID proof type when selecting Other");
+      return;
+    }
+
+    const payload = {
+      ...formData,
+      employmentType:
+        formData.employmentType === "other"
+          ? buildOtherValue(formData.employmentTypeCustom)
+          : formData.employmentType,
+      idProofType:
+        formData.idProofType === "other"
+          ? buildOtherValue(formData.idProofTypeCustom)
+          : formData.idProofType,
+    };
+    delete payload.employmentTypeCustom;
+    delete payload.idProofTypeCustom;
+
     try {
       setIsSubmittingEmployee(true);
       await api.post("/employees", {
-        ...formData,
-        fullName: formData.fullName.trim(),
-        mobileNumber: formData.mobileNumber.trim(),
-        email: formData.email.trim(),
-        emergencyContactNumber: formData.emergencyContactNumber.trim(),
-        address: formData.address.trim(),
-        employmentType: formData.employmentType.trim(),
-        idProofType: formData.idProofType.trim(),
-        idProofNumber: formData.idProofNumber.trim(),
-        department: formData.department.trim(),
-        designation: formData.designation.trim(),
-        remarks: formData.remarks.trim(),
+        ...payload,
+        fullName: payload.fullName.trim(),
+        mobileNumber: payload.mobileNumber.trim(),
+        email: payload.email.trim(),
+        emergencyContactNumber: payload.emergencyContactNumber.trim(),
+        address: payload.address.trim(),
+        employmentType: payload.employmentType.trim(),
+        idProofType: payload.idProofType.trim(),
+        idProofNumber: payload.idProofNumber.trim(),
+        department: payload.department.trim(),
+        designation: payload.designation.trim(),
+        remarks: payload.remarks.trim(),
       });
 
       setSuccess("Employee added successfully");
@@ -246,7 +293,9 @@ function EmployeesPage() {
         emergencyContactNumber: "",
         address: "",
         employmentType: "",
+        employmentTypeCustom: "",
         idProofType: "",
+        idProofTypeCustom: "",
         idProofNumber: "",
         department: "",
         designation: "",
@@ -264,6 +313,9 @@ function EmployeesPage() {
   };
 
   const openEditPanel = (employee) => {
+    const hasCustomEmploymentType = isOtherCustomValue(employee.employmentType);
+    const hasCustomIdProofType = isOtherCustomValue(employee.idProofType);
+
     setSelectedEmployee(employee);
     setEditForm({
       fullName: employee.fullName || "",
@@ -271,8 +323,16 @@ function EmployeesPage() {
       email: employee.email || "",
       emergencyContactNumber: employee.emergencyContactNumber || "",
       address: employee.address || "",
-      employmentType: employee.employmentType || "",
-      idProofType: employee.idProofType || "",
+      employmentType: hasCustomEmploymentType
+        ? "other"
+        : employee.employmentType || "",
+      employmentTypeCustom: hasCustomEmploymentType
+        ? getOtherCustomLabel(employee.employmentType)
+        : "",
+      idProofType: hasCustomIdProofType ? "other" : employee.idProofType || "",
+      idProofTypeCustom: hasCustomIdProofType
+        ? getOtherCustomLabel(employee.idProofType)
+        : "",
       idProofNumber: employee.idProofNumber || "",
       department: employee.department || "",
       designation: employee.designation || "",
@@ -320,20 +380,50 @@ function EmployeesPage() {
       return;
     }
 
+    if (
+      editForm.employmentType === "other" &&
+      !String(editForm.employmentTypeCustom || "").trim()
+    ) {
+      setError("Please enter custom employment type when selecting Other");
+      return;
+    }
+
+    if (
+      editForm.idProofType === "other" &&
+      !String(editForm.idProofTypeCustom || "").trim()
+    ) {
+      setError("Please enter custom ID proof type when selecting Other");
+      return;
+    }
+
+    const payload = {
+      ...editForm,
+      employmentType:
+        editForm.employmentType === "other"
+          ? buildOtherValue(editForm.employmentTypeCustom)
+          : editForm.employmentType,
+      idProofType:
+        editForm.idProofType === "other"
+          ? buildOtherValue(editForm.idProofTypeCustom)
+          : editForm.idProofType,
+    };
+    delete payload.employmentTypeCustom;
+    delete payload.idProofTypeCustom;
+
     try {
       setIsSavingEmployee(true);
       await api.patch(`/employees/${selectedEmployee.id}`, {
-        ...editForm,
-        fullName: editForm.fullName.trim(),
-        mobileNumber: editForm.mobileNumber.trim(),
-        email: editForm.email.trim(),
-        emergencyContactNumber: editForm.emergencyContactNumber.trim(),
-        address: editForm.address.trim(),
-        employmentType: editForm.employmentType.trim(),
-        idProofType: editForm.idProofType.trim(),
-        idProofNumber: editForm.idProofNumber.trim(),
+        ...payload,
+        fullName: payload.fullName.trim(),
+        mobileNumber: payload.mobileNumber.trim(),
+        email: payload.email.trim(),
+        emergencyContactNumber: payload.emergencyContactNumber.trim(),
+        address: payload.address.trim(),
+        employmentType: payload.employmentType.trim(),
+        idProofType: payload.idProofType.trim(),
+        idProofNumber: payload.idProofNumber.trim(),
         relievingDate:
-          editForm.status === "active" ? null : editForm.relievingDate || null,
+          payload.status === "active" ? null : payload.relievingDate || null,
       });
 
       setSuccess("Employee updated successfully");
@@ -618,6 +708,15 @@ function EmployeesPage() {
                 </option>
               ))}
             </select>
+            {formData.employmentType === "other" ? (
+              <input
+                name="employmentTypeCustom"
+                placeholder="Custom Employment Type"
+                value={formData.employmentTypeCustom}
+                onChange={handleChange}
+                style={styles.input}
+              />
+            ) : null}
             <select
               name="idProofType"
               value={formData.idProofType}
@@ -631,6 +730,15 @@ function EmployeesPage() {
                 </option>
               ))}
             </select>
+            {formData.idProofType === "other" ? (
+              <input
+                name="idProofTypeCustom"
+                placeholder="Custom ID Proof Type"
+                value={formData.idProofTypeCustom}
+                onChange={handleChange}
+                style={styles.input}
+              />
+            ) : null}
             <input
               name="idProofNumber"
               placeholder="ID Proof Number (Optional)"
@@ -792,7 +900,7 @@ function EmployeesPage() {
                     <td style={styles.td}>{employee.designation}</td>
                     <td style={styles.td}>
                       {employee.employmentType
-                        ? toTitleCase(employee.employmentType)
+                        ? toTitleCase(formatDropdownValue(employee.employmentType))
                         : "-"}
                     </td>
                     <td style={styles.td}>
@@ -1001,6 +1109,15 @@ function EmployeesPage() {
                     </option>
                   ))}
                 </select>
+                {editForm.employmentType === "other" ? (
+                  <input
+                    name="employmentTypeCustom"
+                    value={editForm.employmentTypeCustom}
+                    onChange={handleEditChange}
+                    placeholder="Custom Employment Type"
+                    style={styles.input}
+                  />
+                ) : null}
               </div>
 
               <div>
@@ -1018,6 +1135,15 @@ function EmployeesPage() {
                     </option>
                   ))}
                 </select>
+                {editForm.idProofType === "other" ? (
+                  <input
+                    name="idProofTypeCustom"
+                    value={editForm.idProofTypeCustom}
+                    onChange={handleEditChange}
+                    placeholder="Custom ID Proof Type"
+                    style={styles.input}
+                  />
+                ) : null}
               </div>
 
               <div>

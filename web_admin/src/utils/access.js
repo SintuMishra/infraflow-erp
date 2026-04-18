@@ -58,6 +58,10 @@ export const canAccessTenantOnboarding = (user) => {
   return canAccessOwnerControlPanel(user);
 };
 
+export const canAccessAuditLogsWorkspace = (user) => {
+  return canAccessOwnerControlPanel(user) || canAccessOperationalWorkspace(user);
+};
+
 export const ROUTE_ACCESS = {
   dashboard: [],
   employees: ROLE_GROUPS.admin,
@@ -85,6 +89,7 @@ export const ROUTE_ACCESS = {
   accountsReceivables: ROLE_GROUPS.finance,
   accountsPayables: ROLE_GROUPS.finance,
   accountsCashBank: ROLE_GROUPS.finance,
+  accountsPostingRules: ROLE_GROUPS.finance,
   accountsPeriodControls: ROLE_GROUPS.finance,
   accountsPolicyControls: ROLE_GROUPS.finance,
   accountsReports: ROLE_GROUPS.finance,
@@ -256,6 +261,13 @@ export const SIDEBAR_MENU_GROUPS = [
         workspace: "client",
       },
       {
+        label: "Posting Rules",
+        path: "/accounts/posting-rules",
+        hint: "Source-event posting configuration",
+        allowedRoles: ROUTE_ACCESS.accountsPostingRules,
+        workspace: "client",
+      },
+      {
         label: "Policy Controls",
         path: "/accounts/policy-controls",
         hint: "Maker-checker control settings",
@@ -300,6 +312,13 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/company-profile",
         hint: "Invoice and legal identity",
         allowedRoles: ROUTE_ACCESS.companyProfile,
+        workspace: "client",
+      },
+      {
+        label: "Audit Logs",
+        path: "/audit-logs",
+        hint: "Company activity and access traceability",
+        allowedRoles: ROUTE_ACCESS.auditLogs,
         workspace: "client",
       },
     ],

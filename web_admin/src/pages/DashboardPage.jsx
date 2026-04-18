@@ -27,6 +27,29 @@ const formatExceptionLabel = (value) =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 
+const resolveWorkspaceScopeLabel = (currentUser) => {
+  const candidates = [
+    currentUser?.company?.companyName,
+    currentUser?.company?.company_name,
+    currentUser?.company?.name,
+    currentUser?.companyName,
+    currentUser?.company_name,
+  ];
+
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim();
+    if (value) {
+      return value;
+    }
+  }
+
+  if (currentUser?.companyId) {
+    return `Company #${currentUser.companyId}`;
+  }
+
+  return "Current workspace";
+};
+
 function DashboardPage() {
   const { currentUser } = useAuth();
   const [data, setData] = useState(null);
@@ -188,10 +211,7 @@ function DashboardPage() {
     ];
   }, [data, operationalInsights]);
 
-  const workspaceScopeLabel =
-    currentUser?.company?.companyName ||
-    currentUser?.companyName ||
-    (currentUser?.companyId ? `Company #${currentUser.companyId}` : "Current workspace");
+  const workspaceScopeLabel = resolveWorkspaceScopeLabel(currentUser);
 
   const hasMeaningfulActivity = useMemo(() => {
     if (!data) return false;
@@ -1448,8 +1468,8 @@ const styles = {
     justifyContent: "space-between",
     alignItems: "center",
     gap: "18px",
-    padding: "16px 18px",
-    borderRadius: "22px",
+    padding: "13px 16px",
+    borderRadius: "18px",
     background: "linear-gradient(135deg, rgba(240,253,250,0.95) 0%, rgba(255,251,235,0.95) 100%)",
     border: "1px solid rgba(15,118,110,0.14)",
     boxShadow: "0 18px 34px rgba(15, 23, 42, 0.06)",
@@ -1467,7 +1487,7 @@ const styles = {
     display: "block",
     marginTop: "4px",
     color: "#1f2933",
-    fontSize: "18px",
+    fontSize: "16px",
   },
   scopeNote: {
     color: "#52606d",

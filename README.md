@@ -4,18 +4,15 @@ This directory is an isolated production-hardening work copy of the main `constr
 
 ## Scope Of This Clone
 
-This clone currently includes:
+This clone includes production-hardened ERP modules with finance and governance controls:
 
-- backend env hardening with required variable checks
-- transaction support in the backend DB layer
-- dispatch GST field persistence and validation improvements
-- transactional dispatch and vehicle-status updates
-- dashboard equipment-log query correction
-- frontend API base URL moved to environment config
-- frontend lint cleanup to a no-error baseline
-- route-level lazy loading for the admin frontend
-- backend verification scripts and baseline tests
-- owner governance hardening (custom billing cycle, invoice persistence, permanent client delete, owner self-profile)
+- operational workflows (masters, parties, orders, dispatch, project/plant reports, vehicles)
+- accounts/finance suite (ledger, vouchers, receivables, payables, cash/bank, reports)
+- maker-checker workflow, period controls, policy controls, transition history
+- company-scoped data safety and auditability controls
+- backend migration/test toolchain including finance concurrency proof scripts
+- frontend production build with role-aware route protection and premium admin UI
+- low-cost deployment runbooks and Docker packaging for practical rollout
 
 ## Directory Layout
 
@@ -77,23 +74,20 @@ npm run dev
 
 ## Verification Status
 
-The clone has been verified with:
+The workspace has been verified with:
 
-- backend app module load
-- backend test run
-- backend route and middleware smoke tests
-- frontend production build
-- frontend lint with no blocking errors
-
-Current remaining quality items are warnings and product-level improvements, not immediate release blockers.
+- backend app verification (`npm run verify:app`)
+- backend full test suite (`npm test`)
+- finance concurrency suite (`npm run test:finance:concurrency`) in supported DB environment
+- frontend lint (`npm run lint`)
+- frontend production build (`npm run build`)
 
 ## Known Remaining Improvements
 
-- add backend linting and automated tests
-- add database migrations and seed scripts
-- reduce frontend bundle size with route-level code splitting
-- finish remaining frontend hook/dependency warning cleanup
-- add deployment notes for staging and production
+- centralized observability stack (beyond current app-level logs/checks)
+- long-window performance and load evidence on live-like infra
+- dynamic RBAC administration workflow refinements
+- production operations automation depth (post-live hardening phase)
 
 ## Suggested Release Checklist
 
@@ -145,6 +139,7 @@ For production handover-ready documentation packs, start here:
 - `docs/developer-new-client-handover-quickstart-hi.md`
 
 This index maps:
-- developer/technical documents
+- developer and architecture guides
 - client/company operations documents (English + Hindi)
-- release and UAT checklists/evidence
+- finance operation and evidence docs
+- release, UAT, and rollout checklists

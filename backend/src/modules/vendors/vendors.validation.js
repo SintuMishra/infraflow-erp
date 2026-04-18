@@ -6,6 +6,7 @@ const allowedVendorTypes = [
   "Subcontractor",
   "Other",
 ];
+const isOtherCustomValue = (value) => /^other\s*:\s*\S+/i.test(String(value || "").trim());
 
 const isBlank = (value) => String(value || "").trim() === "";
 
@@ -19,7 +20,10 @@ const validateVendorPayload = (req, res, next) => {
     });
   }
 
-  if (!allowedVendorTypes.includes(String(vendorType).trim())) {
+  if (
+    !allowedVendorTypes.includes(String(vendorType).trim()) &&
+    !isOtherCustomValue(vendorType)
+  ) {
     return res.status(400).json({
       success: false,
       message: "Invalid vendor type",

@@ -410,6 +410,19 @@ test("employee update validation allows valid editable profile payload", async (
   assert.equal(res.body, null);
 });
 
+test("employee create validation allows custom other employment and id proof type", async () => {
+  const { res, nextCalled } = runMiddleware(validateCreateEmployeeInput, {
+    fullName: "Ravi Kumar",
+    mobileNumber: "9876543210",
+    employmentType: "other:project consultant",
+    idProofType: "other:trade_license",
+    status: "active",
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
+});
+
 test("auth create-user validation rejects protected super admin role", async () => {
   const { res, nextCalled } = runMiddleware(validateCreateUserInput, {
     employeeId: 1,
@@ -594,6 +607,16 @@ test("vendor validation rejects invalid vendor type", async () => {
   assert.match(res.body.message, /invalid vendor type/i);
 });
 
+test("vendor validation allows custom other vendor type", async () => {
+  const { res, nextCalled } = runMiddleware(validateCreateVendorInput, {
+    vendorName: "Fast Logistics",
+    vendorType: "Other: Marine Contractor",
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
+});
+
 test("vendor status validation requires boolean isActive", async () => {
   const { res, nextCalled } = runMiddleware(validateVendorStatusPayload, {
     isActive: 1,
@@ -614,6 +637,17 @@ test("plant validation rejects invalid power source", async () => {
   assert.equal(nextCalled, false);
   assert.equal(res.statusCode, 400);
   assert.match(res.body.message, /powerSourceType/i);
+});
+
+test("plant validation allows custom other plant type and power source", async () => {
+  const { res, nextCalled } = runMiddleware(validateCreatePlantInput, {
+    plantName: "Main Crusher",
+    plantType: "Other: Recycle Unit",
+    powerSourceType: "other:solar",
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
 });
 
 test("plant status validation requires boolean isActive", async () => {

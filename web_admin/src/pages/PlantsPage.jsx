@@ -3,6 +3,37 @@ import { api } from "../services/api";
 import AppShell from "../components/layout/AppShell";
 import SectionCard from "../components/dashboard/SectionCard";
 
+const OTHER_PREFIX_PATTERN = /^other\s*:\s*/i;
+const isOtherCustomValue = (value) => OTHER_PREFIX_PATTERN.test(String(value || "").trim());
+const getOtherCustomLabel = (value) =>
+  String(value || "").trim().replace(OTHER_PREFIX_PATTERN, "").trim();
+const buildOtherValue = (customValue) => `Other: ${String(customValue || "").trim()}`;
+const getDisplayPlantType = (value) => {
+  if (!isOtherCustomValue(value)) {
+    return value || "-";
+  }
+  const custom = getOtherCustomLabel(value);
+  return custom ? `Other (${custom})` : "Other";
+};
+
+const PLANT_TYPE_OPTIONS = [
+  "Crusher Plant",
+  "Stone Plant",
+  "Dolomite Plant",
+  "RMC Plant",
+  "Asphalt Plant",
+  "Warehouse",
+  "Project Site",
+  "Other",
+];
+
+const POWER_SOURCE_OPTIONS = [
+  { value: "diesel", label: "Diesel" },
+  { value: "electric", label: "Electric" },
+  { value: "hybrid", label: "Hybrid" },
+  { value: "other", label: "Other" },
+];
+
 function PlantsPage() {
   const [plants, setPlants] = useState([]);
   const [error, setError] = useState("");
@@ -16,8 +47,10 @@ function PlantsPage() {
     plantName: "",
     plantCode: "",
     plantType: "",
+    plantTypeCustom: "",
     location: "",
     powerSourceType: "diesel",
+    powerSourceTypeCustom: "",
   });
 
   const [selectedPlant, setSelectedPlant] = useState(null);
@@ -25,8 +58,10 @@ function PlantsPage() {
     plantName: "",
     plantCode: "",
     plantType: "",
+    plantTypeCustom: "",
     location: "",
     powerSourceType: "diesel",
+    powerSourceTypeCustom: "",
   });
 
   async function loadPlants() {
@@ -68,16 +103,14 @@ function PlantsPage() {
     });
   }, [plants, searchTerm, typeFilter, statusFilter]);
 
-  const plantTypes = [
-    "Crusher Plant",
-    "Stone Plant",
-    "Dolomite Plant",
-    "RMC Plant",
-    "Asphalt Plant",
-    "Warehouse",
-    "Project Site",
-    "Other",
-  ];
+  const filterPlantTypeOptions = useMemo(() => {
+    const dynamicTypes = plants
+      .map((plant) => String(plant.plantType || "").trim())
+      .filter(Boolean);
+    return Array.from(new Set([...PLANT_TYPE_OPTIONS, ...dynamicTypes])).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [plants]);
 
   const handleChange = (setter) => (e) => {
     setter((prev) => ({
@@ -96,16 +129,49 @@ function PlantsPage() {
       return;
     }
 
+    if (
+      formData.plantType === "Other" &&
+      !String(formData.plantTypeCustom || "").trim()
+    ) {
+      setError("Please enter custom plant type when selecting Other");
+      return;
+    }
+
+    if (
+      formData.powerSourceType === "other" &&
+      !String(formData.powerSourceTypeCustom || "").trim()
+    ) {
+      setError("Please enter custom power source when selecting Other");
+      return;
+    }
+
+    const payload = {
+      ...formData,
+      plantType:
+        formData.plantType === "Other"
+          ? buildOtherValue(formData.plantTypeCustom)
+          : formData.plantType,
+      powerSourceType:
+        formData.powerSourceType === "other"
+          ? buildOtherValue(formData.powerSourceTypeCustom)
+          : formData.powerSourceType,
+    };
+
+    delete payload.plantTypeCustom;
+    delete payload.powerSourceTypeCustom;
+
     try {
-      await api.post("/plants", formData);
+      await api.post("/plants", payload);
 
       setSuccess("Plant added successfully");
       setFormData({
         plantName: "",
         plantCode: "",
         plantType: "",
+        plantTypeCustom: "",
         location: "",
         powerSourceType: "diesel",
+        powerSourceTypeCustom: "",
       });
 
       loadPlants();
@@ -115,13 +181,27 @@ function PlantsPage() {
   };
 
   const openEditPanel = (plant) => {
+    const plantTypeRaw = String(plant.plantType || "");
+    const powerSourceRaw = String(plant.powerSourceType || "").trim();
+    const normalizedPowerSource = powerSourceRaw.toLowerCase();
+    const hasCustomPlantType = isOtherCustomValue(plantTypeRaw);
+    const hasCustomPowerSource = isOtherCustomValue(powerSourceRaw);
+
     setSelectedPlant(plant);
     setEditForm({
       plantName: plant.plantName || "",
       plantCode: plant.plantCode || "",
-      plantType: plant.plantType || "",
+      plantType: hasCustomPlantType ? "Other" : plantTypeRaw || "",
+      plantTypeCustom: hasCustomPlantType ? getOtherCustomLabel(plantTypeRaw) : "",
       location: plant.location || "",
-      powerSourceType: plant.powerSourceType || "diesel",
+      powerSourceType: hasCustomPowerSource
+        ? "other"
+        : normalizedPowerSource === "electricity"
+        ? "electric"
+        : normalizedPowerSource || "diesel",
+      powerSourceTypeCustom: hasCustomPowerSource
+        ? getOtherCustomLabel(powerSourceRaw)
+        : "",
     });
     setError("");
     setSuccess("");
@@ -133,8 +213,44 @@ function PlantsPage() {
     setError("");
     setSuccess("");
 
+    if (!editForm.plantName.trim() || !editForm.plantType.trim()) {
+      setError("Plant name and plant type are required");
+      return;
+    }
+
+    if (
+      editForm.plantType === "Other" &&
+      !String(editForm.plantTypeCustom || "").trim()
+    ) {
+      setError("Please enter custom plant type when selecting Other");
+      return;
+    }
+
+    if (
+      editForm.powerSourceType === "other" &&
+      !String(editForm.powerSourceTypeCustom || "").trim()
+    ) {
+      setError("Please enter custom power source when selecting Other");
+      return;
+    }
+
+    const payload = {
+      ...editForm,
+      plantType:
+        editForm.plantType === "Other"
+          ? buildOtherValue(editForm.plantTypeCustom)
+          : editForm.plantType,
+      powerSourceType:
+        editForm.powerSourceType === "other"
+          ? buildOtherValue(editForm.powerSourceTypeCustom)
+          : editForm.powerSourceType,
+    };
+
+    delete payload.plantTypeCustom;
+    delete payload.powerSourceTypeCustom;
+
     try {
-      await api.patch(`/plants/${selectedPlant.id}`, editForm);
+      await api.patch(`/plants/${selectedPlant.id}`, payload);
       setSuccess("Plant updated successfully");
       setSelectedPlant(null);
       loadPlants();
@@ -197,12 +313,21 @@ function PlantsPage() {
               style={styles.input}
             >
               <option value="">Select Plant Type</option>
-              {plantTypes.map((type) => (
+              {PLANT_TYPE_OPTIONS.map((type) => (
                 <option key={type} value={type}>
                   {type}
                 </option>
               ))}
             </select>
+            {formData.plantType === "Other" ? (
+              <input
+                name="plantTypeCustom"
+                placeholder="Enter custom plant type"
+                value={formData.plantTypeCustom}
+                onChange={handleChange(setFormData)}
+                style={styles.input}
+              />
+            ) : null}
 
             <input
               name="location"
@@ -218,10 +343,21 @@ function PlantsPage() {
               onChange={handleChange(setFormData)}
               style={styles.input}
             >
-              <option value="diesel">Diesel</option>
-              <option value="electricity">Electricity</option>
-              <option value="hybrid">Hybrid</option>
+              {POWER_SOURCE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
+            {formData.powerSourceType === "other" ? (
+              <input
+                name="powerSourceTypeCustom"
+                placeholder="Enter custom power source"
+                value={formData.powerSourceTypeCustom}
+                onChange={handleChange(setFormData)}
+                style={styles.input}
+              />
+            ) : null}
 
             <button type="submit" style={styles.button}>
               Add Plant
@@ -244,12 +380,15 @@ function PlantsPage() {
               style={styles.input}
             >
               <option value="">All Plant Types</option>
-              {plantTypes.map((type) => (
+              {filterPlantTypeOptions.map((type) => (
                 <option key={type} value={type}>
-                  {type}
+                  {getDisplayPlantType(type)}
                 </option>
               ))}
             </select>
+            {typeFilter === "Other" ? (
+              <p style={styles.muted}>Custom plant types appear under list search and table view.</p>
+            ) : null}
 
             <select
               value={statusFilter}
@@ -285,9 +424,9 @@ function PlantsPage() {
                     <tr key={plant.id}>
                       <td style={styles.td}>{plant.plantName}</td>
                       <td style={styles.td}>{plant.plantCode || "-"}</td>
-                      <td style={styles.td}>{plant.plantType}</td>
+                      <td style={styles.td}>{getDisplayPlantType(plant.plantType)}</td>
                       <td style={styles.td}>{plant.location || "-"}</td>
-                      <td style={styles.td}>{plant.powerSourceType || "-"}</td>
+                      <td style={styles.td}>{getDisplayPlantType(plant.powerSourceType)}</td>
                       <td style={styles.td}>
                         <span
                           style={{
@@ -348,12 +487,21 @@ function PlantsPage() {
                 style={styles.input}
               >
                 <option value="">Select Plant Type</option>
-                {plantTypes.map((type) => (
+                {PLANT_TYPE_OPTIONS.map((type) => (
                   <option key={type} value={type}>
                     {type}
                   </option>
                 ))}
               </select>
+              {editForm.plantType === "Other" ? (
+                <input
+                  name="plantTypeCustom"
+                  placeholder="Enter custom plant type"
+                  value={editForm.plantTypeCustom}
+                  onChange={handleChange(setEditForm)}
+                  style={styles.input}
+                />
+              ) : null}
 
               <input
                 name="location"
@@ -368,11 +516,22 @@ function PlantsPage() {
                 value={editForm.powerSourceType}
                 onChange={handleChange(setEditForm)}
                 style={styles.input}
-              >
-                <option value="diesel">Diesel</option>
-                <option value="electricity">Electricity</option>
-                <option value="hybrid">Hybrid</option>
-              </select>
+            >
+              {POWER_SOURCE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {editForm.powerSourceType === "other" ? (
+              <input
+                name="powerSourceTypeCustom"
+                placeholder="Enter custom power source"
+                value={editForm.powerSourceTypeCustom}
+                onChange={handleChange(setEditForm)}
+                style={styles.input}
+              />
+            ) : null}
             </div>
 
             <div style={styles.editActions}>

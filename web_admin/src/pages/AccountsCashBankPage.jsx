@@ -76,6 +76,22 @@ function AccountsCashBankPage() {
   const createBankAccount = async () => {
     setError("");
     setMessage("");
+    if (!String(bankDraft.accountName || "").trim()) {
+      setError("Account name is required");
+      return;
+    }
+    if (!String(bankDraft.bankName || "").trim()) {
+      setError("Bank name is required");
+      return;
+    }
+    if (!String(bankDraft.accountNumber || "").trim()) {
+      setError("Account number is required");
+      return;
+    }
+    if (!String(bankDraft.ifscCode || "").trim()) {
+      setError("IFSC code is required");
+      return;
+    }
     try {
       await api.post("/accounts/cash-bank/bank-accounts", {
         ...bankDraft,
@@ -101,6 +117,10 @@ function AccountsCashBankPage() {
     setMessage("");
     if (Number(voucherDraft.amount || 0) <= 0) {
       setError("Amount must be greater than zero");
+      return;
+    }
+    if (!voucherDraft.cashOrBankLedgerId || !voucherDraft.counterAccountId || !voucherDraft.counterLedgerId) {
+      setError("Cash/Bank ledger, counter account, and counter ledger are required");
       return;
     }
 
@@ -231,6 +251,11 @@ function AccountsCashBankPage() {
             </tbody>
           </table>
         </div>
+        {!loading && bankAccounts.length === 0 ? (
+          <p style={{ ...styles.emptyState, marginTop: "10px" }}>
+            Add your first active bank account with linked ledger mapping before posting payment or receipt vouchers.
+          </p>
+        ) : null}
       </SectionCard>
 
       <SectionCard title="Cash/Bank Voucher">

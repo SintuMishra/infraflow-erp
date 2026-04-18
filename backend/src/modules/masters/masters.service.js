@@ -20,6 +20,10 @@ const {
   setMaterialHsnSacCode,
   setShiftStatus,
   setVehicleTypeStatus,
+  getMaterialUsageSummary,
+  getVehicleTypeUsageSummary,
+  getCrusherUnitUsageSummary,
+  getShiftUsageSummary,
 } = require("./masters.model");
 const { inferMaterialHsnSacCode } = require("../../utils/materialHsn.util");
 
@@ -45,6 +49,40 @@ const createHttpError = (statusCode, message) => {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+};
+
+const ensureMasterCanDeactivate = async ({
+  id,
+  isActive,
+  getUsageSummary,
+  masterLabel,
+}) => {
+  if (Boolean(isActive)) {
+    return;
+  }
+
+  const summary = await getUsageSummary({ id });
+  const totalReferences = Number(summary?.totalReferences || 0);
+
+  if (totalReferences <= 0) {
+    return;
+  }
+
+  const usageParts = (summary?.usage || [])
+    .map((item) => `${item.label} (${item.count})`)
+    .join(", ");
+
+  const error = createHttpError(
+    409,
+    `Cannot deactivate ${masterLabel}. It is currently referenced in ${usageParts}.`
+  );
+  error.code = "MASTER_IN_USE";
+  error.details = {
+    master: masterLabel,
+    totalReferences,
+    usage: summary.usage || [],
+  };
+  throw error;
 };
 
 const getMasterData = async (companyId = null) => {
@@ -384,10 +422,61 @@ const editVehicleType = async (payload) => {
   return await updateVehicleType(normalized);
 };
 
-const toggleCrusherUnit = async (payload) => await setCrusherUnitStatus(payload);
-const toggleMaterial = async (payload) => await setMaterialStatus(payload);
-const toggleShift = async (payload) => await setShiftStatus(payload);
-const toggleVehicleType = async (payload) => await setVehicleTypeStatus(payload);
+const toggleCrusherUnit = async (payload) => {
+  await ensureMasterCanDeactivate({
+    id: payload.id,
+    isActive: payload.isActive,
+    masterLabel: "crusher unit",
+    getUsageSummary: ({ id }) =>
+      getCrusherUnitUsageSummary({
+        id,
+        companyId: payload.companyId || null,
+      }),
+  });
+  return setCrusherUnitStatus(payload);
+};
+
+const toggleMaterial = async (payload) => {
+  await ensureMasterCanDeactivate({
+    id: payload.id,
+    isActive: payload.isActive,
+    masterLabel: "material",
+    getUsageSummary: ({ id }) =>
+      getMaterialUsageSummary({
+        id,
+        companyId: payload.companyId || null,
+      }),
+  });
+  return setMaterialStatus(payload);
+};
+
+const toggleShift = async (payload) => {
+  await ensureMasterCanDeactivate({
+    id: payload.id,
+    isActive: payload.isActive,
+    masterLabel: "shift",
+    getUsageSummary: ({ id }) =>
+      getShiftUsageSummary({
+        id,
+        companyId: payload.companyId || null,
+      }),
+  });
+  return setShiftStatus(payload);
+};
+
+const toggleVehicleType = async (payload) => {
+  await ensureMasterCanDeactivate({
+    id: payload.id,
+    isActive: payload.isActive,
+    masterLabel: "vehicle type",
+    getUsageSummary: ({ id }) =>
+      getVehicleTypeUsageSummary({
+        id,
+        companyId: payload.companyId || null,
+      }),
+  });
+  return setVehicleTypeStatus(payload);
+};
 
 const getMasterHealthCheck = async (companyId = null) => {
   const [crusherUnits, materials, shifts, vehicleTypes, configRows] =

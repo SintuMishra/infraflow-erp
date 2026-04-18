@@ -17,12 +17,19 @@ function formatRoleLabel(role) {
 }
 
 function formatCompanyLabel(currentUser) {
-  if (currentUser?.company?.companyName) {
-    return currentUser.company.companyName;
-  }
+  const companyNameCandidates = [
+    currentUser?.company?.companyName,
+    currentUser?.company?.company_name,
+    currentUser?.company?.name,
+    currentUser?.companyName,
+    currentUser?.company_name,
+  ];
 
-  if (currentUser?.companyName) {
-    return currentUser.companyName;
+  for (const candidate of companyNameCandidates) {
+    const value = String(candidate || "").trim();
+    if (value) {
+      return value;
+    }
   }
 
   if (currentUser?.companyId) {
@@ -90,11 +97,6 @@ function Header({
         >
           <p style={styles.userLabel}>Active Scope</p>
           <p style={styles.userName}>{formatCompanyLabel(currentUser)}</p>
-          <p style={styles.scopeMeta}>
-            {currentUser?.companyId
-              ? `Isolated data view for company ${currentUser.companyId}`
-              : "Session is using the current workspace scope"}
-          </p>
         </div>
 
         <div
@@ -119,7 +121,7 @@ function Header({
           }}
           onClick={onLogout}
         >
-          Logout
+          <span style={styles.logoutButtonLabel}>Log Out</span>
         </button>
       </div>
     </header>
@@ -224,7 +226,7 @@ const styles = {
   },
 
   gridSpanStatus: {
-    gridColumn: "span 3",
+    gridColumn: "span 2",
   },
 
   gridSpanScope: {
@@ -236,7 +238,7 @@ const styles = {
   },
 
   gridSpanLogout: {
-    gridColumn: "span 1",
+    gridColumn: "span 2",
   },
 
   gridSpanMobile: {
@@ -273,7 +275,7 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     justifyContent: "center",
-    gap: "4px",
+    gap: "2px",
     padding: "12px 14px",
     borderRadius: "16px",
     background: "rgba(248,255,252,0.88)",
@@ -365,26 +367,31 @@ const styles = {
     fontWeight: "700",
   },
 
-  scopeMeta: {
-    margin: 0,
-    fontSize: "12px",
-    color: "#4b5563",
-    fontWeight: "600",
-    lineHeight: 1.4,
-  },
-
   logoutButton: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     width: "100%",
     minHeight: "100%",
-    border: "1px solid rgba(31, 41, 51, 0.08)",
+    minWidth: "0",
+    alignSelf: "stretch",
+    border: "1px solid rgba(101, 119, 145, 0.34)",
     borderRadius: "16px",
-    background: "linear-gradient(135deg, #1f2933 0%, #334155 100%)",
+    background: "linear-gradient(140deg, #142337 0%, #2b3f5f 100%)",
     color: "#fff",
     cursor: "pointer",
-    fontWeight: "700",
-    fontSize: "14px",
-    boxShadow: "0 14px 28px rgba(31, 41, 51, 0.14)",
-    padding: "12px 16px",
+    boxShadow:
+      "0 16px 30px rgba(20, 35, 55, 0.22), inset 0 1px 0 rgba(255,255,255,0.1)",
+    padding: "12px 14px",
+    whiteSpace: "nowrap",
+    transition: "transform 120ms ease, box-shadow 120ms ease",
+  },
+
+  logoutButtonLabel: {
+    fontSize: "16px",
+    fontWeight: "800",
+    letterSpacing: "0.2px",
+    lineHeight: 1,
   },
 
   logoutButtonMobile: {

@@ -4,8 +4,8 @@ import ProtectedRoute from "../components/auth/ProtectedRoute";
 import PublicRoute from "../components/auth/PublicRoute";
 import {
   ROUTE_ACCESS,
+  canAccessAuditLogsWorkspace,
   canAccessOperationalWorkspace,
-  canAccessOwnerControlPanel,
   canAccessTenantOnboarding,
 } from "../utils/access";
 
@@ -51,6 +51,7 @@ const AccountsCashBankPage = lazy(() => import("../pages/AccountsCashBankPage"))
 const AccountsReportsPage = lazy(() => import("../pages/AccountsReportsPage"));
 const AccountsPeriodsControlPage = lazy(() => import("../pages/AccountsPeriodsControlPage"));
 const AccountsFinancePolicyPage = lazy(() => import("../pages/AccountsFinancePolicyPage"));
+const AccountsPostingRulesPage = lazy(() => import("../pages/AccountsPostingRulesPage"));
 
 export function AppRouter() {
   return (
@@ -333,7 +334,7 @@ export function AppRouter() {
           element={
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.auditLogs}
-              allowWhen={canAccessOwnerControlPanel}
+              allowWhen={canAccessAuditLogsWorkspace}
             >
               <AuditLogsPage />
             </ProtectedRoute>
@@ -420,6 +421,18 @@ export function AppRouter() {
               allowWhen={canAccessOperationalWorkspace}
             >
               <AccountsCashBankPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/accounts/posting-rules"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.accountsPostingRules}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <AccountsPostingRulesPage />
             </ProtectedRoute>
           }
         />

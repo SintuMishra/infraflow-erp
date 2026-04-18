@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AppShell from "../components/layout/AppShell";
 import SectionCard from "../components/dashboard/SectionCard";
 import { api } from "../services/api";
@@ -11,6 +11,8 @@ import {
 
 const REPORT_OPTIONS = [
   { key: "trial-balance", label: "Trial Balance" },
+  { key: "ledger", label: "Ledger Report" },
+  { key: "party-ledger", label: "Party Ledger Report" },
   { key: "voucher-register", label: "Voucher Register" },
   { key: "receivable-ageing", label: "Receivable Ageing" },
   { key: "payable-ageing", label: "Payable Ageing" },
@@ -27,6 +29,10 @@ function AccountsReportsPage() {
   const [historyAction, setHistoryAction] = useState("");
   const [historyEntityType, setHistoryEntityType] = useState("");
   const [historyActor, setHistoryActor] = useState("");
+  const [selectedLedgerId, setSelectedLedgerId] = useState("");
+  const [selectedPartyId, setSelectedPartyId] = useState("");
+  const [ledgers, setLedgers] = useState([]);
+  const [parties, setParties] = useState([]);
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -37,18 +43,52 @@ function AccountsReportsPage() {
 
   const isHistoryReport = reportKey === "finance-transition-history";
   const isAgeingReport = reportKey === "receivable-ageing" || reportKey === "payable-ageing";
+  const isLedgerReport = reportKey === "ledger";
+  const isPartyLedgerReport = reportKey === "party-ledger";
+
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      try {
+        const [ledgerRes, partyRes] = await Promise.all([
+          api.get("/accounts/masters/ledgers"),
+          api.get("/parties"),
+        ]);
+        setLedgers(Array.isArray(ledgerRes.data?.data) ? ledgerRes.data.data : []);
+        setParties(Array.isArray(partyRes.data?.data) ? partyRes.data.data : []);
+      } catch {
+        // Keep report page usable even if reference lists fail.
+      }
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   const runQueryParams = useMemo(
     () => ({
       dateFrom: dateFrom || undefined,
       dateTo: dateTo || undefined,
       asOfDate: isAgeingReport ? asOfDate : undefined,
+      ledgerId: isLedgerReport ? selectedLedgerId || undefined : undefined,
+      partyId: isPartyLedgerReport ? selectedPartyId || undefined : undefined,
       action: isHistoryReport ? historyAction || undefined : undefined,
       entityType: isHistoryReport ? historyEntityType || undefined : undefined,
       performedByUserId: isHistoryReport ? historyActor || undefined : undefined,
       limit: isHistoryReport ? 300 : undefined,
     }),
-    [asOfDate, dateFrom, dateTo, historyAction, historyActor, historyEntityType, isAgeingReport, isHistoryReport]
+    [
+      asOfDate,
+      dateFrom,
+      dateTo,
+      historyAction,
+      historyActor,
+      historyEntityType,
+      isAgeingReport,
+      isHistoryReport,
+      isLedgerReport,
+      isPartyLedgerReport,
+      selectedLedgerId,
+      selectedPartyId,
+    ]
   );
 
   const loadReport = async () => {
@@ -56,6 +96,14 @@ function AccountsReportsPage() {
     setMessage("");
     if (dateFrom && dateTo && dateTo < dateFrom) {
       setError("dateTo cannot be earlier than dateFrom");
+      return;
+    }
+    if (isLedgerReport && !selectedLedgerId) {
+      setError("Select ledger before running ledger report");
+      return;
+    }
+    if (isPartyLedgerReport && !selectedPartyId) {
+      setError("Select party before running party ledger report");
       return;
     }
     setLoading(true);
@@ -82,6 +130,11 @@ function AccountsReportsPage() {
         setSummary(reportData.bucketTotals);
       } else if (reportData?.totals) {
         setSummary(reportData.totals);
+      } else if (typeof reportData?.openingBalance !== "undefined") {
+        setSummary({
+          openingBalance: Number(reportData.openingBalance || 0),
+          lineCount: Array.isArray(reportData?.lines) ? reportData.lines.length : 0,
+        });
       } else {
         setSummary(null);
       }
@@ -108,6 +161,28 @@ function AccountsReportsPage() {
   };
 
   const columns = rows[0] ? Object.keys(rows[0]) : [];
+  const activeFilterCount = [
+    dateFrom,
+    dateTo,
+    isAgeingReport ? asOfDate : "",
+    isHistoryReport ? historyAction : "",
+    isHistoryReport ? historyEntityType : "",
+    isHistoryReport ? historyActor : "",
+    isLedgerReport ? selectedLedgerId : "",
+    isPartyLedgerReport ? selectedPartyId : "",
+  ].filter((value) => Boolean(String(value || "").trim())).length;
+
+  const resetFilters = () => {
+    setDateFrom("");
+    setDateTo("");
+    setAsOfDate(new Date().toISOString().slice(0, 10));
+    setHistoryAction("");
+    setHistoryEntityType("");
+    setHistoryActor("");
+    setSelectedLedgerId("");
+    setSelectedPartyId("");
+    setMessage("Filters reset. Run report for fresh output.");
+  };
 
   const exportCurrentRowsCsv = async () => {
     setError("");
@@ -179,7 +254,11 @@ function AccountsReportsPage() {
           </button>
         </div>
         {showFilters ? (
-          <div style={styles.toolbar}>
+          <>
+            <p style={styles.sectionNote}>
+              Current filter depth: {activeFilterCount} active field(s)
+            </p>
+            <div style={styles.toolbar}>
             <select style={styles.input} value={reportKey} onChange={(e) => setReportKey(e.target.value)}>
               {REPORT_OPTIONS.map((item) => (
                 <option key={item.key} value={item.key}>
@@ -189,6 +268,26 @@ function AccountsReportsPage() {
             </select>
             <input style={styles.input} type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
             <input style={styles.input} type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            {isLedgerReport ? (
+              <select style={styles.input} value={selectedLedgerId} onChange={(e) => setSelectedLedgerId(e.target.value)}>
+                <option value="">Select Ledger</option>
+                {ledgers.map((ledger) => (
+                  <option key={ledger.id} value={ledger.id}>
+                    {ledger.ledgerCode} - {ledger.ledgerName}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            {isPartyLedgerReport ? (
+              <select style={styles.input} value={selectedPartyId} onChange={(e) => setSelectedPartyId(e.target.value)}>
+                <option value="">Select Party</option>
+                {parties.map((party) => (
+                  <option key={party.id} value={party.id}>
+                    {party.partyName}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             {isHistoryReport ? (
               <>
                 <select style={styles.input} value={historyEntityType} onChange={(e) => setHistoryEntityType(e.target.value)}>
@@ -226,7 +325,11 @@ function AccountsReportsPage() {
             <button type="button" style={styles.mutedButton} onClick={exportCurrentRowsCsv}>
               Export CSV
             </button>
-          </div>
+            <button type="button" style={styles.mutedButton} onClick={resetFilters}>
+              Reset Filters
+            </button>
+            </div>
+          </>
         ) : null}
 
         {message ? <p style={styles.success}>{message}</p> : null}
@@ -291,6 +394,11 @@ function AccountsReportsPage() {
             </tbody>
           </table>
         </div>
+        {!loading && rows.length === 0 ? (
+          <p style={{ ...styles.emptyState, marginTop: "10px" }}>
+            No rows returned for the current filters. Try expanding date range, removing actor/action filters, or running a different report type.
+          </p>
+        ) : null}
       </SectionCard>
     </AppShell>
   );

@@ -127,7 +127,9 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: "22px",
+    width: "100%",
     maxWidth: "1600px",
+    margin: "0 auto",
   },
   innerMobile: {
     gap: "16px",

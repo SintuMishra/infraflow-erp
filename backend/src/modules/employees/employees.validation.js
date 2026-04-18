@@ -58,6 +58,8 @@ const validateCreateEmployeeInput = (req, res, next) => {
   }
 
   const allowedStatuses = ["active", "inactive", "resigned", "terminated"];
+  const isOtherCustomValue = (value) =>
+    /^other\s*:\s*\S+/i.test(String(value || "").trim());
   const allowedEmploymentTypes = [
     "full_time",
     "contract",
@@ -90,7 +92,8 @@ const validateCreateEmployeeInput = (req, res, next) => {
     employmentType !== undefined &&
     employmentType !== null &&
     String(employmentType).trim() &&
-    !allowedEmploymentTypes.includes(String(employmentType).trim().toLowerCase())
+    !allowedEmploymentTypes.includes(String(employmentType).trim().toLowerCase()) &&
+    !isOtherCustomValue(employmentType)
   ) {
     return res.status(400).json({
       success: false,
@@ -103,7 +106,8 @@ const validateCreateEmployeeInput = (req, res, next) => {
     idProofType !== undefined &&
     idProofType !== null &&
     String(idProofType).trim() &&
-    !allowedIdProofTypes.includes(String(idProofType).trim().toLowerCase())
+    !allowedIdProofTypes.includes(String(idProofType).trim().toLowerCase()) &&
+    !isOtherCustomValue(idProofType)
   ) {
     return res.status(400).json({
       success: false,
@@ -225,6 +229,8 @@ const validateEmployeeUpdateInput = (req, res, next) => {
     "consultant",
     "other",
   ];
+  const isOtherCustomValue = (value) =>
+    /^other\s*:\s*\S+/i.test(String(value || "").trim());
   const allowedIdProofTypes = [
     "aadhaar",
     "pan",
@@ -238,7 +244,8 @@ const validateEmployeeUpdateInput = (req, res, next) => {
     employmentType !== undefined &&
     employmentType !== null &&
     String(employmentType).trim() &&
-    !allowedEmploymentTypes.includes(String(employmentType).trim().toLowerCase())
+    !allowedEmploymentTypes.includes(String(employmentType).trim().toLowerCase()) &&
+    !isOtherCustomValue(employmentType)
   ) {
     return res.status(400).json({
       success: false,
@@ -251,7 +258,8 @@ const validateEmployeeUpdateInput = (req, res, next) => {
     idProofType !== undefined &&
     idProofType !== null &&
     String(idProofType).trim() &&
-    !allowedIdProofTypes.includes(String(idProofType).trim().toLowerCase())
+    !allowedIdProofTypes.includes(String(idProofType).trim().toLowerCase()) &&
+    !isOtherCustomValue(idProofType)
   ) {
     return res.status(400).json({
       success: false,

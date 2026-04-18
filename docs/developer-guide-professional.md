@@ -31,12 +31,27 @@ This guide defines the technical operating model for the Construction ERP platfo
 - Masters, Plants, Vendors, Parties
 - Transport Rates, Party Material Rates, Party Orders
 - Company Profile, Audit Logs
+- Accounts Masters
+- General Ledger and Journal Vouchers
+- Accounts Receivable and Accounts Payable
+- Cash/Bank
+- Finance Posting Rules
+- Financial Reports
 
 ### 3.2 Frontend Modules
 - Authentication and session routes
 - Operational workflows (reports, dispatch, vehicles)
 - Commercial workflows (parties, rates, orders, exceptions)
 - Administration (employees, masters, company profile, audit logs, tenant onboarding)
+- Accounts and finance control suite:
+  - accounts dashboard
+  - chart of accounts and ledgers
+  - voucher entry with workflow inbox
+  - receivables and payables
+  - cash/bank
+  - finance reports
+  - period controls
+  - finance policy controls
 
 ## 4. Security and Access Model
 ### 4.1 Authentication
@@ -104,6 +119,7 @@ This guide defines the technical operating model for the Construction ERP platfo
 ### 8.1 Mandatory Checks
 - `cd backend && npm test`
 - `cd backend && npm run verify:app`
+- `cd backend && npm run test:finance:concurrency`
 - `cd web_admin && npm run build`
 - `cd web_admin && npm run lint`
 

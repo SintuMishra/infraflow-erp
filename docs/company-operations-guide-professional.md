@@ -2,8 +2,8 @@
 
 ## Document Control
 - Document ID: `ERP-OPS-GUIDE-PRD-001`
-- Version: `1.2`
-- Date: `2026-04-17`
+- Version: `1.3`
+- Date: `2026-04-18`
 - Audience: Company Owners, Managers, Admin Teams, Supervisors, Engineers
 - Classification: Business Operations
 
@@ -119,6 +119,9 @@ This guide explains how to operate the ERP system in production with consistent 
 3. party order closure and pending review
 4. tax-field and print-header compliance check
 5. approval sign-off by manager/super admin
+6. voucher workflow queue cleared (draft/submitted/approved posture)
+7. receivable and payable ageing review completed
+8. period control posture verified before close/reopen
 
 ## 11. Incident and Escalation Model
 ### L1 (Operations Lead)
@@ -190,6 +193,9 @@ A: Required billing/tax fields are incomplete or invalid.
 
 Q: Why does company mismatch error occur?
 A: Session company and request scope are not aligned.
+
+Q: Why can finance team not post voucher directly in some cases?
+A: Maker-checker and period controls can block posting until approval/state conditions are satisfied.
 
 ## 17. Sign-off Section
 - Operations Owner:

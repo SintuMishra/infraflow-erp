@@ -115,6 +115,16 @@ function AccountsVoucherEntryPage() {
       }),
     [listStatus, vouchers]
   );
+  const voucherListSummary = useMemo(
+    () => ({
+      total: filteredVouchers.length,
+      draft: filteredVouchers.filter((row) => String(row.workflowState || row.status).toLowerCase() === "draft").length,
+      submitted: filteredVouchers.filter((row) => String(row.workflowState || row.status).toLowerCase() === "submitted").length,
+      approved: filteredVouchers.filter((row) => String(row.workflowState || row.status).toLowerCase() === "approved").length,
+      posted: filteredVouchers.filter((row) => String(row.status || "").toLowerCase() === "posted").length,
+    }),
+    [filteredVouchers]
+  );
 
   const validateVoucherDraft = () => {
     if (!voucherDate) {
@@ -463,6 +473,28 @@ function AccountsVoucherEntryPage() {
             Export CSV
           </button>
         </div>
+        <div style={{ ...styles.statGrid, marginBottom: "12px" }}>
+          <article style={styles.statCard}>
+            <p style={styles.statLabel}>Visible Vouchers</p>
+            <p style={styles.statValue}>{voucherListSummary.total}</p>
+          </article>
+          <article style={styles.statCard}>
+            <p style={styles.statLabel}>Draft</p>
+            <p style={styles.statValue}>{voucherListSummary.draft}</p>
+          </article>
+          <article style={styles.statCard}>
+            <p style={styles.statLabel}>Submitted</p>
+            <p style={styles.statValue}>{voucherListSummary.submitted}</p>
+          </article>
+          <article style={styles.statCard}>
+            <p style={styles.statLabel}>Approved</p>
+            <p style={styles.statValue}>{voucherListSummary.approved}</p>
+          </article>
+          <article style={styles.statCard}>
+            <p style={styles.statLabel}>Posted</p>
+            <p style={styles.statValue}>{voucherListSummary.posted}</p>
+          </article>
+        </div>
         <div style={styles.tableWrap}>
           <table style={styles.table}>
             <thead>
@@ -525,6 +557,11 @@ function AccountsVoucherEntryPage() {
             </tbody>
           </table>
         </div>
+        {!loading && filteredVouchers.length === 0 ? (
+          <p style={{ ...styles.emptyState, marginTop: "10px" }}>
+            No voucher rows match the current filter set. Clear status/search filters or create a new draft voucher above.
+          </p>
+        ) : null}
       </SectionCard>
 
       <SectionCard title="Approval Inbox">

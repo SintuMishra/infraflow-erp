@@ -587,6 +587,45 @@ test("adminResetPassword issues a temporary password and forces password change"
   );
 });
 
+test("getAuthenticatedUserProfile falls back to company access when company profile is missing", async () => {
+  await withMockedModules(
+    "../src/modules/auth/auth.service.js",
+    createMockEntries({
+      authModel: {
+        getUserSelfProfileById: async () => ({
+          id: 7,
+          employeeId: 21,
+          username: "FIN0212026",
+          role: "manager",
+          companyId: 2,
+        }),
+        findCompanyAccessById: async () => ({
+          id: 2,
+          companyCode: "COMP2",
+          companyName: "Acme Infra Projects",
+          isActive: true,
+        }),
+      },
+      companyProfile: {
+        getCompanyProfile: async () => null,
+      },
+    }),
+    async ({ getAuthenticatedUserProfile }) => {
+      const profile = await getAuthenticatedUserProfile({
+        userId: 7,
+        companyId: 2,
+      });
+
+      assert.equal(profile.companyName, "Acme Infra Projects");
+      assert.deepEqual(profile.company, {
+        id: 2,
+        companyName: "Acme Infra Projects",
+        branchName: "",
+      });
+    }
+  );
+});
+
 test("refreshAuthSession allows only one success when same refresh token is replayed concurrently", async () => {
   let revokeAttempts = 0;
 

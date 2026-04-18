@@ -544,3 +544,171 @@ test("getMasterHealthCheck flags missing active shifts and invalid GST rates", a
     }
   );
 });
+
+test("toggleMaterial blocks deactivation when material is referenced", async () => {
+  let statusUpdateCalled = false;
+
+  await withMastersServiceMocks(
+    {
+      model: {
+        findCrusherUnits: async () => [],
+        findMaterials: async () => [],
+        findShifts: async () => [],
+        findVehicleTypes: async () => [],
+        findConfigOptions: async () => [],
+        insertConfigOption: async () => null,
+        updateConfigOption: async () => null,
+        setConfigOptionStatus: async () => null,
+        insertCrusherUnit: async () => null,
+        insertMaterial: async () => null,
+        insertShift: async () => null,
+        insertVehicleType: async () => null,
+        updateCrusherUnit: async () => null,
+        updateMaterial: async () => null,
+        updateShift: async () => null,
+        updateVehicleType: async () => null,
+        setCrusherUnitStatus: async () => null,
+        setMaterialStatus: async () => {
+          statusUpdateCalled = true;
+          return null;
+        },
+        setMaterialHsnSacCode: async () => null,
+        setShiftStatus: async () => null,
+        setVehicleTypeStatus: async () => null,
+        getMaterialUsageSummary: async () => ({
+          totalReferences: 3,
+          usage: [{ label: "dispatch reports", count: 3 }],
+        }),
+        getVehicleTypeUsageSummary: async () => ({ totalReferences: 0, usage: [] }),
+        getCrusherUnitUsageSummary: async () => ({ totalReferences: 0, usage: [] }),
+        getShiftUsageSummary: async () => ({ totalReferences: 0, usage: [] }),
+      },
+    },
+    async ({ toggleMaterial }) => {
+      await assert.rejects(
+        toggleMaterial({
+          id: 91,
+          isActive: false,
+          companyId: 44,
+        }),
+        (error) => {
+          assert.equal(error.statusCode, 409);
+          assert.match(error.message, /Cannot deactivate material/i);
+          assert.equal(error.code, "MASTER_IN_USE");
+          return true;
+        }
+      );
+    }
+  );
+
+  assert.equal(statusUpdateCalled, false);
+});
+
+test("toggleVehicleType allows activation even when references exist", async () => {
+  let updatePayload = null;
+
+  await withMastersServiceMocks(
+    {
+      model: {
+        findCrusherUnits: async () => [],
+        findMaterials: async () => [],
+        findShifts: async () => [],
+        findVehicleTypes: async () => [],
+        findConfigOptions: async () => [],
+        insertConfigOption: async () => null,
+        updateConfigOption: async () => null,
+        setConfigOptionStatus: async () => null,
+        insertCrusherUnit: async () => null,
+        insertMaterial: async () => null,
+        insertShift: async () => null,
+        insertVehicleType: async () => null,
+        updateCrusherUnit: async () => null,
+        updateMaterial: async () => null,
+        updateShift: async () => null,
+        updateVehicleType: async () => null,
+        setCrusherUnitStatus: async () => null,
+        setMaterialStatus: async () => null,
+        setMaterialHsnSacCode: async () => null,
+        setShiftStatus: async () => null,
+        setVehicleTypeStatus: async (payload) => {
+          updatePayload = payload;
+          return { id: payload.id, isActive: payload.isActive };
+        },
+        getMaterialUsageSummary: async () => ({ totalReferences: 0, usage: [] }),
+        getVehicleTypeUsageSummary: async () => ({
+          totalReferences: 5,
+          usage: [{ label: "vehicles", count: 5 }],
+        }),
+        getCrusherUnitUsageSummary: async () => ({ totalReferences: 0, usage: [] }),
+        getShiftUsageSummary: async () => ({ totalReferences: 0, usage: [] }),
+      },
+    },
+    async ({ toggleVehicleType }) => {
+      const result = await toggleVehicleType({
+        id: 33,
+        isActive: true,
+        companyId: 44,
+      });
+
+      assert.equal(result.id, 33);
+      assert.equal(result.isActive, true);
+    }
+  );
+
+  assert.deepEqual(updatePayload, {
+    id: 33,
+    isActive: true,
+    companyId: 44,
+  });
+});
+
+test("toggleShift blocks deactivation when shift is referenced", async () => {
+  await withMastersServiceMocks(
+    {
+      model: {
+        findCrusherUnits: async () => [],
+        findMaterials: async () => [],
+        findShifts: async () => [],
+        findVehicleTypes: async () => [],
+        findConfigOptions: async () => [],
+        insertConfigOption: async () => null,
+        updateConfigOption: async () => null,
+        setConfigOptionStatus: async () => null,
+        insertCrusherUnit: async () => null,
+        insertMaterial: async () => null,
+        insertShift: async () => null,
+        insertVehicleType: async () => null,
+        updateCrusherUnit: async () => null,
+        updateMaterial: async () => null,
+        updateShift: async () => null,
+        updateVehicleType: async () => null,
+        setCrusherUnitStatus: async () => null,
+        setMaterialStatus: async () => null,
+        setMaterialHsnSacCode: async () => null,
+        setShiftStatus: async () => null,
+        setVehicleTypeStatus: async () => null,
+        getMaterialUsageSummary: async () => ({ totalReferences: 0, usage: [] }),
+        getVehicleTypeUsageSummary: async () => ({ totalReferences: 0, usage: [] }),
+        getCrusherUnitUsageSummary: async () => ({ totalReferences: 0, usage: [] }),
+        getShiftUsageSummary: async () => ({
+          totalReferences: 2,
+          usage: [{ label: "project daily reports", count: 2 }],
+        }),
+      },
+    },
+    async ({ toggleShift }) => {
+      await assert.rejects(
+        toggleShift({
+          id: 17,
+          isActive: false,
+          companyId: 44,
+        }),
+        (error) => {
+          assert.equal(error.statusCode, 409);
+          assert.match(error.message, /Cannot deactivate shift/i);
+          return true;
+        }
+      );
+    }
+  );
+});
