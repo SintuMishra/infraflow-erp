@@ -35,6 +35,8 @@ test("migration files are ordered and include production hardening migrations", 
     "016_company_billing_controls.sql",
     "017_company_billing_custom_cycle.sql",
     "018_company_billing_invoices.sql",
+    "019_accounts_finance_foundation.sql",
+    "020_accounts_finance_hardening.sql",
   ]);
 });
 
@@ -245,4 +247,41 @@ test("company billing invoices migration adds invoice persistence for billing PD
   assert.match(sql, /invoice_number VARCHAR\(64\) NOT NULL UNIQUE/i);
   assert.match(sql, /FOREIGN KEY \(company_id\) REFERENCES companies\(id\) ON DELETE CASCADE/i);
   assert.match(sql, /idx_company_billing_invoices_company_date/i);
+});
+
+test("accounts finance foundation migration adds normalized double-entry core tables", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/019_accounts_finance_foundation.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS account_groups/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS chart_of_accounts/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS ledgers/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS vouchers/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS voucher_lines/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS receivables/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS payables/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS settlements/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS bank_accounts/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS finance_posting_rules/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS finance_source_links/i);
+  assert.match(sql, /prevent_posted_voucher_update/i);
+  assert.match(sql, /Posted vouchers are immutable/i);
+});
+
+test("accounts finance hardening migration adds settlement and posting safety rails", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/020_accounts_finance_hardening.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /uq_receivables_company_dispatch/i);
+  assert.match(sql, /uq_settlements_company_voucher/i);
+  assert.match(sql, /validate_settlement_source_integrity/i);
+  assert.match(sql, /Settlement exceeds receivable outstanding amount/i);
+  assert.match(sql, /validate_voucher_posting_integrity/i);
+  assert.match(sql, /Voucher cannot be posted with unbalanced debit\/credit totals/i);
 });

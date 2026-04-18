@@ -16,6 +16,14 @@ const partiesRoutes = require("../modules/parties");
 const auditLogsRoutes = require("../modules/audit_logs");
 const partyOrdersRoutes = require("../modules/party_orders");
 const onboardingRoutes = require("../modules/onboarding");
+const accountsMastersRoutes = require("../modules/accounts_masters");
+const generalLedgerRoutes = require("../modules/general_ledger");
+const journalVouchersRoutes = require("../modules/journal_vouchers");
+const accountsReceivableRoutes = require("../modules/accounts_receivable");
+const accountsPayableRoutes = require("../modules/accounts_payable");
+const cashBankRoutes = require("../modules/cash_bank");
+const financePostingRulesRoutes = require("../modules/finance_posting_rules");
+const financialReportsRoutes = require("../modules/financial_reports");
 const { checkDbHealth } = require("../config/db");
 
 const router = express.Router();
@@ -73,5 +81,13 @@ router.use("/parties", partiesRoutes);
 router.use("/party-orders", partyOrdersRoutes);
 router.use("/audit-logs", auditLogsRoutes);
 router.use("/onboarding", onboardingRoutes);
+router.use("/accounts/masters", accountsMastersRoutes);
+router.use("/accounts/general-ledger", generalLedgerRoutes);
+router.use("/accounts/journal-vouchers", journalVouchersRoutes);
+router.use("/accounts/receivables", accountsReceivableRoutes);
+router.use("/accounts/payables", accountsPayableRoutes);
+router.use("/accounts/cash-bank", cashBankRoutes);
+router.use("/accounts/posting-rules", financePostingRulesRoutes);
+router.use("/accounts/reports", financialReportsRoutes);
 
 module.exports = router;

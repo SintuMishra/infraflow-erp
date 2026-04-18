@@ -43,11 +43,23 @@ const getDispatchSchemaCapabilities = async (db = pool) => {
     dispatchHasPartyOrder,
     hasPartyOrdersTable,
     materialHasHsnSac,
+    hasFinanceStatus,
+    hasCanPostToFinance,
+    hasFinancePostingState,
+    hasFinanceSourceLinkId,
+    hasFinanceLastVoucherId,
+    hasFinanceNotes,
   ] = await Promise.all([
     hasColumn("dispatch_reports", "company_id", db),
     hasColumn("dispatch_reports", "party_order_id", db),
     tableExists("party_orders", db),
     hasColumn("material_master", "hsn_sac_code", db),
+    hasColumn("dispatch_reports", "finance_status", db),
+    hasColumn("dispatch_reports", "can_post_to_finance", db),
+    hasColumn("dispatch_reports", "finance_posting_state", db),
+    hasColumn("dispatch_reports", "finance_source_link_id", db),
+    hasColumn("dispatch_reports", "finance_last_voucher_id", db),
+    hasColumn("dispatch_reports", "finance_notes", db),
   ]);
 
   return {
@@ -56,6 +68,12 @@ const getDispatchSchemaCapabilities = async (db = pool) => {
     hasPartyOrdersTable,
     materialHasHsnSac,
     includePartyOrder: hasPartyOrdersTable && dispatchHasPartyOrder,
+    hasFinanceStatus,
+    hasCanPostToFinance,
+    hasFinancePostingState,
+    hasFinanceSourceLinkId,
+    hasFinanceLastVoucherId,
+    hasFinanceNotes,
   };
 };
 
@@ -175,7 +193,16 @@ const buildDispatchFilters = async ({
 const buildBaseDispatchSelect = async (db = pool, schemaCapabilities = null) => {
   const capabilities =
     schemaCapabilities || (await getDispatchSchemaCapabilities(db));
-  const { includePartyOrder, materialHasHsnSac } = capabilities;
+  const {
+    includePartyOrder,
+    materialHasHsnSac,
+    hasFinanceStatus,
+    hasCanPostToFinance,
+    hasFinancePostingState,
+    hasFinanceSourceLinkId,
+    hasFinanceLastVoucherId,
+    hasFinanceNotes,
+  } = capabilities;
 
   return `
     SELECT
@@ -238,6 +265,12 @@ const buildBaseDispatchSelect = async (db = pool, schemaCapabilities = null) => 
       dr.sgst AS "sgst",
       dr.igst AS "igst",
       dr.total_with_gst AS "totalWithGst",
+      ${hasFinanceStatus ? `dr.finance_status AS "financeStatus",` : `NULL AS "financeStatus",`}
+      ${hasCanPostToFinance ? `dr.can_post_to_finance AS "canPostToFinance",` : `FALSE AS "canPostToFinance",`}
+      ${hasFinancePostingState ? `dr.finance_posting_state AS "financePostingState",` : `NULL AS "financePostingState",`}
+      ${hasFinanceSourceLinkId ? `dr.finance_source_link_id AS "financeSourceLinkId",` : `NULL AS "financeSourceLinkId",`}
+      ${hasFinanceLastVoucherId ? `dr.finance_last_voucher_id AS "financeLastVoucherId",` : `NULL AS "financeLastVoucherId",`}
+      ${hasFinanceNotes ? `dr.finance_notes AS "financeNotes",` : `NULL AS "financeNotes",`}
 
       pm.plant_name AS "plantName",
       pm.plant_type AS "plantType",

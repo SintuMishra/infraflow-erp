@@ -25,6 +25,19 @@ const requiredScopedTables = [
   "party_material_rates",
   "party_orders",
   "dispatch_reports",
+  "account_groups",
+  "chart_of_accounts",
+  "ledgers",
+  "financial_years",
+  "accounting_periods",
+  "vouchers",
+  "voucher_lines",
+  "receivables",
+  "payables",
+  "settlements",
+  "bank_accounts",
+  "finance_posting_rules",
+  "finance_source_links",
 ];
 
 const getSchemaCache = (db = pool) => {
