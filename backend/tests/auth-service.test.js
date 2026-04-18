@@ -586,3 +586,74 @@ test("adminResetPassword issues a temporary password and forces password change"
     }
   );
 });
+
+test("refreshAuthSession allows only one success when same refresh token is replayed concurrently", async () => {
+  let revokeAttempts = 0;
+
+  await withMockedModules(
+    "../src/modules/auth/auth.service.js",
+    createMockEntries({
+      authModel: {
+        findValidAuthRefreshToken: async () => ({
+          id: 901,
+          userId: 51,
+          companyId: 7,
+          userIsActive: true,
+        }),
+        findUserById: async () => ({
+          id: 51,
+          employeeId: 18,
+          employeeCode: "EMP0018",
+          fullName: "Refresh User",
+          username: "EMP00182026",
+          role: "manager",
+          department: "Admin",
+          designation: "Manager",
+          companyId: 7,
+          isActive: true,
+          mustChangePassword: false,
+        }),
+        revokeAuthRefreshTokenById: async () => {
+          revokeAttempts += 1;
+          return revokeAttempts === 1;
+        },
+        createAuthRefreshToken: async () => ({
+          id: 999,
+        }),
+      },
+      jwt: {
+        sign: () => "next-access-token",
+      },
+      credentials: {
+        buildUsernameFromEmployeeCode: (employeeCode) => `${employeeCode}2026`,
+        generatePasswordResetToken: () => "reset-token-123",
+        generateSessionToken: () => "next-refresh-token",
+        generateTemporaryPassword: () => "Temp!Pass123",
+        hashSensitiveToken: (value) => `hashed:${value}`,
+      },
+    }),
+    async ({ refreshAuthSession }) => {
+      const [first, second] = await Promise.allSettled([
+        refreshAuthSession({
+          refreshToken: "same-refresh-token",
+          companyId: 7,
+        }),
+        refreshAuthSession({
+          refreshToken: "same-refresh-token",
+          companyId: 7,
+        }),
+      ]);
+
+      const results = [first, second];
+      const fulfilled = results.filter((entry) => entry.status === "fulfilled");
+      const rejected = results.filter((entry) => entry.status === "rejected");
+
+      assert.equal(fulfilled.length, 1);
+      assert.equal(rejected.length, 1);
+      assert.equal(rejected[0].reason?.message, "INVALID_REFRESH_TOKEN");
+      assert.equal(revokeAttempts, 2);
+      assert.equal(fulfilled[0].value.token, "next-access-token");
+      assert.equal(fulfilled[0].value.refreshToken, "next-refresh-token");
+    }
+  );
+});
