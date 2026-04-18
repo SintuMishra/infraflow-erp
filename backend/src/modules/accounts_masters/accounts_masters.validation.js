@@ -82,10 +82,35 @@ const validateCreateAccountingPeriod = (req, res, next) => {
   return next();
 };
 
+const validateStatusTogglePayload = (req, res, next) => {
+  if (typeof req.body?.isActive !== "boolean") {
+    return sendValidationError(res, "isActive must be boolean");
+  }
+  return next();
+};
+
+const validateAccountingPeriodStatusPayload = (req, res, next) => {
+  const status = String(req.body?.status || "").trim().toLowerCase();
+  if (!["open", "soft_closed", "closed"].includes(status)) {
+    return sendValidationError(res, "status must be open/soft_closed/closed");
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(req.body || {}, "statusNotes") &&
+    typeof req.body.statusNotes !== "string"
+  ) {
+    return sendValidationError(res, "statusNotes must be text when provided");
+  }
+
+  return next();
+};
+
 module.exports = {
   validateCreateAccountGroup,
   validateCreateAccount,
   validateCreateLedger,
   validateCreateFinancialYear,
   validateCreateAccountingPeriod,
+  validateStatusTogglePayload,
+  validateAccountingPeriodStatusPayload,
 };

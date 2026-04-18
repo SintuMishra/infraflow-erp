@@ -7,6 +7,8 @@ const {
   validateCreateLedger,
   validateCreateFinancialYear,
   validateCreateAccountingPeriod,
+  validateStatusTogglePayload,
+  validateAccountingPeriodStatusPayload,
 } = require("./accounts_masters.validation");
 const {
   listAccountGroupsController,
@@ -18,6 +20,10 @@ const {
   listFinancialYearsController,
   createFinancialYearController,
   createAccountingPeriodController,
+  listAccountingPeriodsController,
+  updateChartOfAccountStatusController,
+  updateLedgerStatusController,
+  updateAccountingPeriodStatusController,
   bootstrapFinanceDefaultsController,
   syncPartyVendorLedgersController,
 } = require("./accounts_masters.controller");
@@ -68,6 +74,14 @@ router.post(
   createChartOfAccountController
 );
 
+router.patch(
+  "/chart-of-accounts/:accountId/status",
+  authenticate,
+  authorizeRoles("super_admin", "manager"),
+  validateStatusTogglePayload,
+  updateChartOfAccountStatusController
+);
+
 router.get(
   "/ledgers",
   authenticate,
@@ -81,6 +95,14 @@ router.post(
   authorizeRoles("super_admin", "manager"),
   validateCreateLedger,
   createLedgerController
+);
+
+router.patch(
+  "/ledgers/:ledgerId/status",
+  authenticate,
+  authorizeRoles("super_admin", "manager"),
+  validateStatusTogglePayload,
+  updateLedgerStatusController
 );
 
 router.get(
@@ -104,6 +126,21 @@ router.post(
   authorizeRoles("super_admin", "manager"),
   validateCreateAccountingPeriod,
   createAccountingPeriodController
+);
+
+router.get(
+  "/accounting-periods",
+  authenticate,
+  authorizeRoles("super_admin", "manager", "hr"),
+  listAccountingPeriodsController
+);
+
+router.patch(
+  "/accounting-periods/:periodId/status",
+  authenticate,
+  authorizeRoles("super_admin", "manager"),
+  validateAccountingPeriodStatusPayload,
+  updateAccountingPeriodStatusController
 );
 
 module.exports = router;

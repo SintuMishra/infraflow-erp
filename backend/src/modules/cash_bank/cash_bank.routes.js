@@ -25,7 +25,7 @@ router.get(
 router.post(
   "/bank-accounts",
   authenticate,
-  authorizeRoles("super_admin", "manager", "hr"),
+  authorizeRoles("super_admin", "manager"),
   validateCreateBankAccountPayload,
   createBankAccountController
 );
@@ -33,7 +33,7 @@ router.post(
 router.patch(
   "/bank-accounts/:id/status",
   authenticate,
-  authorizeRoles("super_admin", "manager", "hr"),
+  authorizeRoles("super_admin", "manager"),
   validateBankAccountStatusPayload,
   updateBankAccountStatusController
 );
@@ -41,7 +41,7 @@ router.patch(
 router.post(
   "/vouchers",
   authenticate,
-  authorizeRoles("super_admin", "manager", "hr"),
+  authorizeRoles("super_admin", "manager"),
   validateCreateCashBankVoucherPayload,
   createCashBankVoucherController
 );

@@ -1,0 +1,177 @@
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: erp_postgres
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-construction_erp_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-construction_erp_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - data
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    container_name: erp_redis
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - data
+    logging: *default-logging
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: erp_backend
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 40s
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      ENFORCE_COMPANY_SCOPE: ${ENFORCE_COMPANY_SCOPE:-true}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-construction_erp_db}
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      DB_POOL_MIN: ${DB_POOL_MIN:-2}
+      DB_POOL_IDLE_TIMEOUT_MS: ${DB_POOL_IDLE_TIMEOUT_MS:-30000}
+      DB_POOL_CONNECTION_TIMEOUT_MS: ${DB_POOL_CONNECTION_TIMEOUT_MS:-5000}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      RATE_LIMIT_STORE: ${RATE_LIMIT_STORE:-postgres}
+      ACCESS_TOKEN_TTL_MINUTES: ${ACCESS_TOKEN_TTL_MINUTES:-30}
+      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-14}
+      LOGIN_RATE_LIMIT_WINDOW_MS: ${LOGIN_RATE_LIMIT_WINDOW_MS:-900000}
+      LOGIN_RATE_LIMIT_MAX_ATTEMPTS: ${LOGIN_RATE_LIMIT_MAX_ATTEMPTS:-5}
+      PASSWORD_RESET_RATE_LIMIT_WINDOW_MS: ${PASSWORD_RESET_RATE_LIMIT_WINDOW_MS:-900000}
+      PASSWORD_RESET_RATE_LIMIT_MAX_ATTEMPTS: ${PASSWORD_RESET_RATE_LIMIT_MAX_ATTEMPTS:-5}
+      ONBOARDING_RATE_LIMIT_WINDOW_MS: ${ONBOARDING_RATE_LIMIT_WINDOW_MS:-900000}
+      ONBOARDING_RATE_LIMIT_MAX_ATTEMPTS: ${ONBOARDING_RATE_LIMIT_MAX_ATTEMPTS:-10}
+      AUTH_REFRESH_RATE_LIMIT_WINDOW_MS: ${AUTH_REFRESH_RATE_LIMIT_WINDOW_MS:-300000}
+      AUTH_REFRESH_RATE_LIMIT_MAX_ATTEMPTS: ${AUTH_REFRESH_RATE_LIMIT_MAX_ATTEMPTS:-20}
+      PASSWORD_RESET_TOKEN_TTL_MINUTES: ${PASSWORD_RESET_TOKEN_TTL_MINUTES:-15}
+      EXPOSE_PASSWORD_RESET_TOKEN: ${EXPOSE_PASSWORD_RESET_TOKEN:-false}
+      ONBOARDING_BOOTSTRAP_SECRET: ${ONBOARDING_BOOTSTRAP_SECRET:-}
+      PLATFORM_OWNER_COMPANY_ID: ${PLATFORM_OWNER_COMPANY_ID:-}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5000/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - app
+      - data
+    logging: *default-logging
+
+  web:
+    build:
+      context: ./web_admin
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    container_name: erp_web
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${WEB_BIND_IP:-127.0.0.1}:${WEB_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - app
+      - edge
+    logging: *default-logging
+
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: erp_backend_migrate
+    profiles: ["ops"]
+    init: true
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-construction_erp_db}
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      DB_POOL_MIN: ${DB_POOL_MIN:-2}
+      DB_POOL_IDLE_TIMEOUT_MS: ${DB_POOL_IDLE_TIMEOUT_MS:-30000}
+      DB_POOL_CONNECTION_TIMEOUT_MS: ${DB_POOL_CONNECTION_TIMEOUT_MS:-5000}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      RATE_LIMIT_STORE: ${RATE_LIMIT_STORE:-postgres}
+      ACCESS_TOKEN_TTL_MINUTES: ${ACCESS_TOKEN_TTL_MINUTES:-30}
+      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-14}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["node", "src/scripts/runMigrations.js"]
+    restart: "no"
+    networks:
+      - data
+    logging: *default-logging
+
+networks:
+  edge:
+    driver: bridge
+  app:
+    driver: bridge
+  data:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

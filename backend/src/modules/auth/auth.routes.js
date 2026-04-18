@@ -2,7 +2,9 @@ const express = require("express");
 const {
   getAuthStatus,
   getCompanyLoginContextController,
+  logoutSessionController,
   registerUser,
+  refreshSessionController,
   login,
   changePasswordController,
   getAuthenticatedProfileController,
@@ -18,6 +20,8 @@ const {
   validateForgotPasswordInput,
   validateResetPasswordInput,
   validateAdminResetPasswordInput,
+  validateRefreshSessionInput,
+  validateLogoutSessionInput,
   validateUpdateSelfProfileInput,
 } = require("./auth.validation");
 const { authenticate } = require("../../middlewares/auth.middleware");
@@ -25,6 +29,7 @@ const { authorizeRoles } = require("../../middlewares/role.middleware");
 const {
   loginRateLimiter,
   passwordResetRateLimiter,
+  authRefreshRateLimiter,
 } = require("../../middlewares/rateLimit.middleware");
 
 const router = express.Router();
@@ -39,6 +44,18 @@ router.post(
   registerUser
 );
 router.post("/login", loginRateLimiter, validateLoginInput, login);
+router.post(
+  "/refresh",
+  authRefreshRateLimiter,
+  validateRefreshSessionInput,
+  refreshSessionController
+);
+router.post(
+  "/logout",
+  authenticate,
+  validateLogoutSessionInput,
+  logoutSessionController
+);
 router.post(
   "/forgot-password",
   passwordResetRateLimiter,

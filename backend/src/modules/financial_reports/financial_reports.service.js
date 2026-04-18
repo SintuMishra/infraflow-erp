@@ -1,4 +1,5 @@
 const { pool } = require("../../config/db");
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 const requireCompanyId = (companyId) => {
   const normalized = Number(companyId || 0);
@@ -10,7 +11,36 @@ const requireCompanyId = (companyId) => {
   return normalized;
 };
 
-const buildDateWhere = (prefix, values, dateFrom, dateTo, field = "v.voucher_date") => {
+const normalizeDate = (value, label) => {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  if (!ISO_DATE_PATTERN.test(text)) {
+    const error = new Error(`${label} must use YYYY-MM-DD format`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return text;
+};
+
+const normalizeDateRange = ({ dateFrom = "", dateTo = "" }) => {
+  const normalizedDateFrom = normalizeDate(dateFrom, "dateFrom");
+  const normalizedDateTo = normalizeDate(dateTo, "dateTo");
+
+  if (normalizedDateFrom && normalizedDateTo && normalizedDateTo < normalizedDateFrom) {
+    const error = new Error("dateTo cannot be earlier than dateFrom");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return {
+    dateFrom: normalizedDateFrom,
+    dateTo: normalizedDateTo,
+  };
+};
+
+const buildDateWhere = (values, dateFrom, dateTo, field = "v.voucher_date") => {
   const conditions = [];
   if (dateFrom) {
     values.push(dateFrom);
@@ -23,8 +53,8 @@ const buildDateWhere = (prefix, values, dateFrom, dateTo, field = "v.voucher_dat
   return conditions.length ? ` AND ${conditions.join(" AND ")}` : "";
 };
 
-const appendRunningBalance = (rows = []) => {
-  let running = 0;
+const appendRunningBalance = (rows = [], openingBalance = 0) => {
+  let running = Number(openingBalance || 0);
   return rows.map((row) => {
     running += Number(row.debit || 0) - Number(row.credit || 0);
     return {
@@ -34,10 +64,30 @@ const appendRunningBalance = (rows = []) => {
   });
 };
 
+const buildAgeingBucketTotals = (rows = []) =>
+  rows.reduce(
+    (acc, row) => {
+      const bucket = String(row.ageingBucket || "current");
+      const amount = Number(row.outstandingAmount || 0);
+      acc[bucket] = Number(acc[bucket] || 0) + amount;
+      acc.totalOutstanding += amount;
+      return acc;
+    },
+    {
+      current: 0,
+      "1-30": 0,
+      "31-60": 0,
+      "61-90": 0,
+      "90+": 0,
+      totalOutstanding: 0,
+    }
+  );
+
 const getTrialBalanceReport = async ({ companyId, dateFrom = "", dateTo = "" }) => {
   const normalizedCompanyId = requireCompanyId(companyId);
+  const range = normalizeDateRange({ dateFrom, dateTo });
   const values = [normalizedCompanyId];
-  const dateClause = buildDateWhere("tb", values, dateFrom, dateTo);
+  const dateClause = buildDateWhere(values, range.dateFrom, range.dateTo);
 
   const result = await pool.query(
     `
@@ -46,15 +96,18 @@ const getTrialBalanceReport = async ({ companyId, dateFrom = "", dateTo = "" }) 
       a.account_code AS "accountCode",
       a.account_name AS "accountName",
       ag.group_name AS "groupName",
-      COALESCE(SUM(vl.debit), 0)::numeric AS "debit",
-      COALESCE(SUM(vl.credit), 0)::numeric AS "credit",
-      COALESCE(SUM(vl.debit - vl.credit), 0)::numeric AS "netBalance"
+      COALESCE(SUM(CASE WHEN v.id IS NULL THEN 0 ELSE vl.debit END), 0)::numeric AS "debit",
+      COALESCE(SUM(CASE WHEN v.id IS NULL THEN 0 ELSE vl.credit END), 0)::numeric AS "credit",
+      COALESCE(
+        SUM(CASE WHEN v.id IS NULL THEN 0 ELSE vl.debit - vl.credit END),
+        0
+      )::numeric AS "netBalance"
     FROM chart_of_accounts a
     INNER JOIN account_groups ag ON ag.id = a.account_group_id
     LEFT JOIN voucher_lines vl ON vl.account_id = a.id AND vl.company_id = a.company_id
     LEFT JOIN vouchers v ON v.id = vl.voucher_id
       AND v.company_id = a.company_id
-      AND v.status IN ('posted', 'reversed')
+      AND v.status = 'posted'
       ${dateClause}
     WHERE a.company_id = $1
       AND a.is_active = TRUE
@@ -74,13 +127,21 @@ const getTrialBalanceReport = async ({ companyId, dateFrom = "", dateTo = "" }) 
   );
 
   return {
-    rows: result.rows,
+    rows: result.rows.map((row) => {
+      const netBalance = Number(row.netBalance || 0);
+      return {
+        ...row,
+        closingDebit: netBalance >= 0 ? netBalance : 0,
+        closingCredit: netBalance < 0 ? Math.abs(netBalance) : 0,
+      };
+    }),
     totals,
   };
 };
 
 const getLedgerReport = async ({ companyId, ledgerId, dateFrom = "", dateTo = "" }) => {
   const normalizedCompanyId = requireCompanyId(companyId);
+  const range = normalizeDateRange({ dateFrom, dateTo });
   const normalizedLedgerId = Number(ledgerId || 0) || null;
   if (!normalizedLedgerId) {
     const error = new Error("Valid ledgerId is required");
@@ -89,7 +150,44 @@ const getLedgerReport = async ({ companyId, ledgerId, dateFrom = "", dateTo = ""
   }
 
   const values = [normalizedCompanyId, normalizedLedgerId];
-  const dateClause = buildDateWhere("l", values, dateFrom, dateTo);
+  const dateClause = buildDateWhere(values, range.dateFrom, range.dateTo);
+
+  const ledgerMetaResult = await pool.query(
+    `
+    SELECT
+      opening_debit AS "openingDebit",
+      opening_credit AS "openingCredit"
+    FROM ledgers
+    WHERE id = $1
+      AND company_id = $2
+    LIMIT 1
+    `,
+    [normalizedLedgerId, normalizedCompanyId]
+  );
+  const ledgerMeta = ledgerMetaResult.rows[0] || null;
+  if (!ledgerMeta) {
+    const error = new Error("Ledger not found in company scope");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  let openingBalance = Number(ledgerMeta.openingDebit || 0) - Number(ledgerMeta.openingCredit || 0);
+  if (range.dateFrom) {
+    const openingTxnResult = await pool.query(
+      `
+      SELECT
+        COALESCE(SUM(vl.debit - vl.credit), 0)::numeric AS "openingMovement"
+      FROM voucher_lines vl
+      INNER JOIN vouchers v ON v.id = vl.voucher_id
+      WHERE vl.company_id = $1
+        AND vl.ledger_id = $2
+        AND v.status = 'posted'
+        AND v.voucher_date < $3::date
+      `,
+      [normalizedCompanyId, normalizedLedgerId, range.dateFrom]
+    );
+    openingBalance += Number(openingTxnResult.rows[0]?.openingMovement || 0);
+  }
 
   const result = await pool.query(
     `
@@ -110,18 +208,22 @@ const getLedgerReport = async ({ companyId, ledgerId, dateFrom = "", dateTo = ""
     INNER JOIN chart_of_accounts a ON a.id = vl.account_id
     WHERE vl.company_id = $1
       AND vl.ledger_id = $2
-      AND v.status IN ('posted', 'reversed')
+      AND v.status = 'posted'
       ${dateClause}
     ORDER BY v.voucher_date ASC, v.id ASC, vl.line_number ASC
     `,
     values
   );
 
-  return appendRunningBalance(result.rows);
+  return {
+    openingBalance,
+    lines: appendRunningBalance(result.rows, openingBalance),
+  };
 };
 
 const getPartyLedgerReport = async ({ companyId, partyId, dateFrom = "", dateTo = "" }) => {
   const normalizedCompanyId = requireCompanyId(companyId);
+  const range = normalizeDateRange({ dateFrom, dateTo });
   const normalizedPartyId = Number(partyId || 0) || null;
   if (!normalizedPartyId) {
     const error = new Error("Valid partyId is required");
@@ -130,7 +232,25 @@ const getPartyLedgerReport = async ({ companyId, partyId, dateFrom = "", dateTo 
   }
 
   const values = [normalizedCompanyId, normalizedPartyId];
-  const dateClause = buildDateWhere("pl", values, dateFrom, dateTo);
+  const dateClause = buildDateWhere(values, range.dateFrom, range.dateTo);
+
+  let openingBalance = 0;
+  if (range.dateFrom) {
+    const openingResult = await pool.query(
+      `
+      SELECT
+        COALESCE(SUM(vl.debit - vl.credit), 0)::numeric AS "openingMovement"
+      FROM voucher_lines vl
+      INNER JOIN vouchers v ON v.id = vl.voucher_id
+      WHERE vl.company_id = $1
+        AND vl.party_id = $2
+        AND v.status = 'posted'
+        AND v.voucher_date < $3::date
+      `,
+      [normalizedCompanyId, normalizedPartyId, range.dateFrom]
+    );
+    openingBalance = Number(openingResult.rows[0]?.openingMovement || 0);
+  }
 
   const result = await pool.query(
     `
@@ -148,18 +268,22 @@ const getPartyLedgerReport = async ({ companyId, partyId, dateFrom = "", dateTo 
     INNER JOIN ledgers l ON l.id = vl.ledger_id
     WHERE vl.company_id = $1
       AND vl.party_id = $2
-      AND v.status IN ('posted', 'reversed')
+      AND v.status = 'posted'
       ${dateClause}
     ORDER BY v.voucher_date ASC, v.id ASC, vl.line_number ASC
     `,
     values
   );
 
-  return appendRunningBalance(result.rows);
+  return {
+    openingBalance,
+    lines: appendRunningBalance(result.rows, openingBalance),
+  };
 };
 
-const getReceivableAgeingReport = async ({ companyId }) => {
+const getReceivableAgeingReport = async ({ companyId, asOfDate = "" }) => {
   const normalizedCompanyId = requireCompanyId(companyId);
+  const normalizedAsOfDate = normalizeDate(asOfDate, "asOfDate") || new Date().toISOString().slice(0, 10);
 
   const result = await pool.query(
     `
@@ -173,12 +297,12 @@ const getReceivableAgeingReport = async ({ companyId }) => {
       r.amount,
       r.outstanding_amount AS "outstandingAmount",
       r.status,
-      GREATEST((CURRENT_DATE - r.due_date), 0)::int AS "overdueDays",
+      GREATEST(($2::date - r.due_date), 0)::int AS "overdueDays",
       CASE
-        WHEN CURRENT_DATE <= r.due_date THEN 'current'
-        WHEN CURRENT_DATE - r.due_date <= 30 THEN '1-30'
-        WHEN CURRENT_DATE - r.due_date <= 60 THEN '31-60'
-        WHEN CURRENT_DATE - r.due_date <= 90 THEN '61-90'
+        WHEN $2::date <= r.due_date THEN 'current'
+        WHEN $2::date - r.due_date <= 30 THEN '1-30'
+        WHEN $2::date - r.due_date <= 60 THEN '31-60'
+        WHEN $2::date - r.due_date <= 90 THEN '61-90'
         ELSE '90+'
       END AS "ageingBucket"
     FROM receivables r
@@ -187,14 +311,19 @@ const getReceivableAgeingReport = async ({ companyId }) => {
       AND r.outstanding_amount > 0
     ORDER BY r.due_date ASC, r.id ASC
     `,
-    [normalizedCompanyId]
+    [normalizedCompanyId, normalizedAsOfDate]
   );
 
-  return appendRunningBalance(result.rows);
+  return {
+    items: result.rows,
+    bucketTotals: buildAgeingBucketTotals(result.rows),
+    asOfDate: normalizedAsOfDate,
+  };
 };
 
-const getPayableAgeingReport = async ({ companyId }) => {
+const getPayableAgeingReport = async ({ companyId, asOfDate = "" }) => {
   const normalizedCompanyId = requireCompanyId(companyId);
+  const normalizedAsOfDate = normalizeDate(asOfDate, "asOfDate") || new Date().toISOString().slice(0, 10);
 
   const result = await pool.query(
     `
@@ -210,12 +339,12 @@ const getPayableAgeingReport = async ({ companyId }) => {
       p.amount,
       p.outstanding_amount AS "outstandingAmount",
       p.status,
-      GREATEST((CURRENT_DATE - p.due_date), 0)::int AS "overdueDays",
+      GREATEST(($2::date - p.due_date), 0)::int AS "overdueDays",
       CASE
-        WHEN CURRENT_DATE <= p.due_date THEN 'current'
-        WHEN CURRENT_DATE - p.due_date <= 30 THEN '1-30'
-        WHEN CURRENT_DATE - p.due_date <= 60 THEN '31-60'
-        WHEN CURRENT_DATE - p.due_date <= 90 THEN '61-90'
+        WHEN $2::date <= p.due_date THEN 'current'
+        WHEN $2::date - p.due_date <= 30 THEN '1-30'
+        WHEN $2::date - p.due_date <= 60 THEN '31-60'
+        WHEN $2::date - p.due_date <= 90 THEN '61-90'
         ELSE '90+'
       END AS "ageingBucket"
     FROM payables p
@@ -225,10 +354,14 @@ const getPayableAgeingReport = async ({ companyId }) => {
       AND p.outstanding_amount > 0
     ORDER BY p.due_date ASC, p.id ASC
     `,
-    [normalizedCompanyId]
+    [normalizedCompanyId, normalizedAsOfDate]
   );
 
-  return appendRunningBalance(result.rows);
+  return {
+    items: result.rows,
+    bucketTotals: buildAgeingBucketTotals(result.rows),
+    asOfDate: normalizedAsOfDate,
+  };
 };
 
 const getVoucherRegisterReport = async ({
@@ -239,6 +372,7 @@ const getVoucherRegisterReport = async ({
   dateTo = "",
 }) => {
   const normalizedCompanyId = requireCompanyId(companyId);
+  const range = normalizeDateRange({ dateFrom, dateTo });
   const values = [normalizedCompanyId];
   const filters = ["v.company_id = $1"];
 
@@ -252,13 +386,13 @@ const getVoucherRegisterReport = async ({
     filters.push(`v.status = $${values.length}`);
   }
 
-  if (dateFrom) {
-    values.push(dateFrom);
+  if (range.dateFrom) {
+    values.push(range.dateFrom);
     filters.push(`v.voucher_date >= $${values.length}::date`);
   }
 
-  if (dateTo) {
-    values.push(dateTo);
+  if (range.dateTo) {
+    values.push(range.dateTo);
     filters.push(`v.voucher_date <= $${values.length}::date`);
   }
 
@@ -289,13 +423,24 @@ const getVoucherRegisterReport = async ({
     values
   );
 
-  return result.rows;
+  return {
+    items: result.rows,
+    totals: result.rows.reduce(
+      (acc, row) => {
+        acc.totalDebit += Number(row.totalDebit || 0);
+        acc.totalCredit += Number(row.totalCredit || 0);
+        return acc;
+      },
+      { totalDebit: 0, totalCredit: 0 }
+    ),
+  };
 };
 
 const getCashBookReport = async ({ companyId, dateFrom = "", dateTo = "" }) => {
   const normalizedCompanyId = requireCompanyId(companyId);
+  const range = normalizeDateRange({ dateFrom, dateTo });
   const values = [normalizedCompanyId];
-  const dateClause = buildDateWhere("cb", values, dateFrom, dateTo);
+  const dateClause = buildDateWhere(values, range.dateFrom, range.dateTo);
 
   const result = await pool.query(
     `
@@ -314,20 +459,30 @@ const getCashBookReport = async ({ companyId, dateFrom = "", dateTo = "" }) => {
     INNER JOIN ledgers l ON l.id = vl.ledger_id
     WHERE vl.company_id = $1
       AND a.account_type = 'cash'
-      AND v.status IN ('posted', 'reversed')
+      AND v.status = 'posted'
       ${dateClause}
     ORDER BY v.voucher_date ASC, v.id ASC, vl.line_number ASC
     `,
     values
   );
 
-  return result.rows;
+  const balances = new Map();
+  return result.rows.map((row) => {
+    const key = String(row.ledgerName || "");
+    const running = Number(balances.get(key) || 0) + Number(row.debit || 0) - Number(row.credit || 0);
+    balances.set(key, running);
+    return {
+      ...row,
+      runningBalance: running,
+    };
+  });
 };
 
 const getBankBookReport = async ({ companyId, dateFrom = "", dateTo = "" }) => {
   const normalizedCompanyId = requireCompanyId(companyId);
+  const range = normalizeDateRange({ dateFrom, dateTo });
   const values = [normalizedCompanyId];
-  const dateClause = buildDateWhere("bb", values, dateFrom, dateTo);
+  const dateClause = buildDateWhere(values, range.dateFrom, range.dateTo);
 
   const result = await pool.query(
     `
@@ -349,14 +504,23 @@ const getBankBookReport = async ({ companyId, dateFrom = "", dateTo = "" }) => {
     LEFT JOIN bank_accounts b ON b.ledger_id = l.id AND b.company_id = vl.company_id
     WHERE vl.company_id = $1
       AND a.account_type = 'bank'
-      AND v.status IN ('posted', 'reversed')
+      AND v.status = 'posted'
       ${dateClause}
     ORDER BY v.voucher_date ASC, v.id ASC, vl.line_number ASC
     `,
     values
   );
 
-  return result.rows;
+  const balances = new Map();
+  return result.rows.map((row) => {
+    const key = String(row.ledgerName || "");
+    const running = Number(balances.get(key) || 0) + Number(row.debit || 0) - Number(row.credit || 0);
+    balances.set(key, running);
+    return {
+      ...row,
+      runningBalance: running,
+    };
+  });
 };
 
 module.exports = {

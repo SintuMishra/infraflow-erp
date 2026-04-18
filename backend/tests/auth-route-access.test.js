@@ -43,3 +43,24 @@ test("auth me profile update route uses authenticate -> validate -> controller s
   ]);
 });
 
+test("auth refresh route uses rate-limit -> validate -> controller sequence", () => {
+  const layer = getRouteLayer("post", "/refresh");
+  const middlewareNames = layer.route.stack.map((item) => item?.name || "");
+
+  assert.deepEqual(middlewareNames, [
+    "<anonymous>",
+    "validateRefreshSessionInput",
+    "refreshSessionController",
+  ]);
+});
+
+test("auth logout route uses authenticate -> validate -> controller sequence", () => {
+  const layer = getRouteLayer("post", "/logout");
+  const middlewareNames = layer.route.stack.map((item) => item?.name || "");
+
+  assert.deepEqual(middlewareNames, [
+    "authenticate",
+    "validateLogoutSessionInput",
+    "logoutSessionController",
+  ]);
+});

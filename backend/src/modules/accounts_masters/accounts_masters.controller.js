@@ -10,6 +10,10 @@ const {
   listFinancialYears,
   createFinancialYear,
   createAccountingPeriod,
+  listAccountingPeriods,
+  updateAccountingPeriodStatus,
+  updateChartOfAccountStatus,
+  updateLedgerStatus,
   bootstrapDefaultAccounts,
   syncPartyAndVendorLedgers,
 } = require("./accounts_masters.service");
@@ -151,6 +155,94 @@ const createAccountingPeriodController = async (req, res) => {
   }
 };
 
+const listAccountingPeriodsController = async (req, res) => {
+  try {
+    const data = await listAccountingPeriods({
+      companyId: req.companyId,
+      financialYearId: req.query.financialYearId,
+      status: req.query.status,
+    });
+
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to load accounting periods");
+  }
+};
+
+const updateChartOfAccountStatusController = async (req, res) => {
+  try {
+    const data = await updateChartOfAccountStatus({
+      companyId: req.companyId,
+      accountId: req.params.accountId,
+      isActive: req.body?.isActive,
+    });
+
+    await recordAuditEvent({
+      action: "finance.chart_of_account.status_updated",
+      actorUserId: req.user?.userId || null,
+      targetType: "chart_of_account",
+      targetId: req.params.accountId,
+      companyId: req.companyId || null,
+      details: { isActive: data?.isActive },
+    });
+
+    return res.status(200).json({ success: true, message: "Account status updated", data });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to update account status");
+  }
+};
+
+const updateLedgerStatusController = async (req, res) => {
+  try {
+    const data = await updateLedgerStatus({
+      companyId: req.companyId,
+      ledgerId: req.params.ledgerId,
+      isActive: req.body?.isActive,
+    });
+
+    await recordAuditEvent({
+      action: "finance.ledger.status_updated",
+      actorUserId: req.user?.userId || null,
+      targetType: "ledger",
+      targetId: req.params.ledgerId,
+      companyId: req.companyId || null,
+      details: { isActive: data?.isActive },
+    });
+
+    return res.status(200).json({ success: true, message: "Ledger status updated", data });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to update ledger status");
+  }
+};
+
+const updateAccountingPeriodStatusController = async (req, res) => {
+  try {
+    const data = await updateAccountingPeriodStatus({
+      companyId: req.companyId,
+      periodId: req.params.periodId,
+      status: req.body?.status,
+      statusNotes: req.body?.statusNotes,
+      userId: req.user?.userId || null,
+    });
+
+    await recordAuditEvent({
+      action: "finance.accounting_period.status_updated",
+      actorUserId: req.user?.userId || null,
+      targetType: "accounting_period",
+      targetId: req.params.periodId,
+      companyId: req.companyId || null,
+      details: {
+        status: data?.status,
+        statusNotes: req.body?.statusNotes || null,
+      },
+    });
+
+    return res.status(200).json({ success: true, message: "Accounting period status updated", data });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to update accounting period status");
+  }
+};
+
 const bootstrapFinanceDefaultsController = async (req, res) => {
   try {
     const data = await bootstrapDefaultAccounts({
@@ -210,6 +302,10 @@ module.exports = {
   listFinancialYearsController,
   createFinancialYearController,
   createAccountingPeriodController,
+  listAccountingPeriodsController,
+  updateChartOfAccountStatusController,
+  updateLedgerStatusController,
+  updateAccountingPeriodStatusController,
   bootstrapFinanceDefaultsController,
   syncPartyVendorLedgersController,
 };

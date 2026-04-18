@@ -23,8 +23,9 @@ const isStrongPassword = (value) => {
 };
 
 const validateLoginInput = (req, res, next) => {
-  const identifier = req.body.username || req.body.identifier;
-  const { password } = req.body;
+  const payload = req.body && typeof req.body === "object" ? req.body : {};
+  const identifier = payload.username || payload.identifier;
+  const { password } = payload;
 
   if (!identifier || !password) {
     return res.status(400).json({
@@ -37,7 +38,8 @@ const validateLoginInput = (req, res, next) => {
 };
 
 const validateCreateUserInput = (req, res, next) => {
-  const { employeeId, role } = req.body;
+  const payload = req.body && typeof req.body === "object" ? req.body : {};
+  const { employeeId, role } = payload;
 
   if (!employeeId || !role) {
     return res.status(400).json({
@@ -58,7 +60,8 @@ const validateCreateUserInput = (req, res, next) => {
 };
 
 const validateChangePasswordInput = (req, res, next) => {
-  const { currentPassword, newPassword } = req.body;
+  const payload = req.body && typeof req.body === "object" ? req.body : {};
+  const { currentPassword, newPassword } = payload;
 
   if (!currentPassword || !newPassword) {
     return res.status(400).json({
@@ -78,8 +81,9 @@ const validateChangePasswordInput = (req, res, next) => {
 };
 
 const validateForgotPasswordInput = (req, res, next) => {
-  const identifier = req.body.username || req.body.identifier;
-  const { mobileNumber } = req.body;
+  const payload = req.body && typeof req.body === "object" ? req.body : {};
+  const identifier = payload.username || payload.identifier;
+  const { mobileNumber } = payload;
 
   if (!identifier || !mobileNumber) {
     return res.status(400).json({
@@ -101,7 +105,8 @@ const validateForgotPasswordInput = (req, res, next) => {
 };
 
 const validateResetPasswordInput = (req, res, next) => {
-  const { resetToken, newPassword } = req.body;
+  const payload = req.body && typeof req.body === "object" ? req.body : {};
+  const { resetToken, newPassword } = payload;
 
   if (!resetToken || !newPassword) {
     return res.status(400).json({
@@ -121,7 +126,8 @@ const validateResetPasswordInput = (req, res, next) => {
 };
 
 const validateAdminResetPasswordInput = (req, res, next) => {
-  const { employeeId } = req.body;
+  const payload = req.body && typeof req.body === "object" ? req.body : {};
+  const { employeeId } = payload;
 
   if (!employeeId) {
     return res.status(400).json({
@@ -187,6 +193,32 @@ const validateUpdateSelfProfileInput = (req, res, next) => {
   next();
 };
 
+const validateRefreshSessionInput = (req, res, next) => {
+  const payload = req.body && typeof req.body === "object" ? req.body : {};
+  const refreshToken = String(payload.refreshToken || "").trim();
+  if (!refreshToken) {
+    return res.status(400).json({
+      success: false,
+      message: "refreshToken is required",
+    });
+  }
+
+  next();
+};
+
+const validateLogoutSessionInput = (req, res, next) => {
+  const payload = req.body && typeof req.body === "object" ? req.body : {};
+  const refreshToken = String(payload.refreshToken || "").trim();
+  if (!refreshToken) {
+    return res.status(400).json({
+      success: false,
+      message: "refreshToken is required",
+    });
+  }
+
+  next();
+};
+
 module.exports = {
   ASSIGNABLE_LOGIN_ROLES,
   STRONG_PASSWORD_MESSAGE,
@@ -195,6 +227,8 @@ module.exports = {
   validateChangePasswordInput,
   validateForgotPasswordInput,
   validateResetPasswordInput,
+  validateRefreshSessionInput,
+  validateLogoutSessionInput,
   validateAdminResetPasswordInput,
   validateUpdateSelfProfileInput,
 };

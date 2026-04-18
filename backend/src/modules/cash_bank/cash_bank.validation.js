@@ -44,12 +44,29 @@ const validateCreateCashBankVoucherPayload = (req, res, next) => {
     return sendValidationError(res, "voucherType is required");
   }
 
+  const normalizedType = String(req.body?.voucherType || "").trim().toLowerCase();
+  if (!["receipt", "payment", "contra"].includes(normalizedType)) {
+    return sendValidationError(res, "voucherType must be receipt/payment/contra");
+  }
+
   if (!req.body?.cashOrBankLedgerId && !req.body?.cashOrBankAccountId) {
     return sendValidationError(res, "cashOrBankLedgerId or cashOrBankAccountId is required");
   }
 
   if (!req.body?.counterAccountId || !req.body?.counterLedgerId) {
     return sendValidationError(res, "counterAccountId and counterLedgerId are required");
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "partyId") && req.body.partyId !== null && req.body.partyId !== undefined && Number(req.body.partyId || 0) <= 0) {
+    return sendValidationError(res, "partyId must be a positive integer when provided");
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "vendorId") && req.body.vendorId !== null && req.body.vendorId !== undefined && Number(req.body.vendorId || 0) <= 0) {
+    return sendValidationError(res, "vendorId must be a positive integer when provided");
+  }
+
+  if (req.body?.partyId && req.body?.vendorId) {
+    return sendValidationError(res, "Provide either partyId or vendorId, not both");
   }
 
   return next();

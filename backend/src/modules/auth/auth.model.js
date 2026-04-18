@@ -496,6 +496,128 @@ const markPasswordResetTokenUsed = async (tokenId) => {
   );
 };
 
+const createAuthRefreshToken = async ({
+  userId,
+  companyId = null,
+  tokenHash,
+  expiresAt,
+  issuedByIp = null,
+  issuedByUserAgent = null,
+  replacedByTokenHash = null,
+}) => {
+  const result = await pool.query(
+    `
+    INSERT INTO auth_refresh_tokens (
+      user_id,
+      company_id,
+      token_hash,
+      expires_at,
+      issued_by_ip,
+      issued_by_user_agent,
+      replaced_by_token_hash
+    )
+    VALUES ($1,$2,$3,$4,$5,$6,$7)
+    RETURNING
+      id,
+      user_id AS "userId",
+      company_id AS "companyId",
+      token_hash AS "tokenHash",
+      expires_at AS "expiresAt",
+      revoked_at AS "revokedAt"
+    `,
+    [
+      userId,
+      companyId,
+      tokenHash,
+      expiresAt,
+      issuedByIp,
+      issuedByUserAgent,
+      replacedByTokenHash,
+    ]
+  );
+
+  return result.rows[0] || null;
+};
+
+const findValidAuthRefreshToken = async ({ tokenHash, companyId = null }) => {
+  const params = [tokenHash];
+  let companyFilter = "";
+
+  if (Number(companyId || 0) > 0) {
+    params.push(Number(companyId));
+    companyFilter = `AND art.company_id = $${params.length}`;
+  }
+
+  const result = await pool.query(
+    `
+    SELECT
+      art.id,
+      art.user_id AS "userId",
+      art.company_id AS "companyId",
+      art.token_hash AS "tokenHash",
+      art.expires_at AS "expiresAt",
+      art.revoked_at AS "revokedAt",
+      u.is_active AS "userIsActive"
+    FROM auth_refresh_tokens art
+    INNER JOIN users u ON u.id = art.user_id
+    WHERE art.token_hash = $1
+      ${companyFilter}
+      AND art.revoked_at IS NULL
+      AND art.expires_at > CURRENT_TIMESTAMP
+    LIMIT 1
+    `,
+    params
+  );
+
+  return result.rows[0] || null;
+};
+
+const revokeAuthRefreshTokenById = async ({
+  tokenId,
+  replacedByTokenHash = null,
+}) => {
+  const result = await pool.query(
+    `
+    UPDATE auth_refresh_tokens
+    SET
+      revoked_at = CURRENT_TIMESTAMP,
+      replaced_by_token_hash = COALESCE($2, replaced_by_token_hash),
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+      AND revoked_at IS NULL
+    `,
+    [tokenId, replacedByTokenHash]
+  );
+
+  return Number(result.rowCount || 0) > 0;
+};
+
+const revokeAllAuthRefreshTokensForUser = async ({
+  userId,
+  companyId = null,
+}) => {
+  const params = [Number(userId)];
+  let companyFilter = "";
+
+  if (Number(companyId || 0) > 0) {
+    params.push(Number(companyId));
+    companyFilter = `AND company_id = $${params.length}`;
+  }
+
+  await pool.query(
+    `
+    UPDATE auth_refresh_tokens
+    SET
+      revoked_at = CURRENT_TIMESTAMP,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE user_id = $1
+      ${companyFilter}
+      AND revoked_at IS NULL
+    `,
+    params
+  );
+};
+
 const setTemporaryPasswordByUserId = async ({
   userId,
   passwordHash,
@@ -673,22 +795,26 @@ const updateUserSelfProfileById = async ({
 
 module.exports = {
   buildEmployeeCodeAlias,
+  createAuthRefreshToken,
   createPasswordResetToken,
-  getUserSelfProfileById,
   findActiveCompanyLoginContextByCode,
   findCompanyAccessById,
-  findUsersByLoginIdentifier,
-  findUserForPasswordRecovery,
+  findValidAuthRefreshToken,
   findValidPasswordResetToken,
-  findUserByUsername,
+  findUserById,
   findUserByEmployeeId,
+  findUserByUsername,
+  findUserForPasswordRecovery,
+  findUsersByLoginIdentifier,
   findEmployeeById,
+  getUserSelfProfileById,
   createUser,
   markPasswordResetTokenUsed,
   revokeActivePasswordResetTokensForUser,
+  revokeAllAuthRefreshTokensForUser,
+  revokeAuthRefreshTokenById,
   setTemporaryPasswordByUserId,
   updateUserSelfProfileById,
   updateLastLogin,
   updatePasswordByUserId,
-  findUserById,
 };

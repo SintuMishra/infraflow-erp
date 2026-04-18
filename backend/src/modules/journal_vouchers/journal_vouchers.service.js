@@ -1,6 +1,9 @@
 const {
   listVoucherEntries,
   createVoucherEntry,
+  submitVoucherEntry,
+  approveVoucherEntry,
+  rejectVoucherEntry,
   postVoucherEntry,
   reverseVoucherEntry,
 } = require("../general_ledger/general_ledger.service");
@@ -41,6 +44,15 @@ const createJournalVoucher = async ({ companyId, voucherType, ...payload }) => {
 const postJournalVoucher = async ({ companyId, voucherId, userId }) =>
   postVoucherEntry({ companyId, voucherId, userId });
 
+const submitJournalVoucher = async ({ companyId, voucherId, userId }) =>
+  submitVoucherEntry({ companyId, voucherId, userId });
+
+const approveJournalVoucher = async ({ companyId, voucherId, userId, approvalNotes = "" }) =>
+  approveVoucherEntry({ companyId, voucherId, userId, approvalNotes });
+
+const rejectJournalVoucher = async ({ companyId, voucherId, userId, rejectionReason = "" }) =>
+  rejectVoucherEntry({ companyId, voucherId, userId, rejectionReason });
+
 const reverseJournalVoucher = async ({
   companyId,
   voucherId,
@@ -59,6 +71,9 @@ const reverseJournalVoucher = async ({
 module.exports = {
   listJournalVouchers,
   createJournalVoucher,
+  submitJournalVoucher,
+  approveJournalVoucher,
+  rejectJournalVoucher,
   postJournalVoucher,
   reverseJournalVoucher,
 };

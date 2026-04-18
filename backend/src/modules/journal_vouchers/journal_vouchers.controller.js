@@ -3,6 +3,9 @@ const { recordAuditEvent } = require("../../utils/audit.util");
 const {
   listJournalVouchers,
   createJournalVoucher,
+  submitJournalVoucher,
+  approveJournalVoucher,
+  rejectJournalVoucher,
   postJournalVoucher,
   reverseJournalVoucher,
 } = require("./journal_vouchers.service");
@@ -101,6 +104,97 @@ const postJournalVoucherController = async (req, res) => {
   }
 };
 
+const submitJournalVoucherController = async (req, res) => {
+  try {
+    const data = await submitJournalVoucher({
+      companyId: req.companyId,
+      voucherId: req.params.id,
+      userId: req.user?.userId || null,
+    });
+
+    await recordAuditEvent({
+      action: "finance.journal_voucher.submitted",
+      actorUserId: req.user?.userId || null,
+      targetType: "voucher",
+      targetId: data.id,
+      companyId: req.companyId || null,
+      details: {
+        voucherNumber: data.voucherNumber,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Voucher submitted successfully",
+      data,
+    });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to submit voucher");
+  }
+};
+
+const approveJournalVoucherController = async (req, res) => {
+  try {
+    const data = await approveJournalVoucher({
+      companyId: req.companyId,
+      voucherId: req.params.id,
+      userId: req.user?.userId || null,
+      approvalNotes: req.body?.approvalNotes || "",
+    });
+
+    await recordAuditEvent({
+      action: "finance.journal_voucher.approved",
+      actorUserId: req.user?.userId || null,
+      targetType: "voucher",
+      targetId: data.id,
+      companyId: req.companyId || null,
+      details: {
+        voucherNumber: data.voucherNumber,
+        approvalNotes: req.body?.approvalNotes || null,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Voucher approved successfully",
+      data,
+    });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to approve voucher");
+  }
+};
+
+const rejectJournalVoucherController = async (req, res) => {
+  try {
+    const data = await rejectJournalVoucher({
+      companyId: req.companyId,
+      voucherId: req.params.id,
+      userId: req.user?.userId || null,
+      rejectionReason: req.body?.rejectionReason || "",
+    });
+
+    await recordAuditEvent({
+      action: "finance.journal_voucher.rejected",
+      actorUserId: req.user?.userId || null,
+      targetType: "voucher",
+      targetId: data.id,
+      companyId: req.companyId || null,
+      details: {
+        voucherNumber: data.voucherNumber,
+        rejectionReason: req.body?.rejectionReason || null,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Voucher rejected successfully",
+      data,
+    });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to reject voucher");
+  }
+};
+
 const reverseJournalVoucherController = async (req, res) => {
   try {
     const data = await reverseJournalVoucher({
@@ -135,6 +229,9 @@ const reverseJournalVoucherController = async (req, res) => {
 module.exports = {
   listJournalVouchersController,
   createJournalVoucherController,
+  submitJournalVoucherController,
+  approveJournalVoucherController,
+  rejectJournalVoucherController,
   postJournalVoucherController,
   reverseJournalVoucherController,
 };

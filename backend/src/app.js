@@ -2,12 +2,14 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
+const { randomBytes, randomUUID } = require("node:crypto");
 
 const apiRoutes = require("./routes");
 const env = require("./config/env");
 const logger = require("./utils/logger");
 
 const app = express();
+app.set("trust proxy", env.trustProxyHops);
 
 const corsOptions =
   env.corsOrigin === "*"
@@ -16,7 +18,22 @@ const corsOptions =
         origin: env.corsOrigin.split(",").map((origin) => origin.trim()),
       };
 
-const morganFormat = env.nodeEnv === "production" ? "combined" : "dev";
+const generateRequestId = () => {
+  if (typeof randomUUID === "function") {
+    return randomUUID();
+  }
+
+  return `req_${randomBytes(12).toString("hex")}`;
+};
+
+morgan.token("request-id", (req, res) => {
+  return res.getHeader("X-Request-Id") || req.requestId || "-";
+});
+
+const morganFormat =
+  env.nodeEnv === "production"
+    ? ":method :url :status :res[content-length] - :response-time ms req_id=:request-id"
+    : "dev req_id=:request-id";
 
 const morganStream = {
   write: (message) => {
@@ -28,15 +45,15 @@ const morganStream = {
 
 app.use(helmet());
 app.use(cors(corsOptions));
+app.use((req, res, next) => {
+  req.requestId = generateRequestId();
+  res.setHeader("X-Request-Id", req.requestId);
+  next();
+});
 app.use(morgan(morganFormat, { stream: morganStream }));
 // Company profile logo is sent as a base64 data URL, so keep payload limits above default.
 app.use(express.json({ limit: "8mb" }));
 app.use(express.urlencoded({ extended: true, limit: "8mb" }));
-app.use((req, res, next) => {
-  req.requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  res.setHeader("X-Request-Id", req.requestId);
-  next();
-});
 
 app.get("/", (req, res) => {
   res.json({
@@ -65,6 +82,7 @@ app.use((error, req, res, next) => {
 
   return res.status(statusCode).json({
     success: false,
+    code: error.code || null,
     message:
       statusCode >= 500
         ? "Unexpected server error"

@@ -58,6 +58,7 @@ const createMockEntries = ({
   credentials = {
     buildUsernameFromEmployeeCode: (employeeCode) => `${employeeCode}2026`,
     generatePasswordResetToken: () => "reset-token-123",
+    generateSessionToken: () => "session-token-123",
     generateTemporaryPassword: () => "Temp!Pass123",
     hashSensitiveToken: (value) => `hashed:${value}`,
   },
@@ -66,11 +67,14 @@ const createMockEntries = ({
   },
   env = {
     passwordResetTokenTtlMinutes: 15,
+    accessTokenTtlMinutes: 30,
+    refreshTokenTtlDays: 14,
   },
 } = {}) => [
   [
     "../src/modules/auth/auth.model.js",
     {
+      createAuthRefreshToken: async () => null,
       createPasswordResetToken: async () => null,
       findActiveCompanyLoginContextByCode: async () => null,
       findCompanyAccessById: async () => ({
@@ -80,6 +84,7 @@ const createMockEntries = ({
         isActive: true,
       }),
       findUsersByLoginIdentifier: async () => [],
+      findValidAuthRefreshToken: async () => null,
       findUserForPasswordRecovery: async () => null,
       findValidPasswordResetToken: async () => null,
       findUserByEmployeeId: async () => null,
@@ -87,6 +92,8 @@ const createMockEntries = ({
       createUser: async () => null,
       markPasswordResetTokenUsed: async () => null,
       revokeActivePasswordResetTokensForUser: async () => null,
+      revokeAllAuthRefreshTokensForUser: async () => null,
+      revokeAuthRefreshTokenById: async () => null,
       setTemporaryPasswordByUserId: async () => null,
       updateLastLogin: async () => null,
       updatePasswordByUserId: async () => null,

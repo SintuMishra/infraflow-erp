@@ -56,7 +56,10 @@ const partyLedgerReportController = async (req, res) => {
 
 const receivableAgeingController = async (req, res) => {
   try {
-    const data = await getReceivableAgeingReport({ companyId: req.companyId });
+    const data = await getReceivableAgeingReport({
+      companyId: req.companyId,
+      asOfDate: req.query.asOfDate,
+    });
     return res.status(200).json({ success: true, data });
   } catch (error) {
     return sendControllerError(req, res, error, "Failed to load receivable ageing report");
@@ -65,7 +68,10 @@ const receivableAgeingController = async (req, res) => {
 
 const payableAgeingController = async (req, res) => {
   try {
-    const data = await getPayableAgeingReport({ companyId: req.companyId });
+    const data = await getPayableAgeingReport({
+      companyId: req.companyId,
+      asOfDate: req.query.asOfDate,
+    });
     return res.status(200).json({ success: true, data });
   } catch (error) {
     return sendControllerError(req, res, error, "Failed to load payable ageing report");

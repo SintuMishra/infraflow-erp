@@ -1,0 +1,19 @@
+services:
+  postgres:
+    restart: always
+    mem_limit: 2048m
+    cpus: 1.50
+  redis:
+    restart: always
+    mem_limit: 512m
+    cpus: 0.50
+  backend:
+    restart: always
+    mem_limit: 1536m
+    cpus: 1.50
+    environment:
+      NODE_ENV: production
+  web:
+    restart: always
+    mem_limit: 384m
+    cpus: 0.75

@@ -82,6 +82,22 @@ const parseBooleanEnv = (key, fallback) => {
   throw new Error(`Environment variable ${key} must be true or false`);
 };
 
+const parseEnumEnv = (key, fallback, allowedValues = []) => {
+  const rawValue =
+    process.env[key] !== undefined && process.env[key] !== null && String(process.env[key]).trim() !== ""
+      ? process.env[key]
+      : fallback;
+
+  const normalizedValue = String(rawValue || "").trim().toLowerCase();
+  if (!allowedValues.includes(normalizedValue)) {
+    throw new Error(
+      `Environment variable ${key} must be one of: ${allowedValues.join(", ")}`
+    );
+  }
+
+  return normalizedValue;
+};
+
 const looksLikePlaceholderSecret = (value) => {
   const normalized = String(value || "").trim().toLowerCase();
 
@@ -134,10 +150,38 @@ const env = {
     10,
     { min: 1 }
   ),
+  authRefreshRateLimitWindowMs: parseIntegerEnv(
+    "AUTH_REFRESH_RATE_LIMIT_WINDOW_MS",
+    5 * 60 * 1000,
+    { min: 1 }
+  ),
+  authRefreshRateLimitMaxAttempts: parseIntegerEnv(
+    "AUTH_REFRESH_RATE_LIMIT_MAX_ATTEMPTS",
+    20,
+    { min: 1 }
+  ),
+  accessTokenTtlMinutes: parseIntegerEnv("ACCESS_TOKEN_TTL_MINUTES", 30, {
+    min: 5,
+    max: 24 * 60,
+  }),
+  refreshTokenTtlDays: parseIntegerEnv("REFRESH_TOKEN_TTL_DAYS", 14, {
+    min: 1,
+    max: 90,
+  }),
+  rateLimitStore: parseEnumEnv(
+    "RATE_LIMIT_STORE",
+    process.env.NODE_ENV === "production" ? "postgres" : "memory",
+    ["memory", "postgres"]
+  ),
   passwordResetTokenTtlMinutes: parseIntegerEnv(
     "PASSWORD_RESET_TOKEN_TTL_MINUTES",
     15,
     { min: 1 }
+  ),
+  trustProxyHops: parseIntegerEnv(
+    "TRUST_PROXY_HOPS",
+    process.env.NODE_ENV === "production" ? 1 : 0,
+    { min: 0, max: 10 }
   ),
   exposePasswordResetToken: parseBooleanEnv(
     "EXPOSE_PASSWORD_RESET_TOKEN",
@@ -153,7 +197,15 @@ const env = {
   dbName: requireEnv("DB_NAME"),
   dbUser: requireEnv("DB_USER"),
   dbPassword: requireEnv("DB_PASSWORD"),
+  dbPoolMax: parseIntegerEnv("DB_POOL_MAX", 20, { min: 1, max: 200 }),
+  dbPoolMin: parseIntegerEnv("DB_POOL_MIN", 2, { min: 0, max: 100 }),
+  dbPoolIdleTimeoutMs: parseIntegerEnv("DB_POOL_IDLE_TIMEOUT_MS", 30000, { min: 1000 }),
+  dbPoolConnectionTimeoutMs: parseIntegerEnv("DB_POOL_CONNECTION_TIMEOUT_MS", 5000, { min: 500 }),
 };
+
+if (env.dbPoolMin > env.dbPoolMax) {
+  throw new Error("DB_POOL_MIN cannot be greater than DB_POOL_MAX");
+}
 
 if (env.nodeEnv === "production" && env.exposePasswordResetToken) {
   throw new Error(

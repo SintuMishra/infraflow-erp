@@ -8,6 +8,7 @@ process.env.DB_USER = process.env.DB_USER || "postgres";
 process.env.DB_PASSWORD = process.env.DB_PASSWORD || "postgres";
 
 const accountsMastersRouter = require("../src/modules/accounts_masters/accounts_masters.routes");
+const generalLedgerRouter = require("../src/modules/general_ledger/general_ledger.routes");
 const journalVouchersRouter = require("../src/modules/journal_vouchers/journal_vouchers.routes");
 const receivablesRouter = require("../src/modules/accounts_receivable/accounts_receivable.routes");
 const payablesRouter = require("../src/modules/accounts_payable/accounts_payable.routes");
@@ -61,6 +62,9 @@ const evaluateRoleGuard = ({ router, method, path, role }) => {
 test("accounts routes keep authenticate then authorize as first two middlewares", () => {
   const checks = [
     [accountsMastersRouter, "post", "/bootstrap-defaults"],
+    [accountsMastersRouter, "patch", "/accounting-periods/:periodId/status"],
+    [generalLedgerRouter, "patch", "/policies"],
+    [generalLedgerRouter, "get", "/workflow/history"],
     [journalVouchersRouter, "post", "/"],
     [receivablesRouter, "post", "/dispatch/:dispatchId/create"],
     [payablesRouter, "post", "/"],
@@ -79,6 +83,8 @@ test("accounts routes keep authenticate then authorize as first two middlewares"
 test("finance write routes allow super_admin/manager and block non-finance ops roles", () => {
   const writeRoutes = [
     { router: accountsMastersRouter, method: "post", path: "/bootstrap-defaults" },
+    { router: accountsMastersRouter, method: "patch", path: "/accounting-periods/:periodId/status" },
+    { router: generalLedgerRouter, method: "patch", path: "/policies" },
     { router: journalVouchersRouter, method: "post", path: "/" },
     { router: receivablesRouter, method: "post", path: "/dispatch/:dispatchId/create" },
     { router: payablesRouter, method: "post", path: "/" },
@@ -94,12 +100,18 @@ test("finance write routes allow super_admin/manager and block non-finance ops r
 
     const deniedOps = evaluateRoleGuard({ ...route, role: "crusher_supervisor" });
     assert.equal(deniedOps.statusCode, 403);
+
+    const deniedHr = evaluateRoleGuard({ ...route, role: "hr" });
+    assert.equal(deniedHr.statusCode, 403);
   });
 });
 
 test("finance read/report routes allow hr and deny unauthenticated users", () => {
   const readRoutes = [
     { router: reportsRouter, method: "get", path: "/trial-balance" },
+    { router: generalLedgerRouter, method: "get", path: "/policies" },
+    { router: generalLedgerRouter, method: "get", path: "/workflow/history" },
+    { router: accountsMastersRouter, method: "get", path: "/accounting-periods" },
     { router: accountsMastersRouter, method: "get", path: "/chart-of-accounts" },
     { router: payablesRouter, method: "get", path: "/" },
   ];

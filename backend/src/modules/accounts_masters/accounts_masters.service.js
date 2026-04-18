@@ -1,4 +1,7 @@
 const { pool, withTransaction } = require("../../config/db");
+const { appendFinanceTransitionLog } = require("../general_ledger/general_ledger.model");
+
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 const requireCompanyId = (companyId) => {
   const normalized = Number(companyId || 0);
@@ -8,6 +11,27 @@ const requireCompanyId = (companyId) => {
     throw error;
   }
   return normalized;
+};
+
+const assertMasterInCompany = async ({ tableName, companyId, id, label }) => {
+  if (!id) {
+    return;
+  }
+  const result = await pool.query(
+    `
+    SELECT id
+    FROM ${tableName}
+    WHERE id = $1
+      AND company_id = $2
+    LIMIT 1
+    `,
+    [Number(id), companyId]
+  );
+  if (!result.rows[0]?.id) {
+    const error = new Error(`${label} is not valid in company scope`);
+    error.statusCode = 400;
+    throw error;
+  }
 };
 
 const listAccountGroups = async ({ companyId }) => {
@@ -58,6 +82,24 @@ const createAccountGroup = async ({
     const error = new Error("nature must be asset/liability/equity/income/expense");
     error.statusCode = 400;
     throw error;
+  }
+
+  if (parentGroupId) {
+    const parentGroup = await pool.query(
+      `
+      SELECT id
+      FROM account_groups
+      WHERE id = $1
+        AND company_id = $2
+      LIMIT 1
+      `,
+      [Number(parentGroupId), normalizedCompanyId]
+    );
+    if (!parentGroup.rows[0]?.id) {
+      const error = new Error("parentGroupId is not valid in company scope");
+      error.statusCode = 400;
+      throw error;
+    }
   }
 
   const result = await pool.query(
@@ -169,6 +211,27 @@ const createChartOfAccount = async ({
   if (!["debit", "credit"].includes(normalizedBalance)) {
     const error = new Error("normalBalance must be debit or credit");
     error.statusCode = 400;
+    throw error;
+  }
+
+  const group = await pool.query(
+    `
+    SELECT id, is_active AS "isActive"
+    FROM account_groups
+    WHERE id = $1
+      AND company_id = $2
+    LIMIT 1
+    `,
+    [Number(accountGroupId), normalizedCompanyId]
+  );
+  if (!group.rows[0]?.id) {
+    const error = new Error("accountGroupId is not valid in company scope");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!group.rows[0].isActive) {
+    const error = new Error("Cannot create account under an inactive account group");
+    error.statusCode = 409;
     throw error;
   }
 
@@ -310,6 +373,53 @@ const createLedger = async ({
     throw error;
   }
 
+  const accountResult = await pool.query(
+    `
+    SELECT id, is_active AS "isActive"
+    FROM chart_of_accounts
+    WHERE id = $1
+      AND company_id = $2
+    LIMIT 1
+    `,
+    [Number(accountId), normalizedCompanyId]
+  );
+  const account = accountResult.rows[0] || null;
+  if (!account) {
+    const error = new Error("accountId is not valid in company scope");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!account.isActive) {
+    const error = new Error("Cannot create ledger against inactive account");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  await assertMasterInCompany({
+    tableName: "party_master",
+    companyId: normalizedCompanyId,
+    id: partyId || null,
+    label: "partyId",
+  });
+  await assertMasterInCompany({
+    tableName: "vendor_master",
+    companyId: normalizedCompanyId,
+    id: vendorId || null,
+    label: "vendorId",
+  });
+  await assertMasterInCompany({
+    tableName: "plant_master",
+    companyId: normalizedCompanyId,
+    id: plantId || null,
+    label: "plantId",
+  });
+  await assertMasterInCompany({
+    tableName: "vehicles",
+    companyId: normalizedCompanyId,
+    id: vehicleId || null,
+    label: "vehicleId",
+  });
+
   const result = await pool.query(
     `
     INSERT INTO ledgers (
@@ -400,6 +510,35 @@ const createFinancialYear = async ({ companyId, fyCode, fyName, startDate, endDa
     throw error;
   }
 
+  const normalizedStartDate = String(startDate || "").trim();
+  const normalizedEndDate = String(endDate || "").trim();
+  if (!ISO_DATE_PATTERN.test(normalizedStartDate) || !ISO_DATE_PATTERN.test(normalizedEndDate)) {
+    const error = new Error("startDate and endDate must use YYYY-MM-DD format");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (normalizedEndDate < normalizedStartDate) {
+    const error = new Error("endDate cannot be before startDate");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const overlapResult = await pool.query(
+    `
+    SELECT id
+    FROM financial_years
+    WHERE company_id = $1
+      AND NOT ($3::date < start_date OR $2::date > end_date)
+    LIMIT 1
+    `,
+    [normalizedCompanyId, normalizedStartDate, normalizedEndDate]
+  );
+  if (overlapResult.rows[0]?.id) {
+    const error = new Error("Financial year overlaps with an existing year");
+    error.statusCode = 409;
+    throw error;
+  }
+
   const result = await pool.query(
     `
     INSERT INTO financial_years (company_id, fy_code, fy_name, start_date, end_date)
@@ -419,8 +558,8 @@ const createFinancialYear = async ({ companyId, fyCode, fyName, startDate, endDa
       normalizedCompanyId,
       String(fyCode).trim(),
       String(fyName).trim(),
-      String(startDate || "").trim(),
-      String(endDate || "").trim(),
+      normalizedStartDate,
+      normalizedEndDate,
     ]
   );
 
@@ -439,6 +578,41 @@ const createAccountingPeriod = async ({
   const normalizedCompanyId = requireCompanyId(companyId);
   if (!Number(financialYearId) || !String(periodCode || "").trim()) {
     const error = new Error("financialYearId and periodCode are required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const normalizedPeriodStart = String(periodStart || "").trim();
+  const normalizedPeriodEnd = String(periodEnd || "").trim();
+  if (!ISO_DATE_PATTERN.test(normalizedPeriodStart) || !ISO_DATE_PATTERN.test(normalizedPeriodEnd)) {
+    const error = new Error("periodStart and periodEnd must use YYYY-MM-DD format");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (normalizedPeriodEnd < normalizedPeriodStart) {
+    const error = new Error("periodEnd cannot be before periodStart");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const yearResult = await pool.query(
+    `
+    SELECT id, start_date AS "startDate", end_date AS "endDate"
+    FROM financial_years
+    WHERE id = $1
+      AND company_id = $2
+    LIMIT 1
+    `,
+    [Number(financialYearId), normalizedCompanyId]
+  );
+  const year = yearResult.rows[0] || null;
+  if (!year) {
+    const error = new Error("financialYearId is not valid in company scope");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (normalizedPeriodStart < String(year.startDate) || normalizedPeriodEnd > String(year.endDate)) {
+    const error = new Error("Accounting period must fall within the selected financial year");
     error.statusCode = 400;
     throw error;
   }
@@ -471,13 +645,383 @@ const createAccountingPeriod = async ({
       Number(financialYearId),
       String(periodCode).trim(),
       String(periodName || "").trim() || String(periodCode).trim(),
-      String(periodStart || "").trim(),
-      String(periodEnd || "").trim(),
+      normalizedPeriodStart,
+      normalizedPeriodEnd,
       String(status || "open").trim().toLowerCase(),
     ]
   );
 
   return result.rows[0] || null;
+};
+
+const listAccountingPeriods = async ({ companyId, financialYearId = null, status = "" }) => {
+  const normalizedCompanyId = requireCompanyId(companyId);
+  const values = [normalizedCompanyId];
+  const filters = ["ap.company_id = $1"];
+
+  if (financialYearId) {
+    values.push(Number(financialYearId));
+    filters.push(`ap.financial_year_id = $${values.length}`);
+  }
+
+  if (status) {
+    values.push(String(status).trim().toLowerCase());
+    filters.push(`ap.status = $${values.length}`);
+  }
+
+  const result = await pool.query(
+    `
+    SELECT
+      ap.id,
+      ap.financial_year_id AS "financialYearId",
+      fy.fy_code AS "financialYearCode",
+      ap.period_code AS "periodCode",
+      ap.period_name AS "periodName",
+      ap.period_start AS "periodStart",
+      ap.period_end AS "periodEnd",
+      ap.status,
+      ap.status_notes AS "statusNotes",
+      ap.closed_by_user_id AS "closedByUserId",
+      ap.closed_at AS "closedAt",
+      ap.reopened_by_user_id AS "reopenedByUserId",
+      ap.reopened_at AS "reopenedAt",
+      ap.created_at AS "createdAt",
+      ap.updated_at AS "updatedAt"
+    FROM accounting_periods ap
+    INNER JOIN financial_years fy ON fy.id = ap.financial_year_id
+    WHERE ${filters.join(" AND ")}
+    ORDER BY ap.period_start DESC, ap.id DESC
+    `,
+    values
+  );
+
+  return result.rows;
+};
+
+const updateChartOfAccountStatus = async ({ companyId, accountId, isActive }) => {
+  const normalizedCompanyId = requireCompanyId(companyId);
+  const normalizedAccountId = Number(accountId || 0) || null;
+
+  if (!normalizedAccountId) {
+    const error = new Error("Valid accountId is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return withTransaction(async (db) => {
+    const accountResult = await db.query(
+      `
+      SELECT id, is_active AS "isActive"
+      FROM chart_of_accounts
+      WHERE id = $1
+        AND company_id = $2
+      FOR UPDATE
+      `,
+      [normalizedAccountId, normalizedCompanyId]
+    );
+    const account = accountResult.rows[0] || null;
+    if (!account) {
+      const error = new Error("Account not found in company scope");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const nextStatus = Boolean(isActive);
+    if (!nextStatus) {
+      const activeLedgerResult = await db.query(
+        `
+        SELECT id
+        FROM ledgers
+        WHERE company_id = $1
+          AND account_id = $2
+          AND is_active = TRUE
+        LIMIT 1
+        `,
+        [normalizedCompanyId, normalizedAccountId]
+      );
+      if (activeLedgerResult.rows[0]?.id) {
+        const error = new Error("Cannot deactivate account while active ledgers exist");
+        error.statusCode = 409;
+        throw error;
+      }
+
+      const postedUsageResult = await db.query(
+        `
+        SELECT 1
+        FROM voucher_lines vl
+        INNER JOIN vouchers v ON v.id = vl.voucher_id
+        WHERE vl.company_id = $1
+          AND vl.account_id = $2
+          AND v.status = 'posted'
+        LIMIT 1
+        `,
+        [normalizedCompanyId, normalizedAccountId]
+      );
+      if (postedUsageResult.rows[0]) {
+        const error = new Error("Cannot deactivate account with posted voucher usage");
+        error.statusCode = 409;
+        throw error;
+      }
+    }
+
+    const result = await db.query(
+      `
+      UPDATE chart_of_accounts
+      SET
+        is_active = $1,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+        AND company_id = $3
+      RETURNING
+        id,
+        account_group_id AS "accountGroupId",
+        account_code AS "accountCode",
+        account_name AS "accountName",
+        account_type AS "accountType",
+        normal_balance AS "normalBalance",
+        allow_direct_posting AS "allowDirectPosting",
+        is_party_control AS "isPartyControl",
+        is_bank_control AS "isBankControl",
+        is_system AS "isSystem",
+        is_active AS "isActive",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      `,
+      [nextStatus, normalizedAccountId, normalizedCompanyId]
+    );
+
+    const updated = result.rows[0] || null;
+    if (updated && Number(userId || 0) > 0) {
+      const action = normalizedStatus === "open" ? "reopen" : "close";
+      await appendFinanceTransitionLog({
+        companyId: normalizedCompanyId,
+        entityType: "accounting_period",
+        entityId: normalizedPeriodId,
+        fromState: currentStatus,
+        toState: normalizedStatus,
+        action,
+        performedByUserId: Number(userId),
+        remarks: normalizedNotes || null,
+        db,
+      });
+    }
+
+    return updated;
+  });
+};
+
+const updateLedgerStatus = async ({ companyId, ledgerId, isActive }) => {
+  const normalizedCompanyId = requireCompanyId(companyId);
+  const normalizedLedgerId = Number(ledgerId || 0) || null;
+
+  if (!normalizedLedgerId) {
+    const error = new Error("Valid ledgerId is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return withTransaction(async (db) => {
+    const ledgerResult = await db.query(
+      `
+      SELECT
+        l.id,
+        l.account_id AS "accountId",
+        l.is_active AS "isActive",
+        a.is_active AS "accountIsActive"
+      FROM ledgers l
+      INNER JOIN chart_of_accounts a ON a.id = l.account_id
+      WHERE l.id = $1
+        AND l.company_id = $2
+      FOR UPDATE
+      `,
+      [normalizedLedgerId, normalizedCompanyId]
+    );
+    const ledger = ledgerResult.rows[0] || null;
+    if (!ledger) {
+      const error = new Error("Ledger not found in company scope");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const nextStatus = Boolean(isActive);
+    if (nextStatus && !ledger.accountIsActive) {
+      const error = new Error("Cannot activate ledger under inactive account");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (!nextStatus) {
+      const postedUsageResult = await db.query(
+        `
+        SELECT 1
+        FROM voucher_lines vl
+        INNER JOIN vouchers v ON v.id = vl.voucher_id
+        WHERE vl.company_id = $1
+          AND vl.ledger_id = $2
+          AND v.status = 'posted'
+        LIMIT 1
+        `,
+        [normalizedCompanyId, normalizedLedgerId]
+      );
+      if (postedUsageResult.rows[0]) {
+        const error = new Error("Cannot deactivate ledger with posted voucher usage");
+        error.statusCode = 409;
+        throw error;
+      }
+
+      const bankAccountResult = await db.query(
+        `
+        SELECT 1
+        FROM bank_accounts
+        WHERE company_id = $1
+          AND ledger_id = $2
+          AND is_active = TRUE
+        LIMIT 1
+        `,
+        [normalizedCompanyId, normalizedLedgerId]
+      );
+      if (bankAccountResult.rows[0]) {
+        const error = new Error("Cannot deactivate ledger mapped to an active bank account");
+        error.statusCode = 409;
+        throw error;
+      }
+    }
+
+    const result = await db.query(
+      `
+      UPDATE ledgers
+      SET
+        is_active = $1,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+        AND company_id = $3
+      RETURNING
+        id,
+        account_id AS "accountId",
+        ledger_code AS "ledgerCode",
+        ledger_name AS "ledgerName",
+        party_id AS "partyId",
+        vendor_id AS "vendorId",
+        plant_id AS "plantId",
+        project_id AS "projectId",
+        vehicle_id AS "vehicleId",
+        currency_code AS "currencyCode",
+        opening_debit AS "openingDebit",
+        opening_credit AS "openingCredit",
+        is_system_generated AS "isSystemGenerated",
+        is_active AS "isActive",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      `,
+      [nextStatus, normalizedLedgerId, normalizedCompanyId]
+    );
+
+    return result.rows[0] || null;
+  });
+};
+
+const updateAccountingPeriodStatus = async ({
+  companyId,
+  periodId,
+  status,
+  statusNotes = "",
+  userId = null,
+}) => {
+  const normalizedCompanyId = requireCompanyId(companyId);
+  const normalizedPeriodId = Number(periodId || 0) || null;
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  const normalizedNotes = String(statusNotes || "").trim() || null;
+
+  if (!normalizedPeriodId) {
+    const error = new Error("Valid periodId is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!["open", "soft_closed", "closed"].includes(normalizedStatus)) {
+    const error = new Error("status must be open/soft_closed/closed");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return withTransaction(async (db) => {
+    const periodResult = await db.query(
+      `
+      SELECT id, status
+      FROM accounting_periods
+      WHERE id = $1
+        AND company_id = $2
+      FOR UPDATE
+      `,
+      [normalizedPeriodId, normalizedCompanyId]
+    );
+    const period = periodResult.rows[0] || null;
+    if (!period) {
+      const error = new Error("Accounting period not found in company scope");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const currentStatus = String(period.status || "").toLowerCase();
+    if (currentStatus === normalizedStatus) {
+      return {
+        id: normalizedPeriodId,
+        status: currentStatus,
+        noChange: true,
+      };
+    }
+
+    if (currentStatus === "open" && !["soft_closed", "closed"].includes(normalizedStatus)) {
+      const error = new Error("Open period can transition only to soft_closed/closed");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (currentStatus === "soft_closed" && !["open", "closed"].includes(normalizedStatus)) {
+      const error = new Error("Soft-closed period can transition only to open/closed");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    if (currentStatus === "closed" && normalizedStatus !== "open") {
+      const error = new Error("Closed period can transition only to open via controlled reopen");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const result = await db.query(
+      `
+      UPDATE accounting_periods
+      SET
+        status = $1::VARCHAR,
+        status_notes = $2,
+        closed_by_user_id = CASE WHEN $1::VARCHAR IN ('soft_closed', 'closed') THEN $3 ELSE closed_by_user_id END,
+        closed_at = CASE WHEN $1::VARCHAR IN ('soft_closed', 'closed') THEN CURRENT_TIMESTAMP ELSE closed_at END,
+        reopened_by_user_id = CASE WHEN $1::VARCHAR = 'open' THEN $3 ELSE reopened_by_user_id END,
+        reopened_at = CASE WHEN $1::VARCHAR = 'open' THEN CURRENT_TIMESTAMP ELSE reopened_at END,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $4
+        AND company_id = $5
+      RETURNING
+        id,
+        financial_year_id AS "financialYearId",
+        period_code AS "periodCode",
+        period_name AS "periodName",
+        period_start AS "periodStart",
+        period_end AS "periodEnd",
+        status,
+        status_notes AS "statusNotes",
+        closed_by_user_id AS "closedByUserId",
+        closed_at AS "closedAt",
+        reopened_by_user_id AS "reopenedByUserId",
+        reopened_at AS "reopenedAt",
+        updated_at AS "updatedAt"
+      `,
+      [normalizedStatus, normalizedNotes, userId || null, normalizedPeriodId, normalizedCompanyId]
+    );
+
+    return result.rows[0] || null;
+  });
 };
 
 const bootstrapDefaultAccounts = async ({ companyId, userId = null }) => {
@@ -766,6 +1310,10 @@ module.exports = {
   listFinancialYears,
   createFinancialYear,
   createAccountingPeriod,
+  listAccountingPeriods,
+  updateAccountingPeriodStatus,
+  updateChartOfAccountStatus,
+  updateLedgerStatus,
   bootstrapDefaultAccounts,
   syncPartyAndVendorLedgers,
 };

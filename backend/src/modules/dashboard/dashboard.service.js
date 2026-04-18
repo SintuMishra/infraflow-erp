@@ -880,7 +880,7 @@ const getCommercialExceptions = async (companyId = null, filters = {}) => {
       const isSlaBreached =
         exceptionAgeDays !== null && Number.isFinite(slaDays) && exceptionAgeDays >= slaDays;
       const isEscalated =
-        item.isReviewed && reviewAgeDays !== null && reviewAgeDays >= 2;
+        item.isReviewed && reviewAgeDays !== null && reviewAgeDays > 2;
 
       return {
         ...item,
@@ -916,11 +916,18 @@ const getCommercialExceptions = async (companyId = null, filters = {}) => {
         normalizedFilters.dateTo === ""
           ? true
           : item.dateValue <= normalizedFilters.dateTo;
-      const matchesReviewed = normalizedFilters.reviewedOnly
-        ? item.isReviewed
-        : normalizedFilters.includeReviewed
-          ? true
-          : !item.isReviewed;
+      const includeReviewedFlag = normalizedFilters.includeReviewed;
+      const reviewedOnlyFlag = normalizedFilters.reviewedOnly;
+
+      const isReviewed = Boolean(item.isReviewed ?? item.reviewed ?? false);
+
+      let matchesReviewed = true;
+
+      if (reviewedOnlyFlag) {
+        matchesReviewed = isReviewed === true;
+      } else if (!includeReviewedFlag) {
+        matchesReviewed = isReviewed === false;
+      }
 
       return (
         matchesParty &&

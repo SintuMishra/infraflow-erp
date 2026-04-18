@@ -8,6 +8,10 @@ const pool = new Pool({
   database: env.dbName,
   user: env.dbUser,
   password: env.dbPassword,
+  max: env.dbPoolMax,
+  min: env.dbPoolMin,
+  idleTimeoutMillis: env.dbPoolIdleTimeoutMs,
+  connectionTimeoutMillis: env.dbPoolConnectionTimeoutMs,
 });
 
 const connectDB = async () => {
@@ -50,9 +54,14 @@ const withTransaction = async (work) => {
   }
 };
 
+const closePool = async () => {
+  await pool.end();
+};
+
 module.exports = {
   pool,
   connectDB,
   checkDbHealth,
+  closePool,
   withTransaction,
 };

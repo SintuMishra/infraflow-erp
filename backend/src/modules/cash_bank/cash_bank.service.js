@@ -174,49 +174,105 @@ const updateBankAccountStatus = async ({ companyId, bankAccountId, isActive, isD
     throw error;
   }
 
-  if (isDefault === true) {
-    await pool.query(
+  return withTransaction(async (db) => {
+    const existingResult = await db.query(
+      `
+      SELECT
+        id,
+        is_active AS "isActive",
+        is_default AS "isDefault"
+      FROM bank_accounts
+      WHERE id = $1
+        AND company_id = $2
+      FOR UPDATE
+      `,
+      [normalizedBankAccountId, normalizedCompanyId]
+    );
+    const existing = existingResult.rows[0] || null;
+    if (!existing) {
+      const error = new Error("Bank account not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const nextIsActive = Boolean(isActive);
+    const nextIsDefault = isDefault === null ? existing.isDefault : Boolean(isDefault);
+
+    if (!nextIsActive && nextIsDefault) {
+      const replacement = await db.query(
+        `
+        SELECT id
+        FROM bank_accounts
+        WHERE company_id = $1
+          AND id <> $2
+          AND is_active = TRUE
+        ORDER BY id ASC
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [normalizedCompanyId, normalizedBankAccountId]
+      );
+
+      if (!replacement.rows[0]?.id) {
+        const error = new Error("Cannot deactivate default bank account without another active bank account");
+        error.statusCode = 409;
+        throw error;
+      }
+
+      await db.query(
+        `
+        UPDATE bank_accounts
+        SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP
+        WHERE company_id = $1
+        `,
+        [normalizedCompanyId]
+      );
+
+      await db.query(
+        `
+        UPDATE bank_accounts
+        SET is_default = TRUE, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND company_id = $2
+        `,
+        [replacement.rows[0].id, normalizedCompanyId]
+      );
+    } else if (nextIsDefault) {
+      await db.query(
+        `
+        UPDATE bank_accounts
+        SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP
+        WHERE company_id = $1
+        `,
+        [normalizedCompanyId]
+      );
+    }
+
+    const result = await db.query(
       `
       UPDATE bank_accounts
-      SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP
-      WHERE company_id = $1
+      SET
+        is_active = $1,
+        is_default = $2,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $3 AND company_id = $4
+      RETURNING
+        id,
+        account_name AS "accountName",
+        bank_name AS "bankName",
+        branch_name AS "branchName",
+        account_number AS "accountNumber",
+        ifsc_code AS "ifscCode",
+        ledger_id AS "ledgerId",
+        is_default AS "isDefault",
+        is_active AS "isActive",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
       `,
-      [normalizedCompanyId]
+      [nextIsActive, nextIsDefault && nextIsActive, normalizedBankAccountId, normalizedCompanyId]
     );
-  }
 
-  const result = await pool.query(
-    `
-    UPDATE bank_accounts
-    SET
-      is_active = $1,
-      is_default = COALESCE($2, is_default),
-      updated_at = CURRENT_TIMESTAMP
-    WHERE id = $3 AND company_id = $4
-    RETURNING
-      id,
-      account_name AS "accountName",
-      bank_name AS "bankName",
-      branch_name AS "branchName",
-      account_number AS "accountNumber",
-      ifsc_code AS "ifscCode",
-      ledger_id AS "ledgerId",
-      is_default AS "isDefault",
-      is_active AS "isActive",
-      created_at AS "createdAt",
-      updated_at AS "updatedAt"
-    `,
-    [Boolean(isActive), isDefault === null ? null : Boolean(isDefault), normalizedBankAccountId, normalizedCompanyId]
-  );
-
-  const row = result.rows[0] || null;
-  if (!row) {
-    const error = new Error("Bank account not found");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  return row;
+    return result.rows[0] || null;
+  });
 };
 
 const createCashBankVoucher = async ({
@@ -361,27 +417,28 @@ const createCashBankVoucher = async ({
     },
   ];
 
-  const voucher = await createVoucher({
-    companyId: normalizedCompanyId,
-    voucherType: normalizedType,
-    voucherDate: String(voucherDate || "").trim(),
-    approvalStatus: "approved",
-    narration: String(narration || "").trim() || `${normalizedType} transaction`,
-    sourceModule: "cash_bank",
-    sourceRecordId: null,
-    sourceEvent: "cash_bank_manual",
-    lines,
-    createdByUserId: userId,
-  });
+  return withTransaction(async (db) => {
+    const voucher = await createVoucher({
+      companyId: normalizedCompanyId,
+      voucherType: normalizedType,
+      voucherDate: String(voucherDate || "").trim(),
+      approvalStatus: autoPost ? "approved" : "draft",
+      narration: String(narration || "").trim() || `${normalizedType} transaction`,
+      lines,
+      createdByUserId: userId,
+      db,
+    });
 
-  if (!autoPost) {
-    return voucher;
-  }
+    if (!autoPost) {
+      return voucher;
+    }
 
-  return postVoucher({
-    voucherId: voucher.id,
-    companyId: normalizedCompanyId,
-    postedByUserId: userId,
+    return postVoucher({
+      voucherId: voucher.id,
+      companyId: normalizedCompanyId,
+      postedByUserId: userId,
+      db,
+    });
   });
 };
 

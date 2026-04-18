@@ -3,11 +3,13 @@ const jwt = require("jsonwebtoken");
 const env = require("../../config/env");
 
 const {
+  createAuthRefreshToken,
   createPasswordResetToken,
   findCompanyAccessById,
   findActiveCompanyLoginContextByCode,
   findUsersByLoginIdentifier,
   findUserForPasswordRecovery,
+  findValidAuthRefreshToken,
   findValidPasswordResetToken,
   findUserByEmployeeId,
   findEmployeeById,
@@ -15,6 +17,8 @@ const {
   getUserSelfProfileById,
   markPasswordResetTokenUsed,
   revokeActivePasswordResetTokensForUser,
+  revokeAllAuthRefreshTokensForUser,
+  revokeAuthRefreshTokenById,
   setTemporaryPasswordByUserId,
   updateUserSelfProfileById,
   updateLastLogin,
@@ -24,6 +28,7 @@ const {
 const {
   buildUsernameFromEmployeeCode,
   generatePasswordResetToken,
+  generateSessionToken,
   generateTemporaryPassword,
   hashSensitiveToken,
 } = require("../../utils/loginCredentials.util");
@@ -41,6 +46,70 @@ const PLATFORM_OWNER_COMPANY_ID =
   Number.isInteger(env.platformOwnerCompanyId) && env.platformOwnerCompanyId > 0
     ? env.platformOwnerCompanyId
     : null;
+
+const buildAccessTokenPayload = ({
+  user,
+  companyId,
+  mustChangePassword,
+}) => ({
+  userId: user.id,
+  employeeId: user.employeeId,
+  username: user.username,
+  role: user.role,
+  companyId,
+  mustChangePassword: Boolean(mustChangePassword),
+  tokenType: "access",
+});
+
+const issueAuthSession = async ({
+  user,
+  companyId,
+  mustChangePassword = false,
+  requestedByIp = null,
+  requestedByUserAgent = null,
+}) => {
+  const accessToken = jwt.sign(
+    buildAccessTokenPayload({
+      user,
+      companyId,
+      mustChangePassword,
+    }),
+    env.jwtSecret,
+    { expiresIn: `${env.accessTokenTtlMinutes}m` }
+  );
+
+  const refreshToken = generateSessionToken();
+  const refreshTokenHash = hashSensitiveToken(refreshToken);
+  const refreshTokenExpiresAt = new Date(
+    Date.now() + env.refreshTokenTtlDays * 24 * 60 * 60 * 1000
+  );
+
+  try {
+    await createAuthRefreshToken({
+      userId: user.id,
+      companyId: companyId || null,
+      tokenHash: refreshTokenHash,
+      expiresAt: refreshTokenExpiresAt,
+      issuedByIp: requestedByIp,
+      issuedByUserAgent: requestedByUserAgent,
+    });
+  } catch (error) {
+    if (error?.code === "42P01") {
+      const migrationError = new Error(
+        "Auth session storage is not initialized. Run latest migrations."
+      );
+      migrationError.statusCode = 503;
+      throw migrationError;
+    }
+    throw error;
+  }
+
+  return {
+    token: accessToken,
+    refreshToken,
+    refreshTokenExpiresAt,
+  };
+};
 
 const getAuthModuleInfo = async () => {
   return {
@@ -188,10 +257,11 @@ const enforceLoginIntentRules = ({
 const loginUser = async ({
   identifier,
   password,
-  jwtSecret,
   companyId,
   loginIntent = "",
   expectedCompanyId = null,
+  requestedByIp = null,
+  requestedByUserAgent = null,
 }) => {
   const user = await resolveMatchingUser({
     identifier,
@@ -228,21 +298,18 @@ const loginUser = async ({
 
   const companyProfile = await getCompanyProfile(resolvedCompanyId);
 
-  const token = jwt.sign(
-    {
-      userId: user.id,
-      employeeId: user.employeeId,
-      username: user.username,
-      role: user.role,
-      companyId: resolvedCompanyId,
-      mustChangePassword: Boolean(user.mustChangePassword),
-    },
-    jwtSecret,
-    { expiresIn: "1d" }
-  );
+  const session = await issueAuthSession({
+    user,
+    companyId: resolvedCompanyId,
+    mustChangePassword: Boolean(user.mustChangePassword),
+    requestedByIp,
+    requestedByUserAgent,
+  });
 
   return {
-    token,
+    token: session.token,
+    refreshToken: session.refreshToken,
+    refreshTokenExpiresAt: session.refreshTokenExpiresAt,
     mustChangePassword: user.mustChangePassword,
     user: {
       id: user.id,
@@ -271,7 +338,8 @@ const changePassword = async ({
   companyId,
   currentPassword,
   newPassword,
-  jwtSecret,
+  requestedByIp = null,
+  requestedByUserAgent = null,
 }) => {
   const user = await findUserById(userId, companyId);
 
@@ -294,6 +362,10 @@ const changePassword = async ({
     userId: user.id,
     passwordHash: newPasswordHash,
   });
+  await revokeAllAuthRefreshTokensForUser({
+    userId: user.id,
+    companyId: user.companyId || companyId || null,
+  });
 
   const refreshedUser = await findUserById(user.id, companyId);
 
@@ -312,21 +384,18 @@ const changePassword = async ({
     },
   });
 
-  const token = jwt.sign(
-    {
-      userId: refreshedUser.id,
-      employeeId: refreshedUser.employeeId,
-      username: refreshedUser.username,
-      role: refreshedUser.role,
-      companyId: refreshedUser.companyId || companyId || null,
-      mustChangePassword: false,
-    },
-    jwtSecret,
-    { expiresIn: "1d" }
-  );
+  const session = await issueAuthSession({
+    user: refreshedUser,
+    companyId: refreshedUser.companyId || companyId || null,
+    mustChangePassword: false,
+    requestedByIp,
+    requestedByUserAgent,
+  });
 
   return {
-    token,
+    token: session.token,
+    refreshToken: session.refreshToken,
+    refreshTokenExpiresAt: session.refreshTokenExpiresAt,
     user: {
       id: refreshedUser.id,
       employeeId: refreshedUser.employeeId,
@@ -422,6 +491,10 @@ const resetForgottenPassword = async ({
   });
 
   await markPasswordResetTokenUsed(resetRecord.id);
+  await revokeAllAuthRefreshTokensForUser({
+    userId: resetRecord.userId,
+    companyId: resetRecord.companyId || companyId || null,
+  });
 
   await recordAuditEvent({
     action: "auth.password_reset_completed",
@@ -463,6 +536,10 @@ const adminResetPassword = async ({
     user.id,
     user.companyId || companyId || null
   );
+  await revokeAllAuthRefreshTokensForUser({
+    userId: user.id,
+    companyId: user.companyId || companyId || null,
+  });
 
   const refreshedUser = await findUserById(user.id, companyId);
 
@@ -486,6 +563,132 @@ const adminResetPassword = async ({
     temporaryPassword,
     mustChangePassword: true,
   };
+};
+
+const refreshAuthSession = async ({
+  refreshToken,
+  companyId = null,
+  requestedByIp = null,
+  requestedByUserAgent = null,
+}) => {
+  const tokenHash = hashSensitiveToken(refreshToken);
+  const refreshTokenRecord = await findValidAuthRefreshToken({
+    tokenHash,
+    companyId,
+  });
+
+  if (!refreshTokenRecord || !refreshTokenRecord.userIsActive) {
+    throw new Error("INVALID_REFRESH_TOKEN");
+  }
+
+  const user = await findUserById(
+    refreshTokenRecord.userId,
+    refreshTokenRecord.companyId || companyId || null
+  );
+  if (!user || !user.isActive) {
+    throw new Error("INVALID_REFRESH_TOKEN");
+  }
+
+  const nextRefreshToken = generateSessionToken();
+  const nextRefreshTokenHash = hashSensitiveToken(nextRefreshToken);
+  const nextRefreshTokenExpiresAt = new Date(
+    Date.now() + env.refreshTokenTtlDays * 24 * 60 * 60 * 1000
+  );
+
+  const revoked = await revokeAuthRefreshTokenById({
+    tokenId: refreshTokenRecord.id,
+    replacedByTokenHash: nextRefreshTokenHash,
+  });
+
+  if (!revoked) {
+    // Concurrent refresh replay: token was already rotated/revoked by another request.
+    throw new Error("INVALID_REFRESH_TOKEN");
+  }
+
+  await createAuthRefreshToken({
+    userId: user.id,
+    companyId: refreshTokenRecord.companyId || companyId || null,
+    tokenHash: nextRefreshTokenHash,
+    expiresAt: nextRefreshTokenExpiresAt,
+    issuedByIp: requestedByIp,
+    issuedByUserAgent: requestedByUserAgent,
+  });
+
+  const accessToken = jwt.sign(
+    buildAccessTokenPayload({
+      user,
+      companyId: refreshTokenRecord.companyId || companyId || null,
+      mustChangePassword: Boolean(user.mustChangePassword),
+    }),
+    env.jwtSecret,
+    { expiresIn: `${env.accessTokenTtlMinutes}m` }
+  );
+
+  await recordAuditEvent({
+    action: "auth.session_refreshed",
+    actorUserId: user.id,
+    targetType: "user",
+    targetId: user.id,
+    companyId: refreshTokenRecord.companyId || companyId || null,
+    details: {
+      via: "refresh_token",
+    },
+  });
+
+  return {
+    token: accessToken,
+    refreshToken: nextRefreshToken,
+    refreshTokenExpiresAt: nextRefreshTokenExpiresAt,
+    user: {
+      id: user.id,
+      employeeId: user.employeeId,
+      employeeCode: user.employeeCode,
+      fullName: user.fullName,
+      username: user.username,
+      role: user.role,
+      department: user.department,
+      designation: user.designation,
+      companyId: user.companyId || companyId || null,
+      mustChangePassword: Boolean(user.mustChangePassword),
+    },
+  };
+};
+
+const logoutAuthSession = async ({
+  refreshToken,
+  companyId = null,
+  actorUserId = null,
+}) => {
+  if (!String(refreshToken || "").trim()) {
+    return { success: true };
+  }
+
+  const tokenHash = hashSensitiveToken(refreshToken);
+  const refreshTokenRecord = await findValidAuthRefreshToken({
+    tokenHash,
+    companyId,
+  });
+
+  if (!refreshTokenRecord) {
+    return { success: true };
+  }
+
+  await revokeAuthRefreshTokenById({
+    tokenId: refreshTokenRecord.id,
+  });
+
+  await recordAuditEvent({
+    action: "auth.session_logged_out",
+    actorUserId: actorUserId || refreshTokenRecord.userId || null,
+    targetType: "user",
+    targetId: refreshTokenRecord.userId,
+    companyId: refreshTokenRecord.companyId || companyId || null,
+    details: {
+      via: "refresh_token",
+    },
+  });
+
+  return { success: true };
 };
 
 const getAuthenticatedUserProfile = async ({
@@ -553,6 +756,8 @@ module.exports = {
   createUserAccount,
   initiatePasswordReset,
   loginUser,
+  logoutAuthSession,
+  refreshAuthSession,
   updateAuthenticatedUserProfile,
   changePassword,
   resetForgottenPassword,

@@ -13,6 +13,8 @@ const {
   validateCreateUserInput,
   validateForgotPasswordInput,
   validateResetPasswordInput,
+  validateRefreshSessionInput,
+  validateLogoutSessionInput,
   validateAdminResetPasswordInput,
   validateChangePasswordInput,
 } = require("../src/modules/auth/auth.validation");
@@ -755,4 +757,20 @@ test("admin reset password validation requires employeeId", async () => {
   assert.equal(nextCalled, false);
   assert.equal(res.statusCode, 400);
   assert.equal(res.body.message, "employeeId is required");
+});
+
+test("refresh session validation requires refreshToken", async () => {
+  const { res, nextCalled } = runMiddleware(validateRefreshSessionInput, {});
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.message, "refreshToken is required");
+});
+
+test("logout session validation requires refreshToken", async () => {
+  const { res, nextCalled } = runMiddleware(validateLogoutSessionInput, {});
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.message, "refreshToken is required");
 });

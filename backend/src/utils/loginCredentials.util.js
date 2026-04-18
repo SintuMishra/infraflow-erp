@@ -35,6 +35,7 @@ const generateTemporaryPassword = () => {
 };
 
 const generatePasswordResetToken = () => crypto.randomBytes(24).toString("hex");
+const generateSessionToken = () => crypto.randomBytes(48).toString("hex");
 
 const hashSensitiveToken = (value) =>
   crypto.createHash("sha256").update(String(value || "")).digest("hex");
@@ -43,5 +44,6 @@ module.exports = {
   buildUsernameFromEmployeeCode,
   generateTemporaryPassword,
   generatePasswordResetToken,
+  generateSessionToken,
   hashSensitiveToken,
 };

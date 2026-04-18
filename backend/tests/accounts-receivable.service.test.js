@@ -48,30 +48,33 @@ test("markDispatchReadyForFinance updates dispatch state and source link", async
       [
         "../src/config/db",
         {
-          pool: {
-            query: async (query, params) => {
-              capturedUpdates.push({ query, params });
-              if (/UPDATE dispatch_reports\s+SET\s+can_post_to_finance = TRUE/i.test(query)) {
-                return {
-                  rows: [
-                    {
-                      id: 99,
-                      invoiceNumber: "INV-99",
-                      invoiceDate: "2026-04-18",
-                      totalInvoiceValue: 1000,
-                      partyId: 45,
-                      financeStatus: "ready",
-                      canPostToFinance: true,
-                      financePostingState: "queued",
-                    },
-                  ],
-                };
-              }
+          pool: { query: async () => ({ rows: [] }) },
+          withTransaction: async (work) =>
+            work({
+              query: async (query, params) => {
+                capturedUpdates.push({ query, params });
 
-              return { rows: [] };
-            },
-          },
-          withTransaction: async (work) => work({ query: async () => ({ rows: [] }) }),
+                if (/FROM dispatch_reports/i.test(query) && /FOR UPDATE/i.test(query)) {
+                  return {
+                    rows: [
+                      {
+                        id: 99,
+                        status: "completed",
+                        invoiceNumber: "INV-99",
+                        invoiceDate: "2026-04-18",
+                        totalInvoiceValue: 1000,
+                        partyId: 45,
+                        financeStatus: "not_ready",
+                        canPostToFinance: false,
+                        financePostingState: "none",
+                      },
+                    ],
+                  };
+                }
+
+                return { rows: [] };
+              },
+            }),
         },
       ],
       [
@@ -99,6 +102,93 @@ test("markDispatchReadyForFinance updates dispatch state and source link", async
         capturedUpdates.some((entry) => /finance_source_link_id = \$1/i.test(entry.query)),
         true
       );
+    }
+  );
+});
+
+test("createReceivableFromDispatch returns idempotent response when receivable already exists", async () => {
+  await withMockedModules(
+    "../src/modules/accounts_receivable/accounts_receivable.service.js",
+    [
+      [
+        "../src/config/db",
+        {
+          pool: { query: async () => ({ rows: [] }) },
+          withTransaction: async (work) =>
+            work({
+              query: async (query) => {
+                if (/FROM dispatch_reports/i.test(query)) {
+                  return {
+                    rows: [
+                      {
+                        id: 101,
+                        companyId: 1,
+                        status: "completed",
+                        partyId: 45,
+                        dispatchDate: "2026-04-18",
+                        invoiceNumber: "INV-101",
+                        invoiceDate: "2026-04-18",
+                        invoiceAmount: 4200,
+                        financeStatus: "ready",
+                        canPostToFinance: true,
+                        financePostingState: "queued",
+                        plantId: null,
+                        vehicleId: null,
+                      },
+                    ],
+                  };
+                }
+
+                if (/FROM party_master/i.test(query)) {
+                  return { rows: [{ id: 45 }] };
+                }
+
+                if (/FROM receivables/i.test(query) && /dispatch_report_id/i.test(query)) {
+                  return {
+                    rows: [
+                      {
+                        id: 501,
+                        voucherId: 601,
+                        amount: 4200,
+                        outstandingAmount: 4200,
+                        status: "open",
+                      },
+                    ],
+                  };
+                }
+
+                if (/FROM vouchers/i.test(query) && /voucher_number/i.test(query)) {
+                  return {
+                    rows: [{ id: 601, voucherNumber: "SAL-20260418-0001", status: "posted" }],
+                  };
+                }
+
+                return { rows: [] };
+              },
+            }),
+        },
+      ],
+      [
+        "../src/modules/general_ledger/general_ledger.model",
+        {
+          findPostingRule: async () => null,
+          createVoucher: async () => null,
+          postVoucher: async () => null,
+          upsertFinanceSourceLink: async () => null,
+        },
+      ],
+    ],
+    async ({ createReceivableFromDispatch }) => {
+      const result = await createReceivableFromDispatch({
+        companyId: 1,
+        dispatchId: 101,
+        dueDate: "2026-04-25",
+        userId: 7,
+      });
+
+      assert.equal(result.idempotent, true);
+      assert.equal(result.receivable.id, 501);
+      assert.equal(result.voucher.id, 601);
     }
   );
 });

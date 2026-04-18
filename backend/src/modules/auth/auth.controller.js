@@ -8,6 +8,8 @@ const {
   createUserAccount,
   initiatePasswordReset,
   loginUser,
+  logoutAuthSession,
+  refreshAuthSession,
   changePassword,
   resetForgottenPassword,
   updateAuthenticatedUserProfile,
@@ -85,10 +87,11 @@ const login = async (req, res) => {
     const data = await loginUser({
       identifier: req.body.username || req.body.identifier,
       password: req.body.password,
-      jwtSecret: env.jwtSecret,
       companyId: req.companyId || req.headers["x-company-id"] || null,
       loginIntent,
       expectedCompanyId,
+      requestedByIp: req.ip || req.socket?.remoteAddress || null,
+      requestedByUserAgent: req.headers["user-agent"] || null,
     });
 
     return res.status(200).json({
@@ -191,7 +194,8 @@ const changePasswordController = async (req, res) => {
       companyId: req.companyId || req.user.companyId || null,
       currentPassword: req.body.currentPassword,
       newPassword: req.body.newPassword,
-      jwtSecret: env.jwtSecret,
+      requestedByIp: req.ip || req.socket?.remoteAddress || null,
+      requestedByUserAgent: req.headers["user-agent"] || null,
     });
 
     return res.status(200).json({
@@ -347,12 +351,55 @@ const updateAuthenticatedProfileController = async (req, res) => {
   }
 };
 
+const refreshSessionController = async (req, res) => {
+  try {
+    const data = await refreshAuthSession({
+      refreshToken: req.body.refreshToken,
+      companyId: req.headers["x-company-id"] || null,
+      requestedByIp: req.ip || req.socket?.remoteAddress || null,
+      requestedByUserAgent: req.headers["user-agent"] || null,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Session refreshed successfully",
+      data,
+    });
+  } catch (error) {
+    if (error.message === "INVALID_REFRESH_TOKEN") {
+      return res.status(401).json({
+        success: false,
+        message: "Refresh token is invalid or expired",
+      });
+    }
+    return sendControllerError(req, res, error, "Failed to refresh session");
+  }
+};
+
+const logoutSessionController = async (req, res) => {
+  try {
+    await logoutAuthSession({
+      refreshToken: req.body.refreshToken,
+      companyId: req.companyId || req.headers["x-company-id"] || null,
+      actorUserId: req.user?.userId || null,
+    });
+    return res.status(200).json({
+      success: true,
+      message: "Session logged out successfully",
+    });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to logout session");
+  }
+};
+
 module.exports = {
   getAuthenticatedProfileController,
   getAuthStatus,
   getCompanyLoginContextController,
   registerUser,
   login,
+  logoutSessionController,
+  refreshSessionController,
   changePasswordController,
   forgotPasswordController,
   resetPasswordController,

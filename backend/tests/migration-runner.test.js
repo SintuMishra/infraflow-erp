@@ -37,6 +37,13 @@ test("migration files are ordered and include production hardening migrations", 
     "018_company_billing_invoices.sql",
     "019_accounts_finance_foundation.sql",
     "020_accounts_finance_hardening.sql",
+    "021_accounts_finance_phase3_governance.sql",
+    "022_accounts_finance_control_plane.sql",
+    "023_accounts_finance_phase4_policy_and_history_filters.sql",
+    "024_accounts_finance_policy_operations.sql",
+    "025_accounts_finance_policy_trigger_guards.sql",
+    "026_accounts_finance_system_source_actor_integrity.sql",
+    "027_auth_session_and_rate_limit_hardening.sql",
   ]);
 });
 
@@ -284,4 +291,87 @@ test("accounts finance hardening migration adds settlement and posting safety ra
   assert.match(sql, /Settlement exceeds receivable outstanding amount/i);
   assert.match(sql, /validate_voucher_posting_integrity/i);
   assert.match(sql, /Voucher cannot be posted with unbalanced debit\/credit totals/i);
+});
+
+test("accounts finance control-plane migration adds actor model and immutable transition logs", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/022_accounts_finance_control_plane.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS submitted_by_user_id/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS finance_transition_logs/i);
+  assert.match(sql, /prevent_finance_transition_log_mutation/i);
+  assert.match(sql, /trg_prevent_finance_transition_log_update/i);
+});
+
+test("accounts finance phase4 policy migration adds durable maker-checker policy controls", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/023_accounts_finance_phase4_policy_and_history_filters.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS finance_policy_controls/i);
+  assert.match(sql, /allow_submitter_self_approval BOOLEAN NOT NULL DEFAULT FALSE/i);
+  assert.match(sql, /allow_maker_self_posting BOOLEAN NOT NULL DEFAULT FALSE/i);
+  assert.match(sql, /CREATE OR REPLACE FUNCTION enforce_voucher_maker_checker_policy/i);
+  assert.match(sql, /CREATE TRIGGER trg_enforce_voucher_maker_checker_policy/i);
+  assert.match(sql, /chk_finance_transition_logs_action/i);
+  assert.match(sql, /'close'/i);
+  assert.match(sql, /'reopen'/i);
+});
+
+test("accounts finance phase5 policy operations migration adds operational metadata controls", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/024_accounts_finance_policy_operations.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /ALTER TABLE finance_policy_controls/i);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS last_update_notes/i);
+  assert.match(sql, /fk_finance_policy_controls_updated_by_user/i);
+  assert.match(sql, /chk_finance_policy_controls_notes_len/i);
+  assert.match(sql, /idx_finance_policy_controls_company_updated/i);
+});
+
+test("accounts finance phase5 policy trigger guard migration hardens null-policy behavior", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/025_accounts_finance_policy_trigger_guards.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /CREATE OR REPLACE FUNCTION enforce_voucher_maker_checker_policy/i);
+  assert.match(sql, /COALESCE\(fpc.allow_submitter_self_approval, FALSE\)/i);
+  assert.match(sql, /COALESCE\(policy_maker_self_posting, FALSE\)/i);
+});
+
+test("accounts finance phase5 source actor integrity migration allows source-linked approvals", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/026_accounts_finance_system_source_actor_integrity.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /DROP CONSTRAINT chk_vouchers_phase4_actor_integrity/i);
+  assert.match(sql, /source_module IS NOT NULL/i);
+  assert.match(sql, /source_record_id IS NOT NULL/i);
+});
+
+test("auth session and rate limit hardening migration creates refresh/session safety tables", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/027_auth_session_and_rate_limit_hardening.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS auth_refresh_tokens/i);
+  assert.match(sql, /token_hash VARCHAR\(128\) NOT NULL UNIQUE/i);
+  assert.match(sql, /user_id BIGINT NOT NULL REFERENCES users\(id\) ON DELETE CASCADE/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS rate_limit_counters/i);
+  assert.match(sql, /rate_key VARCHAR\(320\) PRIMARY KEY/i);
+  assert.match(sql, /idx_rate_limit_counters_expiry/i);
 });

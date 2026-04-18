@@ -31,6 +31,15 @@ const validateSettleReceivablePayload = (req, res, next) => {
     return sendValidationError(res, "settlementDate must use YYYY-MM-DD format");
   }
 
+  if (
+    Object.prototype.hasOwnProperty.call(req.body || {}, "bankLedgerId") &&
+    req.body.bankLedgerId !== null &&
+    req.body.bankLedgerId !== undefined &&
+    Number(req.body.bankLedgerId || 0) <= 0
+  ) {
+    return sendValidationError(res, "bankLedgerId must be a positive integer when provided");
+  }
+
   return next();
 };
 

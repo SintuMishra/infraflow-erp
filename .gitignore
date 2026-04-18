@@ -6,3 +6,5 @@ web_admin/node_modules
 web_admin/.env
 web_admin/dist
 .DS_Store
+.env.production
+backups/

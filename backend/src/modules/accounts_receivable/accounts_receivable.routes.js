@@ -25,7 +25,7 @@ router.get(
 router.post(
   "/dispatch/:dispatchId/mark-ready",
   authenticate,
-  authorizeRoles("super_admin", "manager", "hr"),
+  authorizeRoles("super_admin", "manager"),
   validateDispatchReadyPayload,
   markDispatchReadyController
 );
@@ -33,7 +33,7 @@ router.post(
 router.post(
   "/dispatch/:dispatchId/create",
   authenticate,
-  authorizeRoles("super_admin", "manager", "hr"),
+  authorizeRoles("super_admin", "manager"),
   validateCreateReceivableFromDispatchPayload,
   createFromDispatchController
 );
@@ -41,7 +41,7 @@ router.post(
 router.post(
   "/:id/settle",
   authenticate,
-  authorizeRoles("super_admin", "manager", "hr"),
+  authorizeRoles("super_admin", "manager"),
   validateSettleReceivablePayload,
   settleReceivableController
 );

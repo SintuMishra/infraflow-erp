@@ -1,0 +1,22 @@
+services:
+  finance_pg_test:
+    image: postgres:16-alpine
+    container_name: construction_erp_finance_pg_test
+    restart: unless-stopped
+    ports:
+      - "55432:5432"
+    environment:
+      POSTGRES_DB: construction_erp_finance_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d construction_erp_finance_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - finance_pg_test_data:/var/lib/postgresql/data
+
+volumes:
+  finance_pg_test_data:
+    driver: local

@@ -4,11 +4,16 @@ const { authorizeRoles } = require("../../middlewares/role.middleware");
 const {
   listJournalVouchersController,
   createJournalVoucherController,
+  submitJournalVoucherController,
+  approveJournalVoucherController,
+  rejectJournalVoucherController,
   postJournalVoucherController,
   reverseJournalVoucherController,
 } = require("./journal_vouchers.controller");
 const {
   validateCreateJournalVoucherInput,
+  validateApproveJournalVoucherInput,
+  validateRejectJournalVoucherInput,
   validateReverseJournalVoucherInput,
 } = require("./journal_vouchers.validation");
 
@@ -27,6 +32,29 @@ router.post(
   authorizeRoles("super_admin", "manager"),
   validateCreateJournalVoucherInput,
   createJournalVoucherController
+);
+
+router.post(
+  "/:id/submit",
+  authenticate,
+  authorizeRoles("super_admin", "manager"),
+  submitJournalVoucherController
+);
+
+router.post(
+  "/:id/approve",
+  authenticate,
+  authorizeRoles("super_admin", "manager"),
+  validateApproveJournalVoucherInput,
+  approveJournalVoucherController
+);
+
+router.post(
+  "/:id/reject",
+  authenticate,
+  authorizeRoles("super_admin", "manager"),
+  validateRejectJournalVoucherInput,
+  rejectJournalVoucherController
 );
 
 router.post(

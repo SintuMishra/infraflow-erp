@@ -1,10 +1,17 @@
 const { withTransaction, pool } = require("../../config/db");
 const {
+  getFinancePolicyControls,
+  updateFinancePolicyControls,
   createVoucher,
+  submitVoucher,
+  approveVoucher,
+  rejectVoucher,
   postVoucher,
   reverseVoucher,
   listVouchers,
   getVoucherById,
+  getWorkflowInbox,
+  listFinanceTransitionHistory,
 } = require("./general_ledger.model");
 
 const toCompanyId = (value) => {
@@ -25,6 +32,71 @@ const getCompanyIdOrThrow = (companyId) => {
 const listVoucherEntries = async (filters = {}) => {
   const companyId = getCompanyIdOrThrow(filters.companyId);
   return listVouchers({ ...filters, companyId });
+};
+
+const getVoucherWorkflowInbox = async ({ companyId, limit = 50 }) => {
+  const normalizedCompanyId = getCompanyIdOrThrow(companyId);
+  return getWorkflowInbox({
+    companyId: normalizedCompanyId,
+    limit,
+  });
+};
+
+const getFinancePolicySettings = async ({ companyId }) => {
+  const normalizedCompanyId = getCompanyIdOrThrow(companyId);
+  return getFinancePolicyControls({
+    companyId: normalizedCompanyId,
+  });
+};
+
+const updateFinancePolicySettings = async ({
+  companyId,
+  userId,
+  allowSubmitterSelfApproval,
+  allowMakerSelfApproval,
+  allowApproverSelfPosting,
+  allowMakerSelfPosting,
+  lastUpdateNotes = "",
+}) => {
+  const normalizedCompanyId = getCompanyIdOrThrow(companyId);
+
+  return withTransaction((db) =>
+    updateFinancePolicyControls({
+      companyId: normalizedCompanyId,
+      userId,
+      allowSubmitterSelfApproval,
+      allowMakerSelfApproval,
+      allowApproverSelfPosting,
+      allowMakerSelfPosting,
+      lastUpdateNotes,
+      db,
+    })
+  );
+};
+
+const getFinanceTransitionHistory = async ({
+  companyId,
+  entityType = "",
+  entityId = null,
+  action = "",
+  performedByUserId = null,
+  dateFrom = "",
+  dateTo = "",
+  limit = 100,
+  page = 1,
+}) => {
+  const normalizedCompanyId = getCompanyIdOrThrow(companyId);
+  return listFinanceTransitionHistory({
+    companyId: normalizedCompanyId,
+    entityType,
+    entityId,
+    action,
+    performedByUserId,
+    dateFrom,
+    dateTo,
+    limit,
+    page,
+  });
 };
 
 const getVoucherEntryById = async ({ voucherId, companyId }) => {
@@ -51,10 +123,11 @@ const createVoucherEntry = async ({
   voucherType,
   voucherDate,
   accountingPeriodId = null,
-  approvalStatus = "approved",
+  approvalStatus = "draft",
   narration = "",
   sourceModule = null,
   sourceRecordId = null,
+  sourceEvent = null,
   lines = [],
   createdByUserId = null,
   autoPost = false,
@@ -62,15 +135,17 @@ const createVoucherEntry = async ({
   const normalizedCompanyId = getCompanyIdOrThrow(companyId);
 
   return withTransaction(async (db) => {
+    const safeApprovalStatus = String(approvalStatus || "draft").trim().toLowerCase();
     const voucher = await createVoucher({
       companyId: normalizedCompanyId,
       voucherType,
       voucherDate,
       accountingPeriodId,
-      approvalStatus,
+      approvalStatus: safeApprovalStatus,
       narration,
       sourceModule,
       sourceRecordId,
+      sourceEvent,
       lines,
       createdByUserId,
       db,
@@ -80,13 +155,110 @@ const createVoucherEntry = async ({
       return voucher;
     }
 
-    return postVoucher({
+    if (!Number(createdByUserId || 0)) {
+      const error = new Error("createdByUserId is required for auto-post workflow");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const policy = await getFinancePolicyControls({
+      companyId: normalizedCompanyId,
+      db,
+    });
+    if (
+      Number(createdByUserId || 0) > 0 &&
+      (!policy.allowMakerSelfApproval ||
+        !policy.allowSubmitterSelfApproval ||
+        !policy.allowMakerSelfPosting ||
+        !policy.allowApproverSelfPosting)
+    ) {
+      const error = new Error(
+        "Auto-post requires maker-checker policy override. Submit, approve, and post using separate users."
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const submittedVoucher = await submitVoucher({
       voucherId: voucher.id,
+      companyId: normalizedCompanyId,
+      submittedByUserId: createdByUserId,
+      db,
+    });
+
+    const approvedVoucher = await approveVoucher({
+      voucherId: submittedVoucher.id,
+      companyId: normalizedCompanyId,
+      approvedByUserId: createdByUserId,
+      db,
+    });
+
+    return postVoucher({
+      voucherId: approvedVoucher.id,
       companyId: normalizedCompanyId,
       postedByUserId: createdByUserId,
       db,
     });
   });
+};
+
+const submitVoucherEntry = async ({ voucherId, companyId, userId = null }) => {
+  const normalizedCompanyId = getCompanyIdOrThrow(companyId);
+  const normalizedVoucherId = Number(voucherId || 0) || null;
+  if (!normalizedVoucherId) {
+    const error = new Error("Valid voucherId is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return withTransaction((db) =>
+    submitVoucher({
+      voucherId: normalizedVoucherId,
+      companyId: normalizedCompanyId,
+      submittedByUserId: userId,
+      db,
+    })
+  );
+};
+
+const approveVoucherEntry = async ({ voucherId, companyId, userId = null, approvalNotes = "" }) => {
+  const normalizedCompanyId = getCompanyIdOrThrow(companyId);
+  const normalizedVoucherId = Number(voucherId || 0) || null;
+  if (!normalizedVoucherId) {
+    const error = new Error("Valid voucherId is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return withTransaction((db) =>
+    approveVoucher({
+      voucherId: normalizedVoucherId,
+      companyId: normalizedCompanyId,
+      approvedByUserId: userId,
+      approvalNotes,
+      db,
+    })
+  );
+};
+
+const rejectVoucherEntry = async ({ voucherId, companyId, userId = null, rejectionReason = "" }) => {
+  const normalizedCompanyId = getCompanyIdOrThrow(companyId);
+  const normalizedVoucherId = Number(voucherId || 0) || null;
+  if (!normalizedVoucherId) {
+    const error = new Error("Valid voucherId is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return withTransaction((db) =>
+    rejectVoucher({
+      voucherId: normalizedVoucherId,
+      companyId: normalizedCompanyId,
+      rejectedByUserId: userId,
+      rejectionReason,
+      db,
+    })
+  );
 };
 
 const postVoucherEntry = async ({ voucherId, companyId, userId = null }) => {
@@ -221,8 +393,15 @@ const getLedgerBook = async ({
 
 module.exports = {
   listVoucherEntries,
+  getVoucherWorkflowInbox,
+  getFinancePolicySettings,
+  updateFinancePolicySettings,
+  getFinanceTransitionHistory,
   getVoucherEntryById,
   createVoucherEntry,
+  submitVoucherEntry,
+  approveVoucherEntry,
+  rejectVoucherEntry,
   postVoucherEntry,
   reverseVoucherEntry,
   getLedgerBook,

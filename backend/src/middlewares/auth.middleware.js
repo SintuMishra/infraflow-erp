@@ -26,6 +26,12 @@ const authenticate = async (req, res, next) => {
     const token = parts[1];
 
     const decoded = jwt.verify(token, env.jwtSecret);
+    if (decoded?.tokenType && decoded.tokenType !== "access") {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid access token",
+      });
+    }
     const tokenCompanyId = normalizeCompanyId(decoded.companyId);
     const headerCompanyId = normalizeCompanyId(req.headers["x-company-id"]);
 

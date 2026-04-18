@@ -14,6 +14,7 @@ const sendControllerError = (req, res, error, fallbackMessage) => {
 
   return res.status(statusCode).json({
     success: false,
+    code: error?.code || null,
     message:
       isClientError && error?.message ? error.message : fallbackMessage,
     requestId: req.requestId,

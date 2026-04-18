@@ -23,7 +23,7 @@ router.get(
 router.post(
   "/",
   authenticate,
-  authorizeRoles("super_admin", "manager", "hr"),
+  authorizeRoles("super_admin", "manager"),
   validateCreatePayablePayload,
   createPayableController
 );
@@ -31,7 +31,7 @@ router.post(
 router.post(
   "/:id/settle",
   authenticate,
-  authorizeRoles("super_admin", "manager", "hr"),
+  authorizeRoles("super_admin", "manager"),
   validateSettlePayablePayload,
   settlePayableController
 );

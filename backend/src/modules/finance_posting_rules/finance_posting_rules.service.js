@@ -1,4 +1,5 @@
 const { pool } = require("../../config/db");
+const { VOUCHER_TYPES } = require("../general_ledger/general_ledger.model");
 
 const normalizeCompanyId = (value) => {
   const parsed = Number(value || 0);
@@ -84,6 +85,50 @@ const createPostingRule = async ({
     throw error;
   }
 
+  const normalizedVoucherType = String(voucherType || "journal").trim().toLowerCase();
+  if (!VOUCHER_TYPES.has(normalizedVoucherType)) {
+    const error = new Error("voucherType is not supported");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (Boolean(partyRequired) && Boolean(vendorRequired)) {
+    const error = new Error("partyRequired and vendorRequired cannot both be true");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (Number(debitAccountId || 0) === Number(creditAccountId || 0)) {
+    const error = new Error("debitAccountId and creditAccountId must be different");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const accountCheck = await pool.query(
+    `
+    SELECT
+      id,
+      account_code AS "accountCode",
+      is_active AS "isActive"
+    FROM chart_of_accounts
+    WHERE company_id = $1
+      AND id = ANY($2::bigint[])
+    `,
+    [normalizedCompanyId, [Number(debitAccountId), Number(creditAccountId)]]
+  );
+
+  if (accountCheck.rows.length !== 2) {
+    const error = new Error("debitAccountId/creditAccountId must exist in company scope");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (accountCheck.rows.some((row) => !row.isActive)) {
+    const error = new Error("Posting-rule accounts must be active");
+    error.statusCode = 409;
+    throw error;
+  }
+
   const result = await pool.query(
     `
     INSERT INTO finance_posting_rules (
@@ -124,7 +169,7 @@ const createPostingRule = async ({
       normalizedRuleCode,
       normalizedEventName,
       normalizedSource,
-      String(voucherType || "journal").trim().toLowerCase(),
+      normalizedVoucherType,
       Number(debitAccountId || 0),
       Number(creditAccountId || 0),
       Boolean(partyRequired),
