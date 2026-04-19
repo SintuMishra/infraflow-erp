@@ -103,13 +103,27 @@ function AccountsReceivablesPage() {
     }
   };
 
-  const settle = async (receivableId) => {
+  const settle = async (row) => {
+    const receivableId = row.id;
     const draft = settleDrafts[receivableId] || {};
+    const amount = Number(draft.amount || 0);
+    const outstandingAmount = Number(row.outstandingAmount || 0);
     setError("");
     setMessage("");
+
+    if (!(amount > 0)) {
+      setError("Settlement amount must be greater than zero");
+      return;
+    }
+
+    if (amount > outstandingAmount) {
+      setError("Settlement amount cannot exceed outstanding amount");
+      return;
+    }
+
     try {
       await api.post(`/accounts/receivables/${receivableId}/settle`, {
-        amount: Number(draft.amount || 0),
+        amount,
         settlementDate: draft.settlementDate || new Date().toISOString().slice(0, 10),
         referenceNumber: draft.referenceNumber || "",
         notes: draft.notes || "",
@@ -346,7 +360,7 @@ function AccountsReceivablesPage() {
                               }))
                             }
                           />
-                          <button type="button" style={styles.mutedButton} onClick={() => settle(row.id)}>
+                          <button type="button" style={styles.mutedButton} onClick={() => settle(row)}>
                             Settle
                           </button>
                         </div>

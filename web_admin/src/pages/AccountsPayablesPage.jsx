@@ -89,6 +89,18 @@ function AccountsPayablesPage() {
   const createBill = async () => {
     setError("");
     setMessage("");
+    if (!billDraft.partyId && !billDraft.vendorId) {
+      setError("Select either Party or Vendor for payable bill");
+      return;
+    }
+    if (billDraft.partyId && billDraft.vendorId) {
+      setError("Select only one counterparty: Party or Vendor");
+      return;
+    }
+    if (Number(billDraft.amount || 0) <= 0) {
+      setError("Amount must be greater than zero");
+      return;
+    }
     if (billDraft.dueDate && billDraft.billDate && billDraft.dueDate < billDraft.billDate) {
       setError("Due date cannot be earlier than bill date");
       return;
@@ -109,13 +121,27 @@ function AccountsPayablesPage() {
     }
   };
 
-  const settle = async (payableId) => {
+  const settle = async (payable) => {
+    const payableId = payable.id;
     const draft = settleDrafts[payableId] || {};
+    const amount = Number(draft.amount || 0);
+    const outstandingAmount = Number(payable.outstandingAmount || 0);
     setError("");
     setMessage("");
+
+    if (!(amount > 0)) {
+      setError("Settlement amount must be greater than zero");
+      return;
+    }
+
+    if (amount > outstandingAmount) {
+      setError("Settlement amount cannot exceed outstanding amount");
+      return;
+    }
+
     try {
       await api.post(`/accounts/payables/${payableId}/settle`, {
-        amount: Number(draft.amount || 0),
+        amount,
         settlementDate: draft.settlementDate || new Date().toISOString().slice(0, 10),
         referenceNumber: draft.referenceNumber || "",
       });
@@ -309,7 +335,7 @@ function AccountsPayablesPage() {
                               }))
                             }
                           />
-                          <button type="button" style={styles.mutedButton} onClick={() => settle(payable.id)}>
+                          <button type="button" style={styles.mutedButton} onClick={() => settle(payable)}>
                             Settle
                           </button>
                         </div>

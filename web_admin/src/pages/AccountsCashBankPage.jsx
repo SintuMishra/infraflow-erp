@@ -73,6 +73,37 @@ function AccountsCashBankPage() {
     [bankAccounts]
   );
 
+  const accountById = useMemo(
+    () =>
+      accounts.reduce((acc, row) => {
+        acc[String(row.id)] = row;
+        return acc;
+      }, {}),
+    [accounts]
+  );
+
+  const cashBankLedgers = useMemo(
+    () =>
+      ledgers.filter((ledger) => {
+        const account = accountById[String(ledger.accountId)];
+        const accountType = String(account?.accountType || "").toLowerCase();
+        return ["cash", "bank"].includes(accountType) && ledger.isActive !== false;
+      }),
+    [accountById, ledgers]
+  );
+
+  const counterLedgers = useMemo(() => {
+    if (!voucherDraft.counterAccountId) {
+      return [];
+    }
+
+    return ledgers.filter(
+      (ledger) =>
+        String(ledger.accountId) === String(voucherDraft.counterAccountId) &&
+        ledger.isActive !== false
+    );
+  }, [ledgers, voucherDraft.counterAccountId]);
+
   const createBankAccount = async () => {
     setError("");
     setMessage("");
@@ -122,6 +153,26 @@ function AccountsCashBankPage() {
     if (!voucherDraft.cashOrBankLedgerId || !voucherDraft.counterAccountId || !voucherDraft.counterLedgerId) {
       setError("Cash/Bank ledger, counter account, and counter ledger are required");
       return;
+    }
+
+    const selectedCounterLedger = ledgers.find(
+      (row) => String(row.id) === String(voucherDraft.counterLedgerId)
+    );
+    if (
+      !selectedCounterLedger ||
+      String(selectedCounterLedger.accountId) !== String(voucherDraft.counterAccountId)
+    ) {
+      setError("Counter ledger must belong to selected counter account");
+      return;
+    }
+
+    if (voucherDraft.voucherType === "contra") {
+      const selectedCounterAccount = accountById[String(voucherDraft.counterAccountId)];
+      const counterType = String(selectedCounterAccount?.accountType || "").toLowerCase();
+      if (!["cash", "bank"].includes(counterType)) {
+        setError("Contra vouchers require counter account type as Cash or Bank");
+        return;
+      }
     }
 
     try {
@@ -196,8 +247,8 @@ function AccountsCashBankPage() {
             <input style={styles.input} placeholder="Account Number" value={bankDraft.accountNumber} onChange={(e) => setBankDraft((p) => ({ ...p, accountNumber: e.target.value }))} />
             <input style={styles.input} placeholder="IFSC" value={bankDraft.ifscCode} onChange={(e) => setBankDraft((p) => ({ ...p, ifscCode: e.target.value }))} />
             <select style={styles.input} value={bankDraft.ledgerId} onChange={(e) => setBankDraft((p) => ({ ...p, ledgerId: e.target.value }))}>
-              <option value="">Select Ledger</option>
-              {ledgers.map((ledger) => (
+              <option value="">Select Cash/Bank Ledger</option>
+              {cashBankLedgers.map((ledger) => (
                 <option key={ledger.id} value={ledger.id}>
                   {ledger.ledgerCode} - {ledger.ledgerName}
                 </option>
@@ -277,13 +328,23 @@ function AccountsCashBankPage() {
             <input style={styles.input} type="number" placeholder="Amount" value={voucherDraft.amount} onChange={(e) => setVoucherDraft((p) => ({ ...p, amount: e.target.value }))} />
             <select style={styles.input} value={voucherDraft.cashOrBankLedgerId} onChange={(e) => setVoucherDraft((p) => ({ ...p, cashOrBankLedgerId: e.target.value }))}>
               <option value="">Cash/Bank Ledger</option>
-              {ledgers.map((ledger) => (
+              {cashBankLedgers.map((ledger) => (
                 <option key={ledger.id} value={ledger.id}>
                   {ledger.ledgerCode} - {ledger.ledgerName}
                 </option>
               ))}
             </select>
-            <select style={styles.input} value={voucherDraft.counterAccountId} onChange={(e) => setVoucherDraft((p) => ({ ...p, counterAccountId: e.target.value }))}>
+            <select
+              style={styles.input}
+              value={voucherDraft.counterAccountId}
+              onChange={(e) =>
+                setVoucherDraft((p) => ({
+                  ...p,
+                  counterAccountId: e.target.value,
+                  counterLedgerId: "",
+                }))
+              }
+            >
               <option value="">Counter Account</option>
               {accounts.map((account) => (
                 <option key={account.id} value={account.id}>
@@ -291,9 +352,13 @@ function AccountsCashBankPage() {
                 </option>
               ))}
             </select>
-            <select style={styles.input} value={voucherDraft.counterLedgerId} onChange={(e) => setVoucherDraft((p) => ({ ...p, counterLedgerId: e.target.value }))}>
+            <select
+              style={styles.input}
+              value={voucherDraft.counterLedgerId}
+              onChange={(e) => setVoucherDraft((p) => ({ ...p, counterLedgerId: e.target.value }))}
+            >
               <option value="">Counter Ledger</option>
-              {ledgers.map((ledger) => (
+              {counterLedgers.map((ledger) => (
                 <option key={ledger.id} value={ledger.id}>
                   {ledger.ledgerCode} - {ledger.ledgerName}
                 </option>

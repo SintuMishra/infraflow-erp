@@ -115,6 +115,21 @@ function AccountsVoucherEntryPage() {
       }),
     [listStatus, vouchers]
   );
+
+  const ledgersByAccountId = useMemo(
+    () =>
+      ledgers.reduce((acc, ledger) => {
+        const key = String(ledger.accountId || "");
+        if (!acc[key]) {
+          acc[key] = [];
+        }
+        if (ledger.isActive !== false) {
+          acc[key].push(ledger);
+        }
+        return acc;
+      }, {}),
+    [ledgers]
+  );
   const voucherListSummary = useMemo(
     () => ({
       total: filteredVouchers.length,
@@ -152,6 +167,22 @@ function AccountsVoucherEntryPage() {
     }
 
     return "";
+  };
+
+  const clearLine = (index) => {
+    setLines((prev) =>
+      prev.map((item, i) => (i === index ? { ...INITIAL_LINE } : item))
+    );
+  };
+
+  const removeLine = (index) => {
+    setLines((prev) => {
+      if (prev.length <= 2) {
+        return prev.map((item, i) => (i === index ? { ...INITIAL_LINE } : item));
+      }
+
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const saveVoucher = async () => {
@@ -376,7 +407,19 @@ function AccountsVoucherEntryPage() {
                 <select
                   style={styles.input}
                   value={line.accountId}
-                  onChange={(e) => setLines((prev) => prev.map((item, i) => (i === index ? { ...item, accountId: e.target.value } : item)))}
+                  onChange={(e) =>
+                    setLines((prev) =>
+                      prev.map((item, i) =>
+                        i === index
+                          ? {
+                              ...item,
+                              accountId: e.target.value,
+                              ledgerId: "",
+                            }
+                          : item
+                      )
+                    )
+                  }
                 >
                   <option value="">Account</option>
                   {accounts.map((account) => (
@@ -391,7 +434,7 @@ function AccountsVoucherEntryPage() {
                   onChange={(e) => setLines((prev) => prev.map((item, i) => (i === index ? { ...item, ledgerId: e.target.value } : item)))}
                 >
                   <option value="">Ledger</option>
-                  {ledgers.map((ledger) => (
+                  {(ledgersByAccountId[String(line.accountId)] || []).map((ledger) => (
                     <option key={ledger.id} value={ledger.id}>
                       {ledger.ledgerCode} - {ledger.ledgerName}
                     </option>
@@ -417,6 +460,26 @@ function AccountsVoucherEntryPage() {
                   value={line.lineNarration}
                   onChange={(e) => setLines((prev) => prev.map((item, i) => (i === index ? { ...item, lineNarration: e.target.value } : item)))}
                 />
+                <button
+                  type="button"
+                  style={styles.mutedButton}
+                  onClick={() => clearLine(index)}
+                  title="Clear this line"
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  style={styles.mutedButton}
+                  onClick={() => removeLine(index)}
+                  title={
+                    lines.length <= 2
+                      ? "Minimum two lines required, so this will clear the line"
+                      : "Remove this line"
+                  }
+                >
+                  {lines.length <= 2 ? "Reset" : "Remove"}
+                </button>
               </div>
             ))}
 
