@@ -222,6 +222,8 @@ test(
   "getCommercialExceptions hides reviewed items by default and includes them when requested",
   { concurrency: false },
   async () => {
+  const reviewedAt = new Date().toISOString();
+
   await withDashboardCommercialMocks(
     {
       db: {
@@ -229,7 +231,7 @@ test(
           rows: [
             {
               id: 801,
-              createdAt: "2026-04-16T10:00:00.000Z",
+              createdAt: reviewedAt,
               details: {
                 exceptionKey: "unlinked_dispatch:9:2026-04-16:Dispatch #9",
                 actorName: "Ops Manager",
