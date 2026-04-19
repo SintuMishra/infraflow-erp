@@ -1533,7 +1533,7 @@ function MastersPage() {
   return (
     <AppShell
       title="Masters"
-      subtitle="Core setup for plants, materials, shifts, vehicle types, and reusable ERP configuration options"
+      subtitle="Core setup for plants, materials, shifts, and vehicle types"
     >
       <div style={styles.pageStack}>
         <div style={styles.heroCard}>
@@ -1545,8 +1545,7 @@ function MastersPage() {
               <p style={styles.heroEyebrow}>ERP Configuration Layer</p>
               <h1 style={styles.heroTitle}>Masters Control Center</h1>
               <p style={styles.heroText}>
-                Configure the foundation of your multi-plant construction ERP with a
-                cleaner, data-first, real-world master workspace.
+                Configure core masters with a fast, reliable workspace.
               </p>
             </div>
 

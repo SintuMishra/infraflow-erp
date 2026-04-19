@@ -362,8 +362,8 @@ function DashboardPage() {
 
   return (
     <AppShell
-      title="Manager Dashboard"
-      subtitle="Real-time overview of construction operations across plants"
+      title="Operations Dashboard"
+      subtitle="Live view of dispatch, production, and fleet"
     >
       {error && <p style={styles.error}>{error}</p>}
 
@@ -385,10 +385,9 @@ function DashboardPage() {
             <div style={styles.heroContent}>
               <div style={styles.heroLeft}>
                 <p style={styles.heroEyebrow}>Operations Command Center</p>
-                <h1 style={styles.heroTitle}>Live Multi-Plant ERP Overview</h1>
+                <h1 style={styles.heroTitle}>Live Multi-Plant Overview</h1>
                 <p style={styles.heroText}>
-                  Track dispatch, production, fleet movement, and plant-wise
-                  operational signals from a single premium dashboard.
+                  Track dispatch, production, and fleet signals from one dashboard.
                 </p>
 
                 <div

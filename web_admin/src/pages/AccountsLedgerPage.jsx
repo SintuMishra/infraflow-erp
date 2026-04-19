@@ -119,10 +119,10 @@ function AccountsLedgerPage() {
   };
 
   return (
-    <AppShell title="Ledger" subtitle="Ledger book drill-down with opening/running balances and export-ready controls">
+    <AppShell title="Ledger" subtitle="Ledger drill-down with opening and running balances">
       <SectionCard title="Ledger Filters">
         <div style={styles.sectionHeaderRow}>
-          <p style={styles.helperText}>Filter by ledger and date range. Exports use the exact rows shown below.</p>
+          <p style={styles.helperText}>Filter by ledger and date range.</p>
           <button type="button" style={styles.mutedButton} onClick={() => setShowFilters((prev) => !prev)}>
             {showFilters ? "Hide Filters" : "Show Filters"}
           </button>

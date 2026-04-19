@@ -673,7 +673,7 @@ function ProjectReportsPage() {
   return (
     <AppShell
       title="Project Reports"
-      subtitle="Daily project execution reporting with cleaner oversight, richer field capture, and safer correction workflows"
+      subtitle="Daily project execution reporting and review"
     >
       <div style={styles.stack}>
         <div style={styles.heroCard}>
@@ -685,9 +685,7 @@ function ProjectReportsPage() {
               <p style={styles.heroEyebrow}>Execution Intelligence Layer</p>
               <h1 style={styles.heroTitle}>Project Reporting That Handles Real Operations</h1>
               <p style={styles.heroText}>
-                Capture the daily site picture with status, progress, blockers, next steps, and
-                practical correction controls. The workspace is designed so teams can report,
-                review, and fix entries without turning the page into noise.
+                Capture status, progress, blockers, and next steps with clean correction workflows.
               </p>
             </div>
 

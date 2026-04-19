@@ -36,9 +36,7 @@ class AppErrorBoundary extends Component {
             <p style={styles.eyebrow}>Workspace Recovery</p>
             <h1 style={styles.title}>This screen hit an unexpected error.</h1>
             <p style={styles.text}>
-              The page did not load correctly. Refresh the workspace to recover,
-              and if the issue repeats, share the latest screen and request
-              details for debugging.
+              Refresh the workspace to continue. If this repeats, share the request details with support.
             </p>
             <p style={styles.errorText}>{this.state.errorMessage}</p>
             <button type="button" style={styles.button} onClick={this.handleReload}>

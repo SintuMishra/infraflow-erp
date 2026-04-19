@@ -1074,7 +1074,7 @@ function TenantOnboardingPage() {
   return (
     <AppShell
       title="Tenant Onboarding"
-      subtitle="Premium control center for client onboarding, billing, access, and owner governance"
+      subtitle="Client onboarding, billing, and access governance"
     >
       <div style={styles.pageBackdrop}>
         <div style={styles.stack}>
@@ -1084,15 +1084,14 @@ function TenantOnboardingPage() {
               <span style={styles.badge}>Internal Ops Only</span>
               <h2 style={styles.heroTitle}>Create a tenant the safe way.</h2>
               <p style={styles.heroText}>
-                Activate verified client companies with audit-safe onboarding, disciplined billing,
-                and reliable access controls.
+                Activate verified client companies with audited onboarding and controlled access.
               </p>
             </div>
 
             <div style={styles.heroChecklist}>
-              <div style={styles.checkItem}>Atomic company, profile, owner employee, and login creation</div>
-              <div style={styles.checkItem}>Duplicate company-name protection with conflict handling</div>
-              <div style={styles.checkItem}>Owner credentials returned once for controlled handoff</div>
+              <div style={styles.checkItem}>Atomic company, profile, owner, and login creation</div>
+              <div style={styles.checkItem}>Duplicate company-name protection</div>
+              <div style={styles.checkItem}>One-time owner credential handoff</div>
             </div>
           </div>
 

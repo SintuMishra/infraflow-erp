@@ -124,7 +124,7 @@ function AccountsChartOfAccountsPage() {
   };
 
   return (
-    <AppShell title="Chart of Accounts" subtitle="Account groups, chart, control ledgers, and company-scoped finance master lifecycle">
+    <AppShell title="Chart of Accounts" subtitle="Account groups, chart, and control ledgers">
       <SectionCard title="Finance Master Setup">
         <div style={styles.toolbar}>
           <button
@@ -154,7 +154,7 @@ function AccountsChartOfAccountsPage() {
 
       <SectionCard title="Create Account Group">
         <div style={styles.sectionHeaderRow}>
-          <p style={styles.helperText}>Create grouped financial classification structure.</p>
+          <p style={styles.helperText}>Create account groups.</p>
           <button type="button" style={styles.mutedButton} onClick={() => setShowGroupForm((prev) => !prev)}>
             {showGroupForm ? "Hide Form" : "Show Form"}
           </button>
@@ -184,7 +184,7 @@ function AccountsChartOfAccountsPage() {
 
       <SectionCard title="Create Account">
         <div style={styles.sectionHeaderRow}>
-          <p style={styles.helperText}>Map accounts to groups and define accounting nature.</p>
+          <p style={styles.helperText}>Map accounts to groups.</p>
           <button type="button" style={styles.mutedButton} onClick={() => setShowAccountForm((prev) => !prev)}>
             {showAccountForm ? "Hide Form" : "Show Form"}
           </button>
@@ -226,7 +226,7 @@ function AccountsChartOfAccountsPage() {
 
       <SectionCard title="Create Ledger">
         <div style={styles.sectionHeaderRow}>
-          <p style={styles.helperText}>Attach ledgers to accounts for posting and reporting paths.</p>
+          <p style={styles.helperText}>Attach ledgers to accounts.</p>
           <button type="button" style={styles.mutedButton} onClick={() => setShowLedgerForm((prev) => !prev)}>
             {showLedgerForm ? "Hide Form" : "Show Form"}
           </button>

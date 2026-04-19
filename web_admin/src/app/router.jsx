@@ -55,7 +55,7 @@ const AccountsPostingRulesPage = lazy(() => import("../pages/AccountsPostingRule
 
 export function AppRouter() {
   return (
-    <Suspense fallback={<div style={styles.loading}>Loading page...</div>}>
+    <Suspense fallback={<div style={styles.loading}>Loading...</div>}>
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
 

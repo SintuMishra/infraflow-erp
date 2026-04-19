@@ -428,7 +428,7 @@ function PartiesPage() {
   return (
     <AppShell
       title="Parties"
-      subtitle="Manage billing parties and customers with a cleaner commercial workspace"
+      subtitle="Manage billing parties and customers"
     >
       <div style={styles.pageStack}>
         <div style={styles.heroCard}>
@@ -440,9 +440,7 @@ function PartiesPage() {
               <p style={styles.heroEyebrow}>Commercial Master Layer</p>
               <h1 style={styles.heroTitle}>Party Billing Control Center</h1>
               <p style={styles.heroText}>
-                Maintain customers and billing parties used across dispatch,
-                GST workflows, invoices, and commercial documents in a smoother,
-                cleaner workspace.
+                Maintain billing parties used across dispatch, GST, and invoices.
               </p>
             </div>
 

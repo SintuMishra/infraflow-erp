@@ -61,9 +61,11 @@ function Header({
 
         <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>{title}</h1>
 
-        <p style={{ ...styles.subtitle, ...(isMobile ? styles.subtitleMobile : {}) }}>
-          {subtitle}
-        </p>
+        {String(subtitle || "").trim() ? (
+          <p style={{ ...styles.subtitle, ...(isMobile ? styles.subtitleMobile : {}) }}>
+            {subtitle}
+          </p>
+        ) : null}
       </div>
 
       <div style={{ ...styles.metaGrid, ...(isMobile ? styles.metaGridMobile : {}) }}>
@@ -203,10 +205,15 @@ const styles = {
     whiteSpace: "normal",
     wordBreak: "normal",
     overflowWrap: "break-word",
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
   },
 
   subtitleMobile: {
     maxWidth: "100%",
+    WebkitLineClamp: 3,
   },
 
   metaGrid: {
