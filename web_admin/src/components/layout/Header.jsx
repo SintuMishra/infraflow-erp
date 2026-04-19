@@ -56,7 +56,7 @@ function Header({
               Menu
             </button>
           ) : null}
-          <div style={styles.badge}>Construction ERP Control Room</div>
+          <div style={styles.badge}>InfraFlow ERP</div>
         </div>
 
         <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>{title}</h1>
@@ -83,7 +83,7 @@ function Header({
             <span style={styles.statusDot} />
             <div>
               <p style={styles.statusLabel}>Platform</p>
-              <p style={styles.statusValue}>Role-aware and company-scoped</p>
+              <p style={styles.statusValue}>Secure, scoped access</p>
             </div>
           </div>
         ) : null}

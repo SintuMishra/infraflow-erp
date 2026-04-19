@@ -8,8 +8,7 @@ function LoginGatewayPage() {
           <p style={styles.eyebrow}>Construction ERP Access</p>
           <h1 style={styles.title}>Choose Your Portal</h1>
           <p style={styles.subtitle}>
-            Use owner access for platform control and client onboarding. Use client access for
-            company operations.
+            Select the correct workspace and continue.
           </p>
         </div>
 
@@ -18,7 +17,7 @@ function LoginGatewayPage() {
             <p style={styles.cardEyebrow}>SinSoftware Internal</p>
             <h2 style={styles.cardTitle}>Owner Portal</h2>
             <p style={styles.cardText}>
-              For platform owner use only. Includes tenant onboarding and governance controls.
+              Platform owner workspace.
             </p>
             <Link to="/owner-login" style={styles.primaryButton}>
               Open Owner Login
@@ -29,7 +28,7 @@ function LoginGatewayPage() {
             <p style={styles.cardEyebrow}>Client Company</p>
             <h2 style={styles.cardTitle}>Client Portal</h2>
             <p style={styles.cardText}>
-              For registered client company users. Enter company code and continue to scoped login.
+              Company workspace for daily operations.
             </p>
             <Link to="/client-login" style={styles.secondaryButton}>
               Open Client Login

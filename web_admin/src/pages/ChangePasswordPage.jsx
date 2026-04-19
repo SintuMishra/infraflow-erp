@@ -58,9 +58,6 @@ function ChangePasswordPage() {
         <p style={styles.subtitle}>
           You must change your temporary password before continuing.
         </p>
-        <p style={styles.helperText}>
-          Use at least 8 characters with uppercase, lowercase, number, and special character.
-        </p>
 
         {error && <p style={styles.error}>{error}</p>}
         {success && <p style={styles.success}>{success}</p>}
@@ -155,12 +152,6 @@ const styles = {
     margin: 0,
     color: "#6b7280",
     fontSize: "14px",
-  },
-  helperText: {
-    margin: 0,
-    color: "#475569",
-    fontSize: "12px",
-    lineHeight: 1.6,
   },
   input: {
     padding: "12px 14px",

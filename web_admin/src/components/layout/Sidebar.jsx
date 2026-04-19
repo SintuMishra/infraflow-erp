@@ -39,11 +39,11 @@ function Sidebar({ isMobile = false, isOpen = true, onClose = () => {} }) {
       <div style={styles.brandPanel}>
         <div style={styles.brandIcon}>CE</div>
         <div>
-          <div style={styles.logo}>Construction ERP</div>
+          <div style={styles.logo}>InfraFlow ERP</div>
           <p style={styles.logoSubtext}>
             {isOwnerControlUser
-              ? "Owner governance console for client onboarding, access control, and audit discipline."
-              : "Operational command layer for production, dispatch, fleet and commercial control."}
+              ? "Owner control workspace"
+              : "Operations workspace"}
           </p>
         </div>
 
@@ -79,17 +79,7 @@ function Sidebar({ isMobile = false, isOpen = true, onClose = () => {} }) {
                     ...(active ? styles.activeLink : {}),
                   }}
                 >
-                  <div style={styles.linkContent}>
-                    <span style={styles.linkLabel}>{item.label}</span>
-                    <span
-                      style={{
-                        ...styles.linkHint,
-                        ...(active ? styles.activeLinkHint : {}),
-                      }}
-                    >
-                      {item.hint}
-                    </span>
-                  </div>
+                  <span style={styles.linkLabel}>{item.label}</span>
 
                   {active ? <span style={styles.activeIndicator} /> : null}
                 </Link>
@@ -104,11 +94,8 @@ function Sidebar({ isMobile = false, isOpen = true, onClose = () => {} }) {
           <span style={styles.footerRole}>
             {currentRole ? currentRole.replace(/_/g, " ") : "workspace user"}
           </span>
-          <span style={styles.footerTag}>Delivery Standard</span>
           <p style={styles.footerText}>
-            {isOwnerControlUser
-              ? "Control client lifecycle safely: onboarding, billing discipline, suspension/re-activation, and audit readiness."
-              : "Keep master data disciplined, dispatch financially accurate, and print outputs client-ready at all times."}
+            {isOwnerControlUser ? "Governed owner access" : "Production operations ready"}
           </p>
         </div>
       </div>
@@ -242,21 +229,9 @@ const styles = {
     border: "1px solid rgba(255,255,255,0.12)",
     boxShadow: "0 16px 30px rgba(15, 23, 42, 0.16)",
   },
-  linkContent: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "3px",
-  },
   linkLabel: {
     fontWeight: "700",
     letterSpacing: "-0.01em",
-  },
-  linkHint: {
-    fontSize: "12px",
-    color: "rgba(255,255,255,0.48)",
-  },
-  activeLinkHint: {
-    color: "rgba(255,255,255,0.72)",
   },
   activeIndicator: {
     width: "10px",
@@ -291,23 +266,11 @@ const styles = {
     textTransform: "uppercase",
     marginBottom: "10px",
   },
-  footerTag: {
-    display: "inline-flex",
-    padding: "5px 9px",
-    borderRadius: "999px",
-    background: "rgba(255,255,255,0.12)",
-    color: "#fcd34d",
-    fontSize: "11px",
-    fontWeight: "800",
-    letterSpacing: "0.4px",
-    textTransform: "uppercase",
-    marginBottom: "10px",
-  },
   footerText: {
-    margin: 0,
-    fontSize: "13px",
-    lineHeight: 1.6,
-    color: "rgba(255,255,255,0.76)",
+    margin: "2px 0 0",
+    fontSize: "12px",
+    lineHeight: 1.5,
+    color: "rgba(255,255,255,0.72)",
   },
 };
 

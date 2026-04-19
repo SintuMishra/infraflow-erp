@@ -89,12 +89,9 @@ function ForgotPasswordPage() {
       <div style={styles.panel}>
         <section style={styles.intro}>
           <p style={styles.eyebrow}>Password Recovery</p>
-          <h1 style={styles.title}>Recover access without exposing account details.</h1>
+          <h1 style={styles.title}>Reset your password</h1>
           <p style={styles.description}>
-            Submit your login ID and registered mobile number first. In local or
-            pre-production environments the reset token can be shown directly,
-            while production should deliver instructions through an admin or a
-            secure channel.
+            Verify your account, receive OTP, and set a new password.
           </p>
           <Link to="/login" style={styles.backLink}>
             Back to login
@@ -129,9 +126,6 @@ function ForgotPasswordPage() {
               />
             </label>
 
-            <p style={styles.helperText}>
-              Use the same mobile number stored against the employee record.
-            </p>
             {deliveryMode && (
               <p style={styles.helperText}>
                 Active delivery mode: <strong>{deliveryMode}</strong>
@@ -174,10 +168,6 @@ function ForgotPasswordPage() {
                 autoComplete="new-password"
               />
             </label>
-
-            <p style={styles.helperText}>
-              Password must include uppercase, lowercase, number, and special character.
-            </p>
 
             <button type="submit" style={styles.button} disabled={resetting}>
               {resetting ? "Resetting..." : "Reset Password"}

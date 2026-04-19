@@ -33,7 +33,7 @@ function ClientLoginCompanyCodePage() {
         <p style={styles.eyebrow}>Client Company Login</p>
         <h1 style={styles.title}>Enter Company Code</h1>
         <p style={styles.subtitle}>
-          Use the company code provided during handover to open your company-specific login.
+          Enter your registered company code to continue.
         </p>
 
         {error ? <p style={styles.error}>{error}</p> : null}

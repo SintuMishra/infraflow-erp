@@ -25,17 +25,14 @@ function UnauthorizedPage() {
     <div style={styles.page}>
       <div style={styles.card}>
         <div style={styles.badge}>Access Restricted</div>
-        <h1 style={styles.title}>This workspace section is not available for your role.</h1>
+        <h1 style={styles.title}>You do not have access to this section.</h1>
         <p style={styles.text}>
-          The system is now enforcing screen access more strictly so users only
-          reach modules they are meant to operate. This reduces confusion and
-          keeps production workflows cleaner.
+          Your account permissions do not allow this page.
         </p>
 
         {shouldShowClientLoginHint ? (
           <p style={styles.hintText}>
-            This super admin account is company-scoped (client workspace), not platform-owner scoped.
-            Use the client login flow with company code for daily operations.
+            This account is scoped to client operations. Use client login for daily work.
           </p>
         ) : null}
 

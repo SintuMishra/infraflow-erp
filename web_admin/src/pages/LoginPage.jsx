@@ -266,16 +266,16 @@ function LoginPage({ loginMode = "default" }) {
               }}
             >
               {mode === "owner"
-                ? "Restricted portal for platform owner control, client onboarding, and governance."
+                ? "Platform owner access only."
                 : mode === "client"
-                ? "Use your company account credentials to access only your company workspace."
-                : "Access the management control panel with your username, employee code, or mobile number."}
+                ? "Sign in to your company workspace."
+                : "Sign in with your username, employee code, or mobile number."}
             </p>
           </div>
 
           {mode === "owner" ? (
             <div style={styles.modeChipOwner}>
-              Owner login accepts only platform-owner super admin scope.
+              Super admin access only.
             </div>
           ) : null}
 
@@ -293,7 +293,7 @@ function LoginPage({ loginMode = "default" }) {
                 </>
               ) : (
                 <p style={styles.clientContextText}>
-                  Open this page using a valid company code URL.
+                  Open this page from a valid company code link.
                 </p>
               )}
             </div>
@@ -324,15 +324,6 @@ function LoginPage({ loginMode = "default" }) {
               autoComplete="current-password"
             />
           </label>
-
-          <div style={styles.helperRow}>
-            <span style={styles.helperChip}>Legacy login compatible</span>
-            <span style={styles.helperText}>
-              {mode === "client"
-                ? "Only users from the selected company can sign in here."
-                : "Existing accounts continue to work with older IDs."}
-            </span>
-          </div>
 
           <div
             style={{
@@ -387,7 +378,7 @@ function LoginPage({ loginMode = "default" }) {
                 ...(isMobile ? styles.heroTitleMobile : {}),
               }}
             >
-              Run plant operations, dispatch control, fleet movement, and commercial data from one disciplined workspace.
+              Run operations, dispatch, fleet, and commercial workflows in one workspace.
             </h1>
             <p
               style={{
@@ -395,8 +386,7 @@ function LoginPage({ loginMode = "default" }) {
                 ...(isMobile ? styles.heroTextMobile : {}),
               }}
             >
-              Designed for real operational teams who need reliability first,
-              clarity under pressure, and documents that look ready for clients.
+              Built for fast execution, clean records, and client-ready outputs.
             </p>
 
             <div
@@ -407,15 +397,15 @@ function LoginPage({ loginMode = "default" }) {
             >
               <div style={styles.heroPoint}>
                 <span style={styles.heroPointValue}>Dispatch</span>
-                <span style={styles.heroPointLabel}>billing and status control</span>
+                <span style={styles.heroPointLabel}>billing and status</span>
               </div>
               <div style={styles.heroPoint}>
                 <span style={styles.heroPointValue}>Fleet</span>
-                <span style={styles.heroPointLabel}>availability and equipment logs</span>
+                <span style={styles.heroPointLabel}>availability and tracking</span>
               </div>
               <div style={styles.heroPoint}>
                 <span style={styles.heroPointValue}>Commercial</span>
-                <span style={styles.heroPointLabel}>rates, parties and transport setup</span>
+                <span style={styles.heroPointLabel}>rates and contracts</span>
               </div>
             </div>
           </section>
@@ -703,31 +693,6 @@ const styles = {
     borderRadius: "14px",
     outline: "none",
     background: "rgba(255,255,255,0.94)",
-  },
-  helperRow: {
-    position: "relative",
-    zIndex: 1,
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "10px",
-    alignItems: "center",
-  },
-  helperChip: {
-    display: "inline-flex",
-    padding: "6px 10px",
-    borderRadius: "999px",
-    background: "rgba(15, 118, 110, 0.10)",
-    color: "#0f766e",
-    fontSize: "11px",
-    fontWeight: "800",
-    letterSpacing: "0.5px",
-    textTransform: "uppercase",
-  },
-  helperText: {
-    fontSize: "12px",
-    lineHeight: 1.6,
-    color: "#64748b",
-    fontWeight: "600",
   },
   linkRow: {
     position: "relative",
