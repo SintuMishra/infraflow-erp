@@ -765,7 +765,7 @@ test("forgot password validation rejects too-short mobile numbers", async () => 
 
 test("reset password validation rejects short passwords", async () => {
   const { res, nextCalled } = runMiddleware(validateResetPasswordInput, {
-    resetToken: "abc123",
+    resetOtp: "123456",
     newPassword: "short",
   });
 

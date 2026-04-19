@@ -46,6 +46,28 @@ const run = async () => {
     return;
   }
 
+  if (env.passwordResetDeliveryMode !== "webhook") {
+    fail(
+      "PASSWORD_RESET_DELIVERY_MODE must be webhook for production-safe password recovery."
+    );
+    return;
+  }
+
+  if (!Array.isArray(env.passwordResetDeliveryChannels) || !env.passwordResetDeliveryChannels.length) {
+    fail("PASSWORD_RESET_DELIVERY_CHANNELS must include at least one channel.");
+    return;
+  }
+
+  if (!env.passwordResetDeliveryChannels.includes("mobile")) {
+    fail("PASSWORD_RESET_DELIVERY_CHANNELS must include mobile for recovery baseline.");
+    return;
+  }
+
+  if (!env.passwordResetWebhookUrl) {
+    fail("PASSWORD_RESET_WEBHOOK_URL must be configured for production.");
+    return;
+  }
+
   if (env.corsOrigin === "*") {
     fail("CORS_ORIGIN cannot be * for production.");
     return;
@@ -158,6 +180,10 @@ const run = async () => {
     platformOwnerCompanyName: ownerCompany.companyName,
     ownerSuperAdminCount,
     companyScopedUsersEnabled: usersHasCompany,
+    passwordResetDeliveryMode: env.passwordResetDeliveryMode,
+    passwordResetDeliveryChannels: env.passwordResetDeliveryChannels,
+    passwordResetDeliverySuccessPolicy: env.passwordResetDeliverySuccessPolicy,
+    passwordResetWebhookConfigured: Boolean(env.passwordResetWebhookUrl),
   });
 };
 

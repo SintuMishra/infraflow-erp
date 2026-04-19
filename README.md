@@ -94,16 +94,20 @@ The workspace has been verified with:
 Before delivery, run:
 
 ```bash
-cd backend && npm install
-cd ../web_admin && npm install
-cd ../backend && npm test && npm run verify:app && npm run start
-cd ../web_admin && npm run lint && npm run build
+cd backend && npm install && npm run verify:practical
+cd ../web_admin && npm install && npm run verify:local
 ```
 
 Optional advanced owner-governance smoke (requires stable owner credentials env vars):
 
 ```bash
 cd backend && npm run smoke:owner-governance
+```
+
+Optional accounts reality smoke (sample-data workflow with auto cleanup):
+
+```bash
+cd backend && npm run smoke:accounts-mini
 ```
 
 Or run the one-command pre-live pipeline:
@@ -137,6 +141,7 @@ For production handover-ready documentation packs, start here:
 - `docs/CLIENT-HANDOVER-PACKET-HI.md`
 - `docs/developer-new-client-handover-quickstart.md`
 - `docs/developer-new-client-handover-quickstart-hi.md`
+- `docs/DEPLOYMENT-RUNBOOK.md`
 
 This index maps:
 - developer and architecture guides

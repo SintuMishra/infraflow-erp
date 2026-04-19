@@ -10,11 +10,18 @@ Copy `.env.example` to `.env` and set production-safe values for:
 - `PLATFORM_OWNER_COMPANY_ID` (recommended: platform owner tenant company id)
 - `CORS_ORIGIN`
 - `EXPOSE_PASSWORD_RESET_TOKEN=false` in production
+- `PASSWORD_RESET_DELIVERY_MODE=webhook` in production
+- `PASSWORD_RESET_DELIVERY_CHANNELS=mobile,email` for dual-channel OTP delivery
+- `PASSWORD_RESET_DELIVERY_SUCCESS_POLICY=any` (recommended), or `all` for strict mode
+- `PASSWORD_RESET_WEBHOOK_URL` (SMS/email gateway webhook endpoint)
+- optional `PASSWORD_RESET_PUBLIC_RESET_BASE_URL` (frontend reset page base URL)
 
 Production startup guards enforce:
 - `CORS_ORIGIN` must not be `*`
 - `JWT_SECRET` must be non-placeholder and minimum 32 characters
 - `ONBOARDING_BOOTSTRAP_SECRET` (when set) must be non-placeholder and minimum 24 characters
+- password reset token must not be exposed in API response in production
+- password reset delivery must be configured using webhook mode in production
 
 Recommended production defaults:
 
@@ -89,6 +96,12 @@ The onboarding flow is now designed to:
 npm run verify:local
 ```
 
+Practical local verification (tests + finance policy checks + production-style readiness):
+
+```bash
+npm run verify:practical
+```
+
 Local full verification (includes DB-backed owner lock check):
 
 ```bash
@@ -106,6 +119,41 @@ Real deployment go-live verification (uses deployment environment exactly as-is)
 ```bash
 npm run verify:owner-lock
 npm run verify:go-live
+```
+
+## Reality Smoke Validation
+
+Core section write/read smoke (local auto-prepare, no manual `SMOKE_ADMIN_*` needed in development):
+
+```bash
+ONBOARDING_BOOTSTRAP_SECRET=<bootstrap_secret> npm run smoke:core-sections-write
+```
+
+Accounts-focused mini reality smoke (local auto-prepare + tenant auto-cleanup):
+
+```bash
+ONBOARDING_BOOTSTRAP_SECRET=<bootstrap_secret> npm run smoke:accounts-mini
+```
+
+Explicit credential mode (CI/staging/production-like environments):
+
+```bash
+SMOKE_ADMIN_USERNAME=<platform_owner_super_admin_username> \
+SMOKE_ADMIN_PASSWORD=<platform_owner_super_admin_password> \
+SMOKE_ADMIN_COMPANY_ID=1 \
+ONBOARDING_BOOTSTRAP_SECRET=<bootstrap_secret> \
+npm run smoke:core-sections-write
+SMOKE_ADMIN_USERNAME=<platform_owner_super_admin_username> \
+SMOKE_ADMIN_PASSWORD=<platform_owner_super_admin_password> \
+SMOKE_ADMIN_COMPANY_ID=1 \
+ONBOARDING_BOOTSTRAP_SECRET=<bootstrap_secret> \
+npm run smoke:accounts-mini
+```
+
+To disable local auto-prepare and force explicit credentials, set:
+
+```bash
+SMOKE_AUTO_PREPARE_ADMIN=false
 ```
 
 ## Trial Reset Helper

@@ -237,11 +237,13 @@ const forgotPasswordController = async (req, res) => {
       success: true,
       message:
         "If the account details match, a password reset instruction has been created.",
-      data: result.resetToken
-        ? {
-            resetToken: result.resetToken,
-          }
-        : null,
+      data: {
+        resetOtp: result.resetOtp || null,
+        deliveryMode: result.deliveryMode || "unknown",
+        deliveryChannels: result.deliveryChannels || [],
+        deliveryPolicy: result.deliveryPolicy || "any",
+        channelStatuses: result.channelStatuses || {},
+      },
     });
   } catch (error) {
     return sendControllerError(req, res, error, "Failed to start password reset");
@@ -251,7 +253,7 @@ const forgotPasswordController = async (req, res) => {
 const resetPasswordController = async (req, res) => {
   try {
     await resetForgottenPassword({
-      resetToken: req.body.resetToken,
+      resetOtp: req.body.resetOtp || req.body.resetToken,
       newPassword: req.body.newPassword,
       companyId: req.headers["x-company-id"] || null,
     });
@@ -264,7 +266,7 @@ const resetPasswordController = async (req, res) => {
     if (error.message === "INVALID_RESET_TOKEN") {
       return res.status(400).json({
         success: false,
-        message: "Reset token is invalid or expired",
+        message: "Reset OTP is invalid or expired",
       });
     }
 

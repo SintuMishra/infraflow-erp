@@ -98,6 +98,34 @@ const parseEnumEnv = (key, fallback, allowedValues = []) => {
   return normalizedValue;
 };
 
+const parseCsvEnumEnv = (key, fallback, allowedValues = []) => {
+  const rawValue =
+    process.env[key] !== undefined && process.env[key] !== null && String(process.env[key]).trim() !== ""
+      ? process.env[key]
+      : fallback;
+
+  const values = String(rawValue || "")
+    .split(",")
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  if (!values.length) {
+    throw new Error(
+      `Environment variable ${key} must contain at least one value from: ${allowedValues.join(", ")}`
+    );
+  }
+
+  const invalidValue = values.find((value) => !allowedValues.includes(value));
+
+  if (invalidValue) {
+    throw new Error(
+      `Environment variable ${key} contains unsupported value: ${invalidValue}`
+    );
+  }
+
+  return Array.from(new Set(values));
+};
+
 const looksLikePlaceholderSecret = (value) => {
   const normalized = String(value || "").trim().toLowerCase();
 
@@ -186,6 +214,30 @@ const env = {
   exposePasswordResetToken: parseBooleanEnv(
     "EXPOSE_PASSWORD_RESET_TOKEN",
     process.env.NODE_ENV === "production" ? "false" : "true"
+  ),
+  passwordResetDeliveryMode: parseEnumEnv(
+    "PASSWORD_RESET_DELIVERY_MODE",
+    process.env.NODE_ENV === "production" ? "webhook" : "token_response",
+    ["token_response", "webhook", "disabled"]
+  ),
+  passwordResetDeliveryChannels: parseCsvEnumEnv(
+    "PASSWORD_RESET_DELIVERY_CHANNELS",
+    process.env.NODE_ENV === "production" ? "mobile,email" : "mobile",
+    ["mobile", "email"]
+  ),
+  passwordResetDeliverySuccessPolicy: parseEnumEnv(
+    "PASSWORD_RESET_DELIVERY_SUCCESS_POLICY",
+    "any",
+    ["any", "all"]
+  ),
+  passwordResetWebhookUrl: String(process.env.PASSWORD_RESET_WEBHOOK_URL || "").trim(),
+  passwordResetPublicResetBaseUrl: String(
+    process.env.PASSWORD_RESET_PUBLIC_RESET_BASE_URL || ""
+  ).trim(),
+  passwordResetWebhookTimeoutMs: parseIntegerEnv(
+    "PASSWORD_RESET_WEBHOOK_TIMEOUT_MS",
+    5000,
+    { min: 500, max: 30000 }
   ),
   onboardingBootstrapSecret: process.env.ONBOARDING_BOOTSTRAP_SECRET || "",
   platformOwnerCompanyId: parseOptionalIntegerEnv("PLATFORM_OWNER_COMPANY_ID", {

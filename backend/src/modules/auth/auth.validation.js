@@ -106,12 +106,20 @@ const validateForgotPasswordInput = (req, res, next) => {
 
 const validateResetPasswordInput = (req, res, next) => {
   const payload = req.body && typeof req.body === "object" ? req.body : {};
-  const { resetToken, newPassword } = payload;
+  const resetOtp = String(payload.resetOtp || payload.resetToken || "").trim();
+  const { newPassword } = payload;
 
-  if (!resetToken || !newPassword) {
+  if (!resetOtp || !newPassword) {
     return res.status(400).json({
       success: false,
-      message: "resetToken and newPassword are required",
+      message: "resetOtp and newPassword are required",
+    });
+  }
+
+  if (!/^\d{6}$/.test(resetOtp)) {
+    return res.status(400).json({
+      success: false,
+      message: "resetOtp must be a 6-digit code",
     });
   }
 

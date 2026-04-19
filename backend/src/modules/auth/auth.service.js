@@ -27,7 +27,7 @@ const {
 } = require("./auth.model");
 const {
   buildUsernameFromEmployeeCode,
-  generatePasswordResetToken,
+  generatePasswordResetOtp,
   generateSessionToken,
   generateTemporaryPassword,
   hashSensitiveToken,
@@ -35,6 +35,9 @@ const {
 const { getCompanyProfile } = require("../company_profile/company_profile.service");
 const { recordAuditEvent } = require("../../utils/audit.util");
 const { normalizeCompanyId } = require("../../utils/companyScope.util");
+const {
+  dispatchPasswordResetInstruction,
+} = require("../../utils/passwordResetDelivery.util");
 
 const ROLE_ASSIGNMENT_RULES = {
   super_admin: ["hr", "manager", "crusher_supervisor", "site_engineer", "operator"],
@@ -449,7 +452,12 @@ const initiatePasswordReset = async ({
   if (!user || !user.isActive) {
     return {
       delivered: false,
-      resetToken: null,
+      deliveryMode: "unknown",
+      deliveryChannels: [],
+      deliveryPolicy: env.passwordResetDeliverySuccessPolicy,
+      channelStatuses: {},
+      deliveryReason: null,
+      resetOtp: null,
     };
   }
 
@@ -458,8 +466,8 @@ const initiatePasswordReset = async ({
     user.companyId || companyId || null
   );
 
-  const resetToken = generatePasswordResetToken();
-  const tokenHash = hashSensitiveToken(resetToken);
+  const resetOtp = generatePasswordResetOtp();
+  const tokenHash = hashSensitiveToken(resetOtp);
   const expiresAt = new Date(
     Date.now() + 1000 * 60 * env.passwordResetTokenTtlMinutes
   );
@@ -473,6 +481,14 @@ const initiatePasswordReset = async ({
     requestedByUserAgent,
   });
 
+  const delivery = await dispatchPasswordResetInstruction({
+    resetOtp,
+    expiresAt,
+    user,
+    companyId,
+    exposeToken,
+  });
+
   await recordAuditEvent({
     action: "auth.password_reset_requested",
     actorUserId: null,
@@ -481,22 +497,34 @@ const initiatePasswordReset = async ({
     companyId: user.companyId || companyId || null,
     details: {
       identifier,
-      deliveryMode: exposeToken ? "response" : "external",
+      deliveryMode: delivery.mode,
+      deliveryChannels: delivery.deliveryChannels || [],
+      deliveryPolicy: delivery.deliveryPolicy || env.passwordResetDeliverySuccessPolicy,
+      channelStatuses: delivery.channelStatuses || {},
+      deliveryAccepted: Boolean(delivery.accepted),
+      deliveryReason: delivery.reason || null,
     },
   });
 
   return {
-    delivered: true,
-    resetToken: exposeToken ? resetToken : null,
+    delivered: Boolean(delivery.accepted),
+    deliveryMode: delivery.mode,
+    deliveryChannels: delivery.deliveryChannels || [],
+    deliveryPolicy: delivery.deliveryPolicy || env.passwordResetDeliverySuccessPolicy,
+    channelStatuses: delivery.channelStatuses || {},
+    deliveryReason: delivery.reason || null,
+    resetOtp: exposeToken ? resetOtp : null,
   };
 };
 
 const resetForgottenPassword = async ({
+  resetOtp,
   resetToken,
   newPassword,
   companyId,
 }) => {
-  const tokenHash = hashSensitiveToken(resetToken);
+  const normalizedOtp = String(resetOtp || resetToken || "").trim();
+  const tokenHash = hashSensitiveToken(normalizedOtp);
   const resetRecord = await findValidPasswordResetToken(tokenHash, companyId);
 
   if (!resetRecord) {

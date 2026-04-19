@@ -1,10 +1,8 @@
 const { createSmokeFetch, resolveSmokeBaseUrls } = require("./smokeHttp.util");
+const { resolveSmokeAdminCredentials } = require("./smokeAdminCredentials.util");
 
 const BOOTSTRAP_SECRET =
   process.env.SMOKE_BOOTSTRAP_SECRET || process.env.ONBOARDING_BOOTSTRAP_SECRET || "";
-const SMOKE_ADMIN_USERNAME = String(process.env.SMOKE_ADMIN_USERNAME || "").trim();
-const SMOKE_ADMIN_PASSWORD = String(process.env.SMOKE_ADMIN_PASSWORD || "").trim();
-const SMOKE_ADMIN_COMPANY_ID = String(process.env.SMOKE_ADMIN_COMPANY_ID || "").trim();
 const BASE_URLS = resolveSmokeBaseUrls();
 const smokeFetch = createSmokeFetch(BASE_URLS);
 
@@ -48,24 +46,20 @@ const expectJson = async (response, step, expectedStatuses = [200]) => {
 const expectOk = async (response, step) => await expectJson(response, step, [200, 201]);
 
 const loginAsBootstrapOperator = async () => {
-  if (!SMOKE_ADMIN_USERNAME || !SMOKE_ADMIN_PASSWORD || !SMOKE_ADMIN_COMPANY_ID) {
-    fail("Missing admin credentials for owner governance smoke run", {
-      requiredEnv:
-        "Set SMOKE_ADMIN_USERNAME, SMOKE_ADMIN_PASSWORD, and SMOKE_ADMIN_COMPANY_ID.",
-    });
-  }
+  const credentials = await resolveSmokeAdminCredentials();
+  const smokeAdminCompanyId = String(credentials.companyId || "").trim();
 
   const loginRes = await smokeFetch("/auth/login", {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-company-id": SMOKE_ADMIN_COMPANY_ID,
+      "x-company-id": smokeAdminCompanyId,
     },
     body: JSON.stringify({
-      username: SMOKE_ADMIN_USERNAME,
-      password: SMOKE_ADMIN_PASSWORD,
+      username: credentials.username,
+      password: credentials.password,
       loginIntent: "owner",
-      expectedCompanyId: Number(SMOKE_ADMIN_COMPANY_ID),
+      expectedCompanyId: Number(smokeAdminCompanyId),
     }),
   });
   const loginJson = await expectOk(loginRes, "platform owner login");
@@ -77,14 +71,14 @@ const loginAsBootstrapOperator = async () => {
 
   if (loginJson?.data?.user?.mustChangePassword) {
     fail("Platform owner smoke account must not require password rotation", {
-      username: SMOKE_ADMIN_USERNAME,
+      username: credentials.username,
       reason: "Use a stable owner account for smoke runs.",
     });
   }
 
   return {
     authorization: `Bearer ${token}`,
-    "x-company-id": SMOKE_ADMIN_COMPANY_ID,
+    "x-company-id": smokeAdminCompanyId,
   };
 };
 

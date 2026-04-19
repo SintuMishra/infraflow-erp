@@ -57,13 +57,20 @@ const createMockEntries = ({
   },
   credentials = {
     buildUsernameFromEmployeeCode: (employeeCode) => `${employeeCode}2026`,
-    generatePasswordResetToken: () => "reset-token-123",
+    generatePasswordResetOtp: () => "123456",
     generateSessionToken: () => "session-token-123",
     generateTemporaryPassword: () => "Temp!Pass123",
     hashSensitiveToken: (value) => `hashed:${value}`,
   },
   audit = {
     recordAuditEvent: async () => null,
+  },
+  passwordResetDelivery = {
+    dispatchPasswordResetInstruction: async ({ exposeToken }) => ({
+      mode: exposeToken ? "token_response" : "webhook",
+      accepted: true,
+      reason: null,
+    }),
   },
   env = {
     passwordResetTokenTtlMinutes: 15,
@@ -109,6 +116,7 @@ const createMockEntries = ({
   ["jsonwebtoken", jwt],
   ["../src/utils/loginCredentials.util", credentials],
   ["../src/utils/audit.util", audit],
+  ["../src/utils/passwordResetDelivery.util", passwordResetDelivery],
   ["../src/config/env", env],
 ];
 
@@ -373,7 +381,7 @@ test("createUserAccount generates a strong temporary password and records audit"
       },
       credentials: {
         buildUsernameFromEmployeeCode: (employeeCode) => `${employeeCode}2026`,
-        generatePasswordResetToken: () => "reset-token-123",
+        generatePasswordResetOtp: () => "123456",
         generateTemporaryPassword: () => "Rst!92QaLm1Z",
         hashSensitiveToken: (value) => `hashed:${value}`,
       },
@@ -444,7 +452,7 @@ test("initiatePasswordReset creates a reset token and returns it when exposure i
       },
       credentials: {
         buildUsernameFromEmployeeCode: (employeeCode) => `${employeeCode}2026`,
-        generatePasswordResetToken: () => "plain-reset-token",
+        generatePasswordResetOtp: () => "123456",
         generateTemporaryPassword: () => "Temp!Pass123",
         hashSensitiveToken: (value) => `hashed:${value}`,
       },
@@ -467,9 +475,9 @@ test("initiatePasswordReset creates a reset token and returns it when exposure i
         exposeToken: true,
       });
 
-      assert.equal(response.resetToken, "plain-reset-token");
+      assert.equal(response.resetOtp, "123456");
       assert.equal(revokedUserId, 8);
-      assert.equal(savedResetToken.tokenHash, "hashed:plain-reset-token");
+      assert.equal(savedResetToken.tokenHash, "hashed:123456");
       assert.equal(recordedAudit.action, "auth.password_reset_requested");
     }
   );
@@ -498,7 +506,7 @@ test("resetForgottenPassword updates the user password and marks token as used",
       },
       credentials: {
         buildUsernameFromEmployeeCode: (employeeCode) => `${employeeCode}2026`,
-        generatePasswordResetToken: () => "plain-reset-token",
+        generatePasswordResetOtp: () => "123456",
         generateTemporaryPassword: () => "Temp!Pass123",
         hashSensitiveToken: (value) => `hashed:${value}`,
       },
@@ -510,7 +518,7 @@ test("resetForgottenPassword updates the user password and marks token as used",
     }),
     async ({ resetForgottenPassword }) => {
       await resetForgottenPassword({
-        resetToken: "plain-reset-token",
+        resetOtp: "123456",
         newPassword: "BrandNew!123",
         companyId: 6,
       });
@@ -557,7 +565,7 @@ test("adminResetPassword issues a temporary password and forces password change"
       },
       credentials: {
         buildUsernameFromEmployeeCode: (employeeCode) => `${employeeCode}2026`,
-        generatePasswordResetToken: () => "plain-reset-token",
+        generatePasswordResetOtp: () => "123456",
         generateTemporaryPassword: () => "New!Temp778Q",
         hashSensitiveToken: (value) => `hashed:${value}`,
       },
@@ -665,7 +673,7 @@ test("refreshAuthSession allows only one success when same refresh token is repl
       },
       credentials: {
         buildUsernameFromEmployeeCode: (employeeCode) => `${employeeCode}2026`,
-        generatePasswordResetToken: () => "reset-token-123",
+        generatePasswordResetOtp: () => "123456",
         generateSessionToken: () => "next-refresh-token",
         generateTemporaryPassword: () => "Temp!Pass123",
         hashSensitiveToken: (value) => `hashed:${value}`,

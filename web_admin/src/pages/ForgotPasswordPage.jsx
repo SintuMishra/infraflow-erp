@@ -6,9 +6,11 @@ function ForgotPasswordPage() {
   const navigate = useNavigate();
   const [identifier, setIdentifier] = useState("");
   const [mobileNumber, setMobileNumber] = useState("");
-  const [resetToken, setResetToken] = useState("");
+  const [resetOtp, setResetOtp] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [requestMessage, setRequestMessage] = useState("");
+  const [deliveryMode, setDeliveryMode] = useState("");
+  const [deliveryChannels, setDeliveryChannels] = useState([]);
   const [resetMessage, setResetMessage] = useState("");
   const [error, setError] = useState("");
   const [requesting, setRequesting] = useState(false);
@@ -27,16 +29,30 @@ function ForgotPasswordPage() {
         mobileNumber,
       });
 
-      const issuedToken = response.data?.data?.resetToken || "";
+      const issuedOtp = response.data?.data?.resetOtp || "";
+      const mode = response.data?.data?.deliveryMode || "";
+      const channels = Array.isArray(response.data?.data?.deliveryChannels)
+        ? response.data.data.deliveryChannels
+        : [];
+      setDeliveryMode(mode);
+      setDeliveryChannels(channels);
 
-      if (issuedToken) {
-        setResetToken(issuedToken);
+      if (issuedOtp) {
+        setResetOtp(issuedOtp);
         setRequestMessage(
-          "Reset token generated for this environment. Use it below to set a new password."
+          "Reset OTP generated for this environment. Use it below to set a new password."
+        );
+      } else if (mode === "webhook") {
+        const isDualChannel =
+          channels.includes("mobile") && channels.includes("email");
+        setRequestMessage(
+          isDualChannel
+            ? "If details matched, a 6-digit reset OTP was sent to your registered mobile number and email."
+            : "If details matched, a 6-digit reset OTP was sent to your registered mobile number."
         );
       } else {
         setRequestMessage(
-          "If the account details matched, a reset request was created. In production, contact your admin if you do not receive reset instructions."
+          "If the account details matched, a reset request was created. Contact your admin if you do not receive reset instructions."
         );
       }
     } catch (err) {
@@ -54,7 +70,7 @@ function ForgotPasswordPage() {
 
     try {
       await api.post("/auth/reset-password", {
-        resetToken,
+        resetOtp,
         newPassword,
       });
 
@@ -116,6 +132,16 @@ function ForgotPasswordPage() {
             <p style={styles.helperText}>
               Use the same mobile number stored against the employee record.
             </p>
+            {deliveryMode && (
+              <p style={styles.helperText}>
+                Active delivery mode: <strong>{deliveryMode}</strong>
+              </p>
+            )}
+            {deliveryChannels.length > 0 && (
+              <p style={styles.helperText}>
+                Active channels: <strong>{deliveryChannels.join(", ")}</strong>
+              </p>
+            )}
 
             <button type="submit" style={styles.button} disabled={requesting}>
               {requesting ? "Requesting..." : "Create Reset Request"}
@@ -127,13 +153,13 @@ function ForgotPasswordPage() {
             {resetMessage && <p style={styles.success}>{resetMessage}</p>}
 
             <label style={styles.label}>
-              Reset Token
+              6-digit OTP
               <input
                 type="text"
-                value={resetToken}
-                onChange={(event) => setResetToken(event.target.value)}
+                value={resetOtp}
+                onChange={(event) => setResetOtp(event.target.value)}
                 style={styles.input}
-                placeholder="Paste the reset token"
+                placeholder="Enter OTP"
               />
             </label>
 

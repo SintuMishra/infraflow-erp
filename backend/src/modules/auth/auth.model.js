@@ -41,6 +41,7 @@ const buildCompanyFilter = (
 const findUsersByLoginIdentifier = async (identifier, companyId = null) => {
   const usersHasCompany = await hasColumn("users", "company_id");
   const employeesHasCompany = await hasColumn("employees", "company_id");
+  const employeesHasEmail = await hasColumn("employees", "email");
   const normalizedIdentifier = String(identifier || "").trim();
   const numericIdentifier = normalizedIdentifier.replace(/\D/g, "");
   const employeeCodeAlias = buildEmployeeCodeAlias(normalizedIdentifier);
@@ -328,6 +329,7 @@ const findUserForPasswordRecovery = async ({
 }) => {
   const usersHasCompany = await hasColumn("users", "company_id");
   const employeesHasCompany = await hasColumn("employees", "company_id");
+  const employeesHasEmail = await hasColumn("employees", "email");
   const normalizedIdentifier = String(identifier || "").trim();
   const normalizedMobile = String(mobileNumber || "").replace(/\D/g, "");
   const employeeCodeAlias = buildEmployeeCodeAlias(normalizedIdentifier);
@@ -346,6 +348,7 @@ const findUserForPasswordRecovery = async ({
       e.department,
       e.designation,
       REGEXP_REPLACE(COALESCE(e.mobile_number, ''), '[^0-9]', '', 'g') AS "mobileNumber",
+      ${employeesHasEmail ? `e.email` : `NULL`} AS "email",
       ${
         usersHasCompany
           ? `u.company_id AS "companyId"`
