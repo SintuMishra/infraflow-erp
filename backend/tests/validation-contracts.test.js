@@ -674,6 +674,36 @@ test("party material rate validation rejects non-positive rate", async () => {
   assert.match(res.body.message, /ratePerTon/i);
 });
 
+test("party material rate validation requires tonsPerBrass for per_brass mode", async () => {
+  const { res, nextCalled } = runMiddleware(validateCreateRateInput, {
+    plantId: 1,
+    partyId: 1,
+    materialId: 1,
+    ratePerTon: 1000,
+    royaltyMode: "per_brass",
+    royaltyValue: 200,
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body.message, /tonsPerBrass/i);
+});
+
+test("party material rate validation accepts valid per_brass payload", async () => {
+  const { res, nextCalled } = runMiddleware(validateCreateRateInput, {
+    plantId: 1,
+    partyId: 1,
+    materialId: 1,
+    ratePerTon: 1000,
+    royaltyMode: "per_brass",
+    royaltyValue: 200,
+    tonsPerBrass: 2.83,
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
+});
+
 test("party material rate status validation requires boolean isActive", async () => {
   const { res, nextCalled } = runMiddleware(validateRateStatusPayload, {
     isActive: 1,

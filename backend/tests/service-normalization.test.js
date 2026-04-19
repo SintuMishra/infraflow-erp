@@ -323,6 +323,40 @@ test("party material rate service normalizes payload fields before insert", asyn
   assert.equal(capturedPayload.loadingCharge, 20);
   assert.equal(capturedPayload.notes, "smoke note");
   assert.equal(capturedPayload.companyId, 55);
+  assert.equal(capturedPayload.tonsPerBrass, null);
+});
+
+test("party material rate service keeps tonsPerBrass for per_brass mode", async () => {
+  let capturedPayload = null;
+
+  await withMockedModule(
+    "../src/modules/party_material_rates/party_material_rates.service.js",
+    "../src/modules/party_material_rates/party_material_rates.model.js",
+    {
+      getAllRates: async () => [],
+      insertRate: async (payload) => {
+        capturedPayload = payload;
+        return payload;
+      },
+      updateRate: async () => null,
+      toggleStatus: async () => null,
+    },
+    async ({ createRate }) => {
+      await createRate({
+        plantId: "1",
+        partyId: "2",
+        materialId: "3",
+        ratePerTon: "1250",
+        royaltyMode: " per_brass ",
+        royaltyValue: "80",
+        tonsPerBrass: "2.83",
+        loadingCharge: "0",
+      });
+    }
+  );
+
+  assert.equal(capturedPayload.royaltyMode, "per_brass");
+  assert.equal(capturedPayload.tonsPerBrass, 2.83);
 });
 
 test("party material rate service rejects non-boolean status payload", async () => {

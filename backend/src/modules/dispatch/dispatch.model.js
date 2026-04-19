@@ -933,6 +933,7 @@ const findActivePartyMaterialRate = async ({ plantId, partyId, materialId, compa
       rate_per_ton AS "ratePerTon",
       royalty_mode AS "royaltyMode",
       royalty_value AS "royaltyValue",
+      tons_per_brass AS "tonsPerBrass",
       loading_charge AS "loadingCharge",
       notes
     FROM party_material_rates
@@ -958,6 +959,10 @@ const findActivePartyMaterialRate = async ({ plantId, partyId, materialId, compa
     ...result.rows[0],
     ratePerTon: Number(result.rows[0].ratePerTon),
     royaltyValue: Number(result.rows[0].royaltyValue || 0),
+    tonsPerBrass:
+      result.rows[0].tonsPerBrass === null || result.rows[0].tonsPerBrass === undefined
+        ? null
+        : Number(result.rows[0].tonsPerBrass),
     loadingCharge: Number(result.rows[0].loadingCharge || 0),
   };
 };

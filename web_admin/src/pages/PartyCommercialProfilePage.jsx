@@ -88,6 +88,7 @@ const createQuickRateState = () => ({
   ratePerTon: "",
   royaltyMode: "per_ton",
   royaltyValue: "",
+  tonsPerBrass: "",
   loadingCharge: "",
   notes: "",
 });
@@ -573,6 +574,10 @@ function PartyCommercialProfilePage() {
         rate.royaltyValue !== null && rate.royaltyValue !== undefined
           ? String(rate.royaltyValue)
           : "",
+      tonsPerBrass:
+        rate.tonsPerBrass !== null && rate.tonsPerBrass !== undefined
+          ? String(rate.tonsPerBrass)
+          : "",
       loadingCharge:
         rate.loadingCharge !== null && rate.loadingCharge !== undefined
           ? String(rate.loadingCharge)
@@ -835,6 +840,14 @@ function PartyCommercialProfilePage() {
       return;
     }
 
+    if (
+      quickRateForm.royaltyMode === "per_brass" &&
+      (quickRateForm.tonsPerBrass === "" || Number(quickRateForm.tonsPerBrass) <= 0)
+    ) {
+      setError("Tons per brass must be greater than 0 for royalty per brass");
+      return;
+    }
+
     try {
       setIsSavingRate(true);
       const payload = {
@@ -849,6 +862,12 @@ function PartyCommercialProfilePage() {
             : quickRateForm.royaltyValue === ""
               ? 0
               : Number(quickRateForm.royaltyValue),
+        tonsPerBrass:
+          quickRateForm.royaltyMode === "per_brass"
+            ? quickRateForm.tonsPerBrass === ""
+              ? null
+              : Number(quickRateForm.tonsPerBrass)
+            : null,
         loadingCharge:
           quickRateForm.loadingCharge === ""
             ? 0
@@ -1230,6 +1249,7 @@ function PartyCommercialProfilePage() {
                       style={styles.input}
                     >
                       <option value="per_ton">Royalty Per Ton</option>
+                      <option value="per_brass">Royalty Per Brass</option>
                       <option value="fixed">Fixed Royalty</option>
                       <option value="none">No Royalty</option>
                     </select>
@@ -1242,6 +1262,20 @@ function PartyCommercialProfilePage() {
                       onChange={handleQuickRateChange}
                       style={styles.input}
                       disabled={quickRateForm.royaltyMode === "none"}
+                    />
+                    <input
+                      type="number"
+                      step="0.0001"
+                      name="tonsPerBrass"
+                      placeholder={
+                        quickRateForm.royaltyMode === "per_brass"
+                          ? "Tons Per Brass"
+                          : "Tons/Brass not required"
+                      }
+                      value={quickRateForm.tonsPerBrass}
+                      onChange={handleQuickRateChange}
+                      style={styles.input}
+                      disabled={quickRateForm.royaltyMode !== "per_brass"}
                     />
                     <input
                       type="number"
@@ -1526,7 +1560,15 @@ function PartyCommercialProfilePage() {
                       <td style={styles.td}>
                         {item.royaltyMode === "none"
                           ? "None"
-                          : `${item.royaltyMode} (${formatMetric(item.royaltyValue)})`}
+                          : item.royaltyMode === "per_brass"
+                            ? `per_brass (${formatMetric(item.royaltyValue)}, ${
+                                item.tonsPerBrass === null ||
+                                item.tonsPerBrass === undefined ||
+                                item.tonsPerBrass === ""
+                                  ? "-"
+                                  : formatMetric(item.tonsPerBrass)
+                              } ton/brass)`
+                            : `${item.royaltyMode} (${formatMetric(item.royaltyValue)})`}
                       </td>
                       <td style={styles.td}>{formatCurrency(item.loadingCharge)}</td>
                       <td style={styles.td}>{item.isActive ? "Active" : "Inactive"}</td>

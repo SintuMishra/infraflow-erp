@@ -741,10 +741,20 @@ function DispatchReportsPage() {
 
     const royaltyMode = partyRate?.royaltyMode || "none";
     const royaltyValue = Number(partyRate?.royaltyValue || 0);
+    const tonsPerBrass =
+      partyRate?.tonsPerBrass === null || partyRate?.tonsPerBrass === undefined
+        ? null
+        : Number(partyRate?.tonsPerBrass);
     let royaltyAmount = 0;
 
     if (royaltyMode === "per_ton") {
       royaltyAmount = roundMoney(quantity * royaltyValue);
+    } else if (
+      royaltyMode === "per_brass" &&
+      Number.isFinite(tonsPerBrass) &&
+      tonsPerBrass > 0
+    ) {
+      royaltyAmount = roundMoney((quantity / tonsPerBrass) * royaltyValue);
     } else if (royaltyMode === "fixed") {
       royaltyAmount = roundMoney(royaltyValue);
     }

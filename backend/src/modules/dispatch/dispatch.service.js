@@ -262,6 +262,10 @@ const calculateDispatchCommercials = async ({
   const materialAmount = roundMoney(quantity * materialRatePerTon);
   const royaltyMode = partyMaterialRate.royaltyMode || "none";
   const royaltyValue = Number(partyMaterialRate.royaltyValue || 0);
+  const tonsPerBrass =
+    partyMaterialRate.tonsPerBrass === null || partyMaterialRate.tonsPerBrass === undefined
+      ? null
+      : Number(partyMaterialRate.tonsPerBrass);
   const loadingCharge = roundMoney(partyMaterialRate.loadingCharge || 0);
   const normalizedOtherCharge = roundMoney(toNumber(otherCharge, 0));
 
@@ -269,6 +273,13 @@ const calculateDispatchCommercials = async ({
 
   if (royaltyMode === "per_ton") {
     royaltyAmount = roundMoney(quantity * royaltyValue);
+  } else if (royaltyMode === "per_brass") {
+    if (!Number.isFinite(tonsPerBrass) || tonsPerBrass <= 0) {
+      throw buildValidationError(
+        "Selected party material rate has invalid tons-per-brass for per_brass royalty mode"
+      );
+    }
+    royaltyAmount = roundMoney((quantity / tonsPerBrass) * royaltyValue);
   } else if (royaltyMode === "fixed") {
     royaltyAmount = roundMoney(royaltyValue);
   }

@@ -45,6 +45,7 @@ test("migration files are ordered and include production hardening migrations", 
     "026_accounts_finance_system_source_actor_integrity.sql",
     "027_auth_session_and_rate_limit_hardening.sql",
     "028_party_material_rates_party_fk_fix.sql",
+    "029_party_material_rates_per_brass_royalty.sql",
   ]);
 });
 

@@ -84,12 +84,27 @@ const resolveAutoSmokeAdminCredentials = async () => {
     process.env.SMOKE_AUTO_PREPARE_ADMIN,
     nodeEnv !== "production"
   );
+  const allowAutoPrepareInProduction = parseBoolean(
+    process.env.SMOKE_ALLOW_AUTO_PREPARE_IN_PRODUCTION,
+    false
+  );
 
-  if (!allowAutoPrepare || nodeEnv === "production") {
+  if (!allowAutoPrepare) {
     const error = new Error("Missing smoke admin credentials");
     error.details = {
       requiredEnv:
         "Set SMOKE_ADMIN_USERNAME, SMOKE_ADMIN_PASSWORD, and SMOKE_ADMIN_COMPANY_ID.",
+    };
+    throw error;
+  }
+
+  if (nodeEnv === "production" && !allowAutoPrepareInProduction) {
+    const error = new Error(
+      "Auto-prepare smoke admin is blocked in production mode by default"
+    );
+    error.details = {
+      requiredEnv:
+        "Set SMOKE_ALLOW_AUTO_PREPARE_IN_PRODUCTION=true for controlled local smoke runs, or provide explicit SMOKE_ADMIN_* credentials.",
     };
     throw error;
   }

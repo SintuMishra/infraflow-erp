@@ -490,6 +490,74 @@ test("createDispatchReport respects manual invoice override and inter-state GST"
   assert.equal(insertedPayload.totalWithGst, 10498.95);
 });
 
+test("createDispatchReport computes per_brass royalty using tons-per-brass conversion", async () => {
+  let insertedPayload = null;
+
+  await withDispatchServiceMocks(
+    {
+      model: {
+        findAllDispatchReports: async () => [],
+        findDispatchById: async () => null,
+        insertDispatchReport: async (payload) => {
+          insertedPayload = payload;
+          return { id: 120, ...payload };
+        },
+        updateDispatchReportById: async () => null,
+        updateDispatchStatusById: async () => null,
+        setVehicleOperationalStatus: async () => {},
+        plantExists: async () => ({ id: 1, plantName: "Alpha Plant" }),
+        materialExists: async () => ({
+          id: 2,
+          materialName: "Aggregate",
+          gstRate: 5,
+        }),
+        vehicleExists: async () => ({
+          id: 3,
+          vehicleNumber: "UP32AB1234",
+          plantId: 1,
+          vendorId: null,
+          status: "active",
+          vehicleCapacityTons: 25,
+        }),
+        findActivePartyMaterialRate: async () => ({
+          id: 11,
+          ratePerTon: 80,
+          royaltyMode: "per_brass",
+          royaltyValue: 200,
+          tonsPerBrass: 2.5,
+          loadingCharge: 75,
+        }),
+        findActiveTransportRate: async () => null,
+      },
+      db: {
+        withTransaction: async (work) => work({}),
+      },
+      company: {
+        getCompanyProfile: async () => ({ stateCode: "09" }),
+      },
+      party: {
+        getPartyById: async () => ({ id: 5, stateCode: "09" }),
+      },
+    },
+    async ({ createDispatchReport }) => {
+      await createDispatchReport({
+        dispatchDate: "2026-04-15",
+        sourceType: "Plant",
+        destinationName: "Site B",
+        quantityTons: 10,
+        createdBy: 1,
+        plantId: 1,
+        materialId: 2,
+        vehicleId: 3,
+        partyId: 5,
+      });
+    }
+  );
+
+  assert.equal(insertedPayload.royaltyAmount, 800);
+  assert.equal(insertedPayload.totalInvoiceValue, 1675);
+});
+
 test("createDispatchReport requires billing notes for manual taxable override", async () => {
   await assert.rejects(
     async () =>

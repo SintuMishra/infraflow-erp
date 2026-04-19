@@ -17,6 +17,10 @@ const normalizeRatePayload = (data = {}) => ({
     data.royaltyValue === undefined || data.royaltyValue === null || data.royaltyValue === ""
       ? 0
       : Number(data.royaltyValue),
+  tonsPerBrass:
+    data.tonsPerBrass === undefined || data.tonsPerBrass === null || data.tonsPerBrass === ""
+      ? null
+      : Number(data.tonsPerBrass),
   loadingCharge:
     data.loadingCharge === undefined || data.loadingCharge === null || data.loadingCharge === ""
       ? 0
@@ -42,7 +46,7 @@ const validate = (data) => {
     throw buildValidationError("Rate must be > 0");
   }
 
-  if (!["per_ton", "fixed", "none"].includes(data.royaltyMode)) {
+  if (!["per_ton", "per_brass", "fixed", "none"].includes(data.royaltyMode)) {
     throw buildValidationError("Invalid royalty mode");
   }
 
@@ -52,6 +56,14 @@ const validate = (data) => {
 
   if (!Number.isFinite(data.loadingCharge) || data.loadingCharge < 0) {
     throw buildValidationError("loadingCharge must be 0 or greater");
+  }
+
+  if (data.royaltyMode === "per_brass") {
+    if (!Number.isFinite(data.tonsPerBrass) || data.tonsPerBrass <= 0) {
+      throw buildValidationError("tonsPerBrass must be greater than 0 for per_brass royalty mode");
+    }
+  } else if (data.tonsPerBrass !== null && (!Number.isFinite(data.tonsPerBrass) || data.tonsPerBrass <= 0)) {
+    throw buildValidationError("tonsPerBrass must be greater than 0 when provided");
   }
 };
 
