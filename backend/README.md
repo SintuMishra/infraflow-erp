@@ -86,7 +86,24 @@ The onboarding flow is now designed to:
 ## Quick Verification
 
 ```bash
-npm test
+npm run verify:local
+```
+
+Local full verification (includes DB-backed owner lock check):
+
+```bash
+npm run verify:local:full
+```
+
+Local production-style preflight (without changing your `.env` localhost CORS):
+
+```bash
+npm run verify:go-live:local
+```
+
+Real deployment go-live verification (uses deployment environment exactly as-is):
+
+```bash
 npm run verify:owner-lock
 npm run verify:go-live
 ```

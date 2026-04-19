@@ -1,5 +1,5 @@
 const { pool, withTransaction } = require("../../config/db");
-const { tableExists } = require("../../utils/companyScope.util");
+const { tableExists, hasColumn } = require("../../utils/companyScope.util");
 
 const VOUCHER_TYPES = new Set([
   "journal",
@@ -1487,6 +1487,105 @@ const listVouchers = async ({
 const getWorkflowInbox = async ({ companyId, limit = 50, db = pool }) => {
   const normalizedLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
 
+  const [
+    vouchersHasApprovalStatus,
+    vouchersHasSubmittedBy,
+    vouchersHasSubmittedAt,
+    vouchersHasApprovedBy,
+    vouchersHasApprovedAt,
+    vouchersHasRejectedBy,
+    vouchersHasRejectedAt,
+    vouchersHasCreatedBy,
+    vouchersHasUpdatedAt,
+    usersHasEmployeeId,
+    employeesExists,
+    employeesHasFullName,
+    financeTransitionLogsExists,
+    financeTransitionLogsHasPerformedBy,
+  ] = await Promise.all([
+    hasColumn("vouchers", "approval_status", db),
+    hasColumn("vouchers", "submitted_by_user_id", db),
+    hasColumn("vouchers", "submitted_at", db),
+    hasColumn("vouchers", "approved_by_user_id", db),
+    hasColumn("vouchers", "approved_at", db),
+    hasColumn("vouchers", "rejected_by_user_id", db),
+    hasColumn("vouchers", "rejected_at", db),
+    hasColumn("vouchers", "created_by_user_id", db),
+    hasColumn("vouchers", "updated_at", db),
+    hasColumn("users", "employee_id", db),
+    tableExists("employees", db),
+    hasColumn("employees", "full_name", db),
+    tableExists("finance_transition_logs", db),
+    hasColumn("finance_transition_logs", "performed_by_user_id", db),
+  ]);
+
+  if (!vouchersHasApprovalStatus) {
+    return {
+      pendingSubmissions: [],
+      approvedForPosting: [],
+      rejectedItems: [],
+      recentActivity: [],
+      backlogSummary: {
+        totalPending: 0,
+        oldestPendingDays: 0,
+        ageingBreachedCount: 0,
+      },
+    };
+  }
+
+  const canResolveEmployeeName = usersHasEmployeeId && employeesExists && employeesHasFullName;
+  const submittedByIdExpr = vouchersHasSubmittedBy
+    ? "vouchers.submitted_by_user_id"
+    : "NULL::int";
+  const createdByIdExpr = vouchersHasCreatedBy
+    ? "vouchers.created_by_user_id"
+    : "NULL::int";
+  const approvedByIdExpr = vouchersHasApprovedBy
+    ? "vouchers.approved_by_user_id"
+    : "NULL::int";
+  const rejectedByIdExpr = vouchersHasRejectedBy
+    ? "vouchers.rejected_by_user_id"
+    : "NULL::int";
+  const submittedAtExpr = vouchersHasSubmittedAt
+    ? "vouchers.submitted_at"
+    : "NULL::timestamp";
+  const approvedAtExpr = vouchersHasApprovedAt
+    ? "vouchers.approved_at"
+    : "NULL::timestamp";
+  const rejectedAtExpr = vouchersHasRejectedAt
+    ? "vouchers.rejected_at"
+    : "NULL::timestamp";
+  const updatedAtExpr = vouchersHasUpdatedAt
+    ? "vouchers.updated_at"
+    : "vouchers.created_at";
+
+  const submittedByNameExpr = canResolveEmployeeName
+    ? "COALESCE(NULLIF(BTRIM(es.full_name), ''), NULLIF(BTRIM(us.username), ''))"
+    : "NULLIF(BTRIM(us.username), '')";
+  const createdByNameExpr = canResolveEmployeeName
+    ? "COALESCE(NULLIF(BTRIM(ec.full_name), ''), NULLIF(BTRIM(uc.username), ''))"
+    : "NULLIF(BTRIM(uc.username), '')";
+  const approvedByNameExpr = canResolveEmployeeName
+    ? "COALESCE(NULLIF(BTRIM(ea.full_name), ''), NULLIF(BTRIM(ua.username), ''))"
+    : "NULLIF(BTRIM(ua.username), '')";
+  const rejectedByNameExpr = canResolveEmployeeName
+    ? "COALESCE(NULLIF(BTRIM(er.full_name), ''), NULLIF(BTRIM(ur.username), ''))"
+    : "NULLIF(BTRIM(ur.username), '')";
+
+  const employeeJoins = canResolveEmployeeName
+    ? {
+        submitted: "LEFT JOIN employees es ON es.id = us.employee_id",
+        created: "LEFT JOIN employees ec ON ec.id = uc.employee_id",
+        approved: "LEFT JOIN employees ea ON ea.id = ua.employee_id",
+        rejected: "LEFT JOIN employees er ON er.id = ur.employee_id",
+      }
+    : {
+        submitted: "",
+        created: "",
+        approved: "",
+        rejected: "",
+      };
+
   const [pendingRes, postingRes, rejectedRes, recentRes] = await Promise.all([
     db.query(
       `
@@ -1497,22 +1596,22 @@ const getWorkflowInbox = async ({ companyId, limit = 50, db = pool }) => {
         vouchers.voucher_date AS "voucherDate",
         vouchers.approval_status AS "approvalStatus",
         vouchers.status,
-        submitted_by_user_id AS "submittedByUserId",
-        COALESCE(NULLIF(BTRIM(es.full_name), ''), NULLIF(BTRIM(us.username), '')) AS "submittedByDisplayName",
-        submitted_at AS "submittedAt",
-        created_by_user_id AS "createdByUserId",
-        COALESCE(NULLIF(BTRIM(ec.full_name), ''), NULLIF(BTRIM(uc.username), '')) AS "createdByDisplayName",
-        created_at AS "createdAt",
-        GREATEST((CURRENT_DATE - DATE(COALESCE(submitted_at, created_at))), 0)::int AS "ageDays"
+        ${submittedByIdExpr} AS "submittedByUserId",
+        ${submittedByNameExpr} AS "submittedByDisplayName",
+        ${submittedAtExpr} AS "submittedAt",
+        ${createdByIdExpr} AS "createdByUserId",
+        ${createdByNameExpr} AS "createdByDisplayName",
+        vouchers.created_at AS "createdAt",
+        GREATEST((CURRENT_DATE - DATE(COALESCE(${submittedAtExpr}, vouchers.created_at))), 0)::int AS "ageDays"
       FROM vouchers
-      LEFT JOIN users us ON us.id = vouchers.submitted_by_user_id
-      LEFT JOIN employees es ON es.id = us.employee_id
-      LEFT JOIN users uc ON uc.id = vouchers.created_by_user_id
-      LEFT JOIN employees ec ON ec.id = uc.employee_id
+      LEFT JOIN users us ON us.id = ${submittedByIdExpr}
+      ${employeeJoins.submitted}
+      LEFT JOIN users uc ON uc.id = ${createdByIdExpr}
+      ${employeeJoins.created}
       WHERE vouchers.company_id = $1
-        AND status = 'draft'
-        AND approval_status = 'submitted'
-      ORDER BY COALESCE(vouchers.submitted_at, vouchers.created_at) ASC, vouchers.id ASC
+        AND vouchers.status = 'draft'
+        AND vouchers.approval_status = 'submitted'
+      ORDER BY COALESCE(${submittedAtExpr}, vouchers.created_at) ASC, vouchers.id ASC
       LIMIT $2
       `,
       [companyId, normalizedLimit]
@@ -1526,17 +1625,17 @@ const getWorkflowInbox = async ({ companyId, limit = 50, db = pool }) => {
         vouchers.voucher_date AS "voucherDate",
         vouchers.approval_status AS "approvalStatus",
         vouchers.status,
-        approved_by_user_id AS "approvedByUserId",
-        COALESCE(NULLIF(BTRIM(ea.full_name), ''), NULLIF(BTRIM(ua.username), '')) AS "approvedByDisplayName",
-        approved_at AS "approvedAt",
-        GREATEST((CURRENT_DATE - DATE(COALESCE(approved_at, updated_at, created_at))), 0)::int AS "ageDays"
+        ${approvedByIdExpr} AS "approvedByUserId",
+        ${approvedByNameExpr} AS "approvedByDisplayName",
+        ${approvedAtExpr} AS "approvedAt",
+        GREATEST((CURRENT_DATE - DATE(COALESCE(${approvedAtExpr}, ${updatedAtExpr}, vouchers.created_at))), 0)::int AS "ageDays"
       FROM vouchers
-      LEFT JOIN users ua ON ua.id = vouchers.approved_by_user_id
-      LEFT JOIN employees ea ON ea.id = ua.employee_id
+      LEFT JOIN users ua ON ua.id = ${approvedByIdExpr}
+      ${employeeJoins.approved}
       WHERE vouchers.company_id = $1
-        AND status = 'draft'
-        AND approval_status = 'approved'
-      ORDER BY COALESCE(vouchers.approved_at, vouchers.updated_at, vouchers.created_at) ASC, vouchers.id ASC
+        AND vouchers.status = 'draft'
+        AND vouchers.approval_status = 'approved'
+      ORDER BY COALESCE(${approvedAtExpr}, ${updatedAtExpr}, vouchers.created_at) ASC, vouchers.id ASC
       LIMIT $2
       `,
       [companyId, normalizedLimit]
@@ -1550,28 +1649,25 @@ const getWorkflowInbox = async ({ companyId, limit = 50, db = pool }) => {
         vouchers.voucher_date AS "voucherDate",
         vouchers.approval_status AS "approvalStatus",
         vouchers.status,
-        rejected_by_user_id AS "rejectedByUserId",
-        COALESCE(NULLIF(BTRIM(er.full_name), ''), NULLIF(BTRIM(ur.username), '')) AS "rejectedByDisplayName",
-        rejected_at AS "rejectedAt",
-        narration,
-        GREATEST((CURRENT_DATE - DATE(COALESCE(rejected_at, updated_at, created_at))), 0)::int AS "ageDays"
+        ${rejectedByIdExpr} AS "rejectedByUserId",
+        ${rejectedByNameExpr} AS "rejectedByDisplayName",
+        ${rejectedAtExpr} AS "rejectedAt",
+        vouchers.narration,
+        GREATEST((CURRENT_DATE - DATE(COALESCE(${rejectedAtExpr}, ${updatedAtExpr}, vouchers.created_at))), 0)::int AS "ageDays"
       FROM vouchers
-      LEFT JOIN users ur ON ur.id = vouchers.rejected_by_user_id
-      LEFT JOIN employees er ON er.id = ur.employee_id
+      LEFT JOIN users ur ON ur.id = ${rejectedByIdExpr}
+      ${employeeJoins.rejected}
       WHERE vouchers.company_id = $1
-        AND status = 'draft'
-        AND approval_status = 'rejected'
-      ORDER BY COALESCE(vouchers.rejected_at, vouchers.updated_at, vouchers.created_at) DESC, vouchers.id DESC
+        AND vouchers.status = 'draft'
+        AND vouchers.approval_status = 'rejected'
+      ORDER BY COALESCE(${rejectedAtExpr}, ${updatedAtExpr}, vouchers.created_at) DESC, vouchers.id DESC
       LIMIT $2
       `,
       [companyId, normalizedLimit]
     ),
-    tableExists("finance_transition_logs", db)
-      .then((exists) => {
-        if (!exists) {
-          return { rows: [] };
-        }
-        return db.query(
+    !financeTransitionLogsExists
+      ? Promise.resolve({ rows: [] })
+      : db.query(
           `
           SELECT
             ftl.id,
@@ -1580,20 +1676,37 @@ const getWorkflowInbox = async ({ companyId, limit = 50, db = pool }) => {
             ftl.action,
             ftl.from_state AS "fromState",
             ftl.to_state AS "toState",
-            ftl.performed_by_user_id AS "performedByUserId",
-            COALESCE(NULLIF(BTRIM(e.full_name), ''), NULLIF(BTRIM(u.username), '')) AS "performedByDisplayName",
+            ${
+              financeTransitionLogsHasPerformedBy
+                ? "ftl.performed_by_user_id"
+                : "NULL::int"
+            } AS "performedByUserId",
+            ${
+              canResolveEmployeeName && financeTransitionLogsHasPerformedBy
+                ? "COALESCE(NULLIF(BTRIM(e.full_name), ''), NULLIF(BTRIM(u.username), ''))"
+                : financeTransitionLogsHasPerformedBy
+                  ? "NULLIF(BTRIM(u.username), '')"
+                  : "NULL::text"
+            } AS "performedByDisplayName",
             ftl.remarks,
             ftl.created_at AS "createdAt"
           FROM finance_transition_logs ftl
-          LEFT JOIN users u ON u.id = ftl.performed_by_user_id
-          LEFT JOIN employees e ON e.id = u.employee_id
+          ${
+            financeTransitionLogsHasPerformedBy
+              ? "LEFT JOIN users u ON u.id = ftl.performed_by_user_id"
+              : ""
+          }
+          ${
+            canResolveEmployeeName && financeTransitionLogsHasPerformedBy
+              ? "LEFT JOIN employees e ON e.id = u.employee_id"
+              : ""
+          }
           WHERE ftl.company_id = $1
           ORDER BY ftl.id DESC
           LIMIT $2
           `,
           [companyId, normalizedLimit]
-        );
-      }),
+        ),
   ]);
 
   const allQueuedItems = [...pendingRes.rows, ...postingRes.rows, ...rejectedRes.rows];
