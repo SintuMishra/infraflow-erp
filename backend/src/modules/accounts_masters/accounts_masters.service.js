@@ -611,7 +611,22 @@ const createAccountingPeriod = async ({
     error.statusCode = 400;
     throw error;
   }
-  if (normalizedPeriodStart < String(year.startDate) || normalizedPeriodEnd > String(year.endDate)) {
+  const normalizeStoredDate = (value) => {
+    if (!value) {
+      return "";
+    }
+
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value.toISOString().slice(0, 10);
+    }
+
+    return String(value).slice(0, 10);
+  };
+
+  const yearStartDate = normalizeStoredDate(year.startDate);
+  const yearEndDate = normalizeStoredDate(year.endDate);
+
+  if (normalizedPeriodStart < yearStartDate || normalizedPeriodEnd > yearEndDate) {
     const error = new Error("Accounting period must fall within the selected financial year");
     error.statusCode = 400;
     throw error;

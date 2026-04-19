@@ -8,6 +8,33 @@ const {
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
+const toDateOnly = (value, fieldName = "date") => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  const raw = String(value || "").trim();
+  if (!raw) {
+    const error = new Error(`${fieldName} must use YYYY-MM-DD format`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const isoCandidate = raw.slice(0, 10);
+  if (ISO_DATE_PATTERN.test(isoCandidate)) {
+    return isoCandidate;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  const error = new Error(`${fieldName} must use YYYY-MM-DD format`);
+  error.statusCode = 400;
+  throw error;
+};
+
 const requireCompanyId = (companyId) => {
   const normalized = Number(companyId || 0);
   if (!Number.isInteger(normalized) || normalized <= 0) {
@@ -527,7 +554,8 @@ const settlePayable = async ({
       throw error;
     }
 
-    if (normalizedSettlementDate < String(payable.billDate || "")) {
+    const payableBillDate = toDateOnly(payable.billDate, "payable billDate");
+    if (normalizedSettlementDate < payableBillDate) {
       const error = new Error("settlementDate cannot be before payable billDate");
       error.statusCode = 400;
       throw error;

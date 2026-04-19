@@ -1,5 +1,10 @@
 const { pool, withTransaction } = require("../../config/db");
-const { createVoucher, postVoucher } = require("../general_ledger/general_ledger.model");
+const {
+  createVoucher,
+  submitVoucher,
+  approveVoucher,
+  postVoucher,
+} = require("../general_ledger/general_ledger.model");
 
 const requireCompanyId = (companyId) => {
   const normalized = Number(companyId || 0);
@@ -422,7 +427,7 @@ const createCashBankVoucher = async ({
       companyId: normalizedCompanyId,
       voucherType: normalizedType,
       voucherDate: String(voucherDate || "").trim(),
-      approvalStatus: autoPost ? "approved" : "draft",
+      approvalStatus: "draft",
       narration: String(narration || "").trim() || `${normalizedType} transaction`,
       lines,
       createdByUserId: userId,
@@ -433,8 +438,29 @@ const createCashBankVoucher = async ({
       return voucher;
     }
 
-    return postVoucher({
+    if (!Number(userId || 0)) {
+      const error = new Error("userId is required for auto-post cash/bank voucher");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const submitted = await submitVoucher({
       voucherId: voucher.id,
+      companyId: normalizedCompanyId,
+      submittedByUserId: userId,
+      db,
+    });
+
+    const approved = await approveVoucher({
+      voucherId: submitted.id,
+      companyId: normalizedCompanyId,
+      approvedByUserId: userId,
+      approvalNotes: "Auto-approved cash/bank voucher",
+      db,
+    });
+
+    return postVoucher({
+      voucherId: approved.id,
       companyId: normalizedCompanyId,
       postedByUserId: userId,
       db,

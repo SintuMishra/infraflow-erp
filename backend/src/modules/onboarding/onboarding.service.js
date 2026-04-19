@@ -1101,35 +1101,135 @@ const permanentlyDeleteManagedCompany = async ({
       `
     );
 
-    for (const row of tableResult.rows) {
-      const schemaName = quoteIdentifier(row.schemaName);
-      const tableName = quoteIdentifier(row.tableName);
-      await db.query(
-        `DELETE FROM ${schemaName}.${tableName} WHERE company_id = $1`,
+    const pendingTables = tableResult.rows.map((row) => ({
+      schemaName: quoteIdentifier(row.schemaName),
+      tableName: quoteIdentifier(row.tableName),
+      key: `${row.schemaName}.${row.tableName}`,
+    }));
+
+    let triggerBypassEnabled = false;
+    try {
+      // Internal maintenance operation: bypass immutable/guard triggers while
+      // purging an entire tenant footprint.
+      await db.query("SET LOCAL session_replication_role = 'replica'");
+      triggerBypassEnabled = true;
+    } catch {
+      triggerBypassEnabled = false;
+    }
+
+    if (triggerBypassEnabled) {
+      for (const table of pendingTables) {
+        await db.query(
+          `DELETE FROM ${table.schemaName}.${table.tableName} WHERE company_id = $1`,
+          [normalizedCompanyId]
+        );
+      }
+
+      const deleteResult = await db.query(
+        `
+        DELETE FROM companies
+        WHERE id = $1
+        RETURNING
+          id,
+          company_code AS "companyCode",
+          company_name AS "companyName"
+        `,
         [normalizedCompanyId]
       );
-    }
 
-    const deleteResult = await db.query(
-      `
-      DELETE FROM companies
-      WHERE id = $1
-      RETURNING
-        id,
-        company_code AS "companyCode",
-        company_name AS "companyName"
-      `,
-      [normalizedCompanyId]
+      if (!deleteResult.rows[0]) {
+        throw new Error("COMPANY_NOT_FOUND");
+      }
+
+      return {
+        company: deleteResult.rows[0],
+        deletedByUserId: Number(deletedByUserId || 0) || null,
+      };
+    }
+    const hasImmutableFinanceTransitionLogs = pendingTables.some(
+      (table) => table.key === "public.finance_transition_logs"
     );
 
-    if (!deleteResult.rows[0]) {
-      throw new Error("COMPANY_NOT_FOUND");
+    if (hasImmutableFinanceTransitionLogs) {
+      await db.query("ALTER TABLE public.finance_transition_logs DISABLE TRIGGER USER");
     }
 
-    return {
-      company: deleteResult.rows[0],
-      deletedByUserId: Number(deletedByUserId || 0) || null,
-    };
+    try {
+      // Delete company-scoped rows with FK-aware retries because table dependency
+      // order is not guaranteed by information_schema.
+      while (pendingTables.length > 0) {
+        let deletedInPass = 0;
+        const deferredTables = [];
+        let lastFkError = null;
+
+        for (const table of pendingTables) {
+          const savepointName = `company_delete_${String(table.key)
+            .replace(/[^a-zA-Z0-9_]+/g, "_")
+            .toLowerCase()}`;
+          await db.query(`SAVEPOINT ${savepointName}`);
+
+          try {
+            await db.query(
+              `DELETE FROM ${table.schemaName}.${table.tableName} WHERE company_id = $1`,
+              [normalizedCompanyId]
+            );
+            await db.query(`RELEASE SAVEPOINT ${savepointName}`);
+            deletedInPass += 1;
+          } catch (error) {
+            await db.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+            await db.query(`RELEASE SAVEPOINT ${savepointName}`);
+
+            if (error?.code === "23503") {
+              lastFkError = error;
+              deferredTables.push(table);
+              continue;
+            }
+
+            throw error;
+          }
+        }
+
+        if (deletedInPass === 0) {
+          const blockedTables = deferredTables.map((table) => table.key);
+          const blocker = lastFkError || new Error("MANAGED_COMPANY_DELETE_BLOCKED");
+          blocker.code = blocker.code || "MANAGED_COMPANY_DELETE_BLOCKED";
+          blocker.details = {
+            ...(blocker.details || {}),
+            companyId: normalizedCompanyId,
+            blockedTables,
+          };
+          throw blocker;
+        }
+
+        pendingTables.length = 0;
+        pendingTables.push(...deferredTables);
+      }
+
+      const deleteResult = await db.query(
+        `
+        DELETE FROM companies
+        WHERE id = $1
+        RETURNING
+          id,
+          company_code AS "companyCode",
+          company_name AS "companyName"
+        `,
+        [normalizedCompanyId]
+      );
+
+      if (!deleteResult.rows[0]) {
+        throw new Error("COMPANY_NOT_FOUND");
+      }
+
+      return {
+        company: deleteResult.rows[0],
+        deletedByUserId: Number(deletedByUserId || 0) || null,
+      };
+    } finally {
+      if (hasImmutableFinanceTransitionLogs) {
+        await db.query("ALTER TABLE public.finance_transition_logs ENABLE TRIGGER USER");
+      }
+    }
   });
 };
 

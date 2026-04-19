@@ -1357,11 +1357,13 @@ const reverseVoucher = async ({
 
   if (await tableExists("finance_source_links", db)) {
     await db.query(
-      `
+        `
       UPDATE finance_source_links
       SET
         posting_status = 'reversed',
-        metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('reversalVoucherId', $1),
+        metadata =
+          COALESCE(metadata, '{}'::jsonb) ||
+          jsonb_build_object('reversalVoucherId', $1::bigint),
         updated_at = CURRENT_TIMESTAMP
       WHERE company_id = $2
         AND voucher_id = $3
