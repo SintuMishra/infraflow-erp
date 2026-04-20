@@ -1,5 +1,7 @@
 const model = require("./party_material_rates.model");
 const { normalizeCompanyId } = require("../../utils/companyScope.util");
+const { plantExists, materialExists } = require("../dispatch/dispatch.model");
+const { getPartyById } = require("../parties/parties.model");
 
 const buildValidationError = (message, statusCode = 400) => {
   const error = new Error(message);
@@ -67,6 +69,26 @@ const validate = (data) => {
   }
 };
 
+const validateMasterLinks = async ({ plantId, partyId, materialId, companyId }) => {
+  const [plant, party, material] = await Promise.all([
+    plantExists(Number(plantId), companyId),
+    getPartyById(Number(partyId), companyId),
+    materialExists(Number(materialId), companyId),
+  ]);
+
+  if (!plant) {
+    throw buildValidationError("Selected plant does not exist");
+  }
+
+  if (!party) {
+    throw buildValidationError("Selected party does not exist");
+  }
+
+  if (!material) {
+    throw buildValidationError("Selected material does not exist");
+  }
+};
+
 const getRates = async (companyId = null) => {
   return await model.getAllRates(companyId);
 };
@@ -74,12 +96,14 @@ const getRates = async (companyId = null) => {
 const createRate = async (data) => {
   const normalized = normalizeRatePayload(data);
   validate(normalized);
+  await validateMasterLinks(normalized);
   return await model.insertRate(normalized);
 };
 
 const updateRate = async (id, data) => {
   const normalized = normalizeRatePayload(data);
   validate(normalized);
+  await validateMasterLinks(normalized);
   const updated = await model.updateRate(id, normalized);
 
   if (!updated) {

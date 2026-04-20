@@ -36,6 +36,20 @@ const create = async (req, res) => {
     });
     return res.status(201).json({ success: true, data });
   } catch (e) {
+    if (e.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "A rate already exists for this plant, party, and material",
+      });
+    }
+
+    if (e.code === "23503") {
+      return res.status(400).json({
+        success: false,
+        message: "Selected plant, party, or material is invalid for this company",
+      });
+    }
+
     return sendControllerError(
       req,
       res,
@@ -65,6 +79,20 @@ const update = async (req, res) => {
     });
     return res.status(200).json({ success: true, data });
   } catch (e) {
+    if (e.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "A rate already exists for this plant, party, and material",
+      });
+    }
+
+    if (e.code === "23503") {
+      return res.status(400).json({
+        success: false,
+        message: "Selected plant, party, or material is invalid for this company",
+      });
+    }
+
     return sendControllerError(
       req,
       res,
