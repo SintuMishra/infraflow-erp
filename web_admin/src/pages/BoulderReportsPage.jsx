@@ -36,6 +36,15 @@ const INITIAL_TRIP_ROW = {
   remarks: "",
 };
 
+const INITIAL_QUICK_TRIP_FORM = {
+  vehicleId: "",
+  vehicleNumberSnapshot: "",
+  contractorNameSnapshot: "",
+  routeType: "to_stock_yard",
+  weighedTons: "",
+  remarks: "",
+};
+
 const INITIAL_VEHICLE_FORM = {
   vehicleNumber: "",
   contractorName: "",
@@ -251,6 +260,9 @@ function BoulderReportsPage() {
   const [keepShiftContext, setKeepShiftContext] = useState(true);
   const [autoCarryClosingToOpening, setAutoCarryClosingToOpening] = useState(true);
   const [allowClosingOverride, setAllowClosingOverride] = useState(false);
+  const [quickAddMode, setQuickAddMode] = useState(true);
+  const [quickTripForm, setQuickTripForm] = useState(INITIAL_QUICK_TRIP_FORM);
+  const [quickTripStickyVehicle, setQuickTripStickyVehicle] = useState(true);
 
   const shiftContextStorageKey = useMemo(
     () =>
@@ -556,6 +568,7 @@ function BoulderReportsPage() {
         ...INITIAL_REPORT_FORM,
         reportDate: getTodayDateValue(),
       });
+      setQuickTripForm({ ...INITIAL_QUICK_TRIP_FORM });
       setEditingReportId(null);
       setAllowClosingOverride(false);
       return;
@@ -569,6 +582,13 @@ function BoulderReportsPage() {
       ...INITIAL_REPORT_FORM,
       ...context,
     });
+    setQuickTripForm((prev) => ({
+      ...INITIAL_QUICK_TRIP_FORM,
+      vehicleId: quickTripStickyVehicle ? prev.vehicleId : "",
+      vehicleNumberSnapshot: quickTripStickyVehicle ? prev.vehicleNumberSnapshot : "",
+      contractorNameSnapshot: quickTripStickyVehicle ? prev.contractorNameSnapshot : "",
+      routeType: quickTripStickyVehicle ? prev.routeType || "to_stock_yard" : "to_stock_yard",
+    }));
     setEditingReportId(null);
     setAllowClosingOverride(false);
   };
@@ -629,6 +649,82 @@ function BoulderReportsPage() {
         vehicleRuns: nextRows,
       };
     });
+  };
+
+  const handleQuickTripChange = (field, value) => {
+    setQuickTripForm((prev) => {
+      const next = {
+        ...prev,
+        [field]: value,
+      };
+
+      if (field === "vehicleId") {
+        const selected = activeVehicles.find((vehicle) => Number(vehicle.id) === Number(value));
+        if (selected) {
+          next.vehicleNumberSnapshot = selected.vehicleNumber || next.vehicleNumberSnapshot;
+          next.contractorNameSnapshot = selected.contractorName || next.contractorNameSnapshot;
+        }
+      }
+
+      return next;
+    });
+  };
+
+  const appendQuickTrip = () => {
+    const weighedTons = parsePositiveNumber(quickTripForm.weighedTons);
+    if (!weighedTons || weighedTons <= 0) {
+      setError("Quick trip weighed tons must be greater than 0");
+      return false;
+    }
+
+    if (!String(quickTripForm.vehicleNumberSnapshot || "").trim()) {
+      setError("Quick trip vehicle number is required");
+      return false;
+    }
+
+    if (!String(quickTripForm.contractorNameSnapshot || "").trim()) {
+      setError("Quick trip contractor name is required");
+      return false;
+    }
+
+    if (!["to_stock_yard", "direct_to_crushing_hub"].includes(String(quickTripForm.routeType || ""))) {
+      setError("Quick trip route type is invalid");
+      return false;
+    }
+
+    setReportForm((prev) => ({
+      ...prev,
+      vehicleRuns: [
+        ...(prev.vehicleRuns || []),
+        {
+          vehicleId: quickTripForm.vehicleId || "",
+          vehicleNumberSnapshot: String(quickTripForm.vehicleNumberSnapshot || "").trim(),
+          contractorNameSnapshot: String(quickTripForm.contractorNameSnapshot || "").trim(),
+          routeType: quickTripForm.routeType || "to_stock_yard",
+          weighedTons: Number(weighedTons.toFixed(2)),
+          remarks: String(quickTripForm.remarks || "").trim(),
+        },
+      ],
+    }));
+
+    setQuickTripForm((prev) => {
+      if (!quickTripStickyVehicle) {
+        return { ...INITIAL_QUICK_TRIP_FORM };
+      }
+      return {
+        ...prev,
+        weighedTons: "",
+        remarks: "",
+      };
+    });
+    setError("");
+    setSuccess("Trip added");
+    return true;
+  };
+
+  const handleQuickTripSubmit = (event) => {
+    event.preventDefault();
+    appendQuickTrip();
   };
 
   const handleReportSubmit = async (event) => {
@@ -745,6 +841,8 @@ function BoulderReportsPage() {
   const handleEditReport = (report) => {
     setEditingReportId(report.id);
     setAllowClosingOverride(true);
+    setQuickAddMode(false);
+    setQuickTripForm({ ...INITIAL_QUICK_TRIP_FORM });
     setReportForm({
       reportDate: report.reportDate || getTodayDateValue(),
       plantId: report.plantId ? String(report.plantId) : "",
@@ -870,6 +968,7 @@ function BoulderReportsPage() {
       ...INITIAL_REPORT_FORM,
       reportDate: getTodayDateValue(),
     });
+    setQuickTripForm({ ...INITIAL_QUICK_TRIP_FORM });
     setAllowClosingOverride(false);
     setEditingReportId(null);
     setSuccess("Shift context cleared. You can start a fresh shift setup.");
@@ -1426,13 +1525,88 @@ function BoulderReportsPage() {
           <div style={styles.tripPanel}>
             <div style={styles.tripPanelHeader}>
               <p style={styles.tripPanelTitle}>Vehicle-wise Inward Trips (Recommended)</p>
-              <button type="button" style={styles.secondaryButton} onClick={addVehicleRunRow}>
-                Add Trip Row
-              </button>
+              <div style={styles.inlineActions}>
+                <button
+                  type="button"
+                  style={styles.secondaryButton}
+                  onClick={() => setQuickAddMode((prev) => !prev)}
+                >
+                  {quickAddMode ? "Show Table Entry" : "Show Quick Add"}
+                </button>
+                <button type="button" style={styles.secondaryButton} onClick={addVehicleRunRow}>
+                  Add Trip Row
+                </button>
+              </div>
             </div>
             <p style={styles.tripPanelHint}>
               Enter each mine-to-crusher or mine-to-stock movement here. Shift totals are auto-calculated from these entries.
             </p>
+            {quickAddMode ? (
+              <form style={styles.quickTripForm} onSubmit={handleQuickTripSubmit}>
+                <select
+                  style={styles.input}
+                  value={quickTripForm.vehicleId || ""}
+                  onChange={(event) => handleQuickTripChange("vehicleId", event.target.value)}
+                >
+                  <option value="">Manual vehicle</option>
+                  {activeVehicles.map((vehicle) => (
+                    <option key={vehicle.id} value={vehicle.id}>
+                      {vehicle.vehicleNumber} - {vehicle.contractorName}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  style={styles.input}
+                  placeholder="Vehicle Number"
+                  value={quickTripForm.vehicleNumberSnapshot || ""}
+                  onChange={(event) =>
+                    handleQuickTripChange("vehicleNumberSnapshot", event.target.value)
+                  }
+                />
+                <input
+                  style={styles.input}
+                  placeholder="Contractor Name"
+                  value={quickTripForm.contractorNameSnapshot || ""}
+                  onChange={(event) =>
+                    handleQuickTripChange("contractorNameSnapshot", event.target.value)
+                  }
+                />
+                <select
+                  style={styles.input}
+                  value={quickTripForm.routeType || "to_stock_yard"}
+                  onChange={(event) => handleQuickTripChange("routeType", event.target.value)}
+                >
+                  <option value="to_stock_yard">To Stock Yard</option>
+                  <option value="direct_to_crushing_hub">Direct to Crushing Hub</option>
+                </select>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  style={styles.input}
+                  placeholder="Weighed Tons"
+                  value={quickTripForm.weighedTons ?? ""}
+                  onChange={(event) => handleQuickTripChange("weighedTons", event.target.value)}
+                />
+                <input
+                  style={styles.input}
+                  placeholder="Remarks (optional)"
+                  value={quickTripForm.remarks || ""}
+                  onChange={(event) => handleQuickTripChange("remarks", event.target.value)}
+                />
+                <button type="submit" style={styles.primaryButton}>
+                  Quick Add Trip
+                </button>
+                <label style={styles.toggleLabelCompact}>
+                  <input
+                    type="checkbox"
+                    checked={quickTripStickyVehicle}
+                    onChange={(event) => setQuickTripStickyVehicle(event.target.checked)}
+                  />
+                  Keep same vehicle for next row
+                </label>
+              </form>
+            ) : null}
             {(reportForm.vehicleRuns || []).length ? (
               <div style={styles.tripRowsWrap}>
                 {(reportForm.vehicleRuns || []).map((run, index) => (
@@ -2048,6 +2222,17 @@ const styles = {
     display: "grid",
     gap: "8px",
   },
+  quickTripForm: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+    gap: "8px",
+    alignItems: "center",
+    border: "1px solid #cbd5e1",
+    background: "rgba(255,255,255,0.95)",
+    borderRadius: "12px",
+    padding: "10px",
+    marginBottom: "10px",
+  },
   tripRow: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
@@ -2206,6 +2391,14 @@ const styles = {
     fontWeight: 600,
     fontSize: "13px",
     gridColumn: "1 / -1",
+  },
+  toggleLabelCompact: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    color: "#334155",
+    fontWeight: 600,
+    fontSize: "12px",
   },
   tableWrap: {
     width: "100%",
