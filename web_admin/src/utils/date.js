@@ -29,6 +29,13 @@ export const toDateOnlyValue = (value) => {
       return trimmed;
     }
 
+    // For date-time strings, prefer local-date normalization so UTC values
+    // do not appear as an incorrect previous-day date in the UI.
+    const parsedStringDate = new Date(trimmed);
+    if (!Number.isNaN(parsedStringDate.getTime())) {
+      return formatLocalDateParts(parsedStringDate);
+    }
+
     const matchedDate = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
     if (matchedDate) {
       return matchedDate[1];

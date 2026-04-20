@@ -1244,7 +1244,7 @@ function DispatchReportsPage() {
       setShowForm(false);
       setShowList(true);
       setPage(1);
-      await loadDispatchReports(1);
+      await Promise.all([loadDispatchReports(1), loadReferenceData()]);
     } catch (err) {
       setError(
         err?.response?.data?.message || "Failed to add dispatch report"
@@ -1381,7 +1381,7 @@ function DispatchReportsPage() {
 
       setSuccess("Dispatch report updated successfully");
       closeEditPanel();
-      await loadDispatchReports(page);
+      await Promise.all([loadDispatchReports(page), loadReferenceData()]);
     } catch (err) {
       setError(
         err?.response?.data?.message || "Failed to update dispatch report"
@@ -1408,7 +1408,7 @@ function DispatchReportsPage() {
       setStatusUpdatingId(report.id);
       await api.patch(`/dispatch-reports/${report.id}/status`, { status });
       setSuccess(`Dispatch status changed to ${status}`);
-      await loadDispatchReports(page);
+      await Promise.all([loadDispatchReports(page), loadReferenceData()]);
     } catch (err) {
       setError(
         err?.response?.data?.message || "Failed to update dispatch status"
