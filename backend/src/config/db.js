@@ -23,8 +23,16 @@ const connectDB = async () => {
     });
     client.release();
   } catch (error) {
+    const nestedErrors = Array.isArray(error?.errors)
+      ? error.errors
+          .map((entry) => entry?.message || entry?.code || String(entry || ""))
+          .filter(Boolean)
+          .join(" | ")
+      : "";
     logger.error("Database connection failed", {
-      message: error.message,
+      message: error?.message || "unknown",
+      code: error?.code || null,
+      details: nestedErrors || null,
     });
     process.exit(1);
   }
