@@ -47,6 +47,7 @@ test("migration files are ordered and include production hardening migrations", 
     "028_party_material_rates_party_fk_fix.sql",
     "029_party_material_rates_per_brass_royalty.sql",
     "030_party_material_rates_royalty_mode_constraint_fix.sql",
+    "031_dispatch_reports_royalty_mode_constraint_fix.sql",
   ]);
 });
 

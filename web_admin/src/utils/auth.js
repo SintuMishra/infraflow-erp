@@ -17,6 +17,18 @@ const parseJwtPayload = (token) => {
   }
 };
 
+export const isTokenExpired = (token, skewSeconds = 20) => {
+  const payload = parseJwtPayload(token);
+  const exp = Number(payload?.exp || 0);
+
+  if (!exp) {
+    return false;
+  }
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  return exp <= nowSeconds + Math.max(0, Number(skewSeconds) || 0);
+};
+
 export const getToken = () => {
   return localStorage.getItem(TOKEN_KEY);
 };

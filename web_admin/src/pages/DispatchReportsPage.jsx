@@ -735,6 +735,9 @@ function DispatchReportsPage() {
 
     const partyRate = getSelectedPartyRate(payload);
     const transportRate = getSelectedTransportRate(payload);
+    const requiresPartyRate =
+      Boolean(payload.plantId) && Boolean(payload.materialId) && Boolean(payload.partyId);
+    const hasPartyRate = Boolean(partyRate);
 
     const materialRatePerTon = Number(partyRate?.ratePerTon || 0);
     const materialAmount = roundMoney(quantity * materialRatePerTon);
@@ -777,18 +780,24 @@ function DispatchReportsPage() {
       }
     }
 
+    if (!hasPartyRate) {
+      transportCost = 0;
+    }
+
     transportCost = roundMoney(transportCost);
 
-    const computedTotal = roundMoney(
-      materialAmount +
-      royaltyAmount +
-      loadingCharge +
-      transportCost +
-      otherCharge
-    );
+    const computedTotal = hasPartyRate
+      ? roundMoney(
+          materialAmount +
+            royaltyAmount +
+            loadingCharge +
+            transportCost +
+            otherCharge
+        )
+      : 0;
 
     const finalInvoiceValue =
-      payload.invoiceValue !== "" && payload.invoiceValue !== null
+      hasPartyRate && payload.invoiceValue !== "" && payload.invoiceValue !== null
         ? roundMoney(payload.invoiceValue)
         : computedTotal;
     const hasManualOverride =
@@ -801,6 +810,8 @@ function DispatchReportsPage() {
 
     return {
       partyRate,
+      hasPartyRate,
+      requiresPartyRate,
       transportRate,
       materialRatePerTon,
       materialAmount,
@@ -1719,6 +1730,15 @@ function DispatchReportsPage() {
         Party material rate drives the material side. Transporter rate adds only the transportation side. Taxable value is auto-computed from material amount + royalty + loading + transport + other charges unless you explicitly override it.
       </div>
 
+      {billingPreview.requiresPartyRate && !billingPreview.hasPartyRate ? (
+        <div style={styles.overrideWarningCard}>
+          <strong>Billing preview is blocked until party material rate is configured</strong>
+          <span>
+            Create an active rate for this party + plant + material combination first. Dispatch save is intentionally blocked without it.
+          </span>
+        </div>
+      ) : null}
+
       {billingPreview.hasManualOverride ? (
         <div style={styles.overrideWarningCard}>
           <strong>Manual taxable value override is active</strong>
@@ -2447,7 +2467,14 @@ function DispatchReportsPage() {
               <button
                 type="submit"
                 style={styles.button}
-                disabled={isSubmitting || !activePlants.length}
+                disabled={
+                  isSubmitting || !activePlants.length || !formReadiness.isReady
+                }
+                title={
+                  formReadiness.isReady
+                    ? "Save dispatch report"
+                    : `Blocked: ${formReadiness.missingItems.join(" | ")}`
+                }
               >
                 {isSubmitting ? "Saving Dispatch..." : "Add Dispatch Report"}
               </button>
@@ -2780,7 +2807,12 @@ function DispatchReportsPage() {
                 <button
                   type="submit"
                   style={styles.button}
-                  disabled={isUpdating}
+                  disabled={isUpdating || !editReadiness.isReady}
+                  title={
+                    editReadiness.isReady
+                      ? "Save dispatch changes"
+                      : `Blocked: ${editReadiness.missingItems.join(" | ")}`
+                  }
                 >
                   {isUpdating ? "Saving Changes..." : "Save Changes"}
                 </button>

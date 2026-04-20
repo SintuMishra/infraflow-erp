@@ -9,6 +9,11 @@ const currencyFormatter = new Intl.NumberFormat("en-IN", {
 });
 
 const formatCurrency = (value) => currencyFormatter.format(Number(value || 0));
+const formatNumber = (value, fractionDigits = 3) =>
+  new Intl.NumberFormat("en-IN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: fractionDigits,
+  }).format(Number(value || 0));
 
 const sanitizeFilenamePart = (value, fallback = "Dispatch") => {
   const normalized = Array.from(String(value || ""))
@@ -242,6 +247,28 @@ function DispatchPrintPage() {
     const amountInWords = formatAmountInWords(totalWithGst);
     const taxMode = igst > 0 ? "Inter-state supply (IGST)" : "Intra-state supply (CGST + SGST)";
     const invoiceAdjustment = Number((taxableValue - componentSubtotal).toFixed(2));
+    const royaltyMode = String(data.royaltyMode || "none").trim();
+    const quantityTons = Number(data.quantityTons || 0);
+    let royaltyBasisLabel = "No royalty applied";
+
+    if (royaltyMode === "per_ton") {
+      royaltyBasisLabel = `${formatNumber(quantityTons)} tons x ${formatCurrency(
+        data.royaltyValue || 0
+      )} per ton`;
+    } else if (royaltyMode === "per_brass") {
+      const royaltyValuePerBrass = Number(data.royaltyValue || 0);
+      const brassQuantity =
+        royaltyValuePerBrass > 0
+          ? Number((royaltyAmount / royaltyValuePerBrass).toFixed(4))
+          : 0;
+
+      royaltyBasisLabel = `${formatNumber(quantityTons)} tons ~ ${formatNumber(
+        brassQuantity,
+        4
+      )} brass x ${formatCurrency(royaltyValuePerBrass)} per brass`;
+    } else if (royaltyMode === "fixed") {
+      royaltyBasisLabel = `Fixed royalty ${formatCurrency(data.royaltyValue || 0)}`;
+    }
 
     return {
       componentSubtotal,
@@ -260,6 +287,7 @@ function DispatchPrintPage() {
       totalWithGst,
       amountInWords,
       taxMode,
+      royaltyBasisLabel,
     };
   }, [data]);
 
@@ -695,6 +723,9 @@ function DispatchPrintPage() {
             </div>
             <div style={styles.detailRow}>
               <strong>Royalty Mode:</strong> {data.royaltyMode || "-"}
+            </div>
+            <div style={styles.detailRow}>
+              <strong>Royalty Basis:</strong> {billing?.royaltyBasisLabel || "-"}
             </div>
             <div style={styles.detailRow}>
               <strong>Transport Rate Type:</strong>{" "}

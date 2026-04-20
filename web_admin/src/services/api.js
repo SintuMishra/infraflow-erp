@@ -4,6 +4,7 @@ import {
   getCurrentCompanyId,
   getRefreshToken,
   getToken,
+  isTokenExpired,
   setSession,
 } from "../utils/auth";
 
@@ -16,6 +17,7 @@ export const api = axios.create({
 });
 
 let refreshPromise = null;
+let redirectingToLogin = false;
 
 const buildAuthHeaders = () => {
   const headers = {};
@@ -35,6 +37,26 @@ const buildAuthHeaders = () => {
 
 const dispatchSessionExpired = () => {
   window.dispatchEvent(new CustomEvent("erp:session-expired"));
+};
+
+const forceLoginRedirect = () => {
+  if (typeof window === "undefined" || redirectingToLogin) {
+    return;
+  }
+
+  const path = window.location.pathname || "";
+  const isPublicAuthPath =
+    path === "/login" ||
+    path === "/owner-login" ||
+    path.startsWith("/client-login") ||
+    path === "/forgot-password";
+
+  if (isPublicAuthPath) {
+    return;
+  }
+
+  redirectingToLogin = true;
+  window.location.replace("/login?reason=session-expired");
 };
 
 const refreshAccessToken = async () => {
@@ -67,6 +89,14 @@ const refreshAccessToken = async () => {
 };
 
 api.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token && isTokenExpired(token)) {
+    clearSession();
+    dispatchSessionExpired();
+    forceLoginRedirect();
+    return Promise.reject(new axios.Cancel("SESSION_EXPIRED"));
+  }
+
   const headers = config.headers || {};
   const authHeaders = buildAuthHeaders();
 
@@ -106,6 +136,7 @@ api.interceptors.response.use(
       } catch {
         clearSession();
         dispatchSessionExpired();
+        forceLoginRedirect();
       }
     }
 
