@@ -15,6 +15,18 @@ const formatNumber = (value, fractionDigits = 3) =>
     maximumFractionDigits: fractionDigits,
   }).format(Number(value || 0));
 
+const formatStatusLabel = (value) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return "-";
+  }
+
+  return normalized
+    .split(/[_\s]+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+};
+
 const sanitizeFilenamePart = (value, fallback = "Dispatch") => {
   const normalized = Array.from(String(value || ""))
     .map((character) => {
@@ -342,7 +354,7 @@ function DispatchPrintPage() {
   }
 
   return (
-    <div style={styles.page}>
+    <div style={styles.page} className="print-page">
       <style>{printStyles}</style>
 
       <div style={styles.toolbar} className="no-print">
@@ -366,13 +378,13 @@ function DispatchPrintPage() {
         </div>
       </div>
 
-      <div style={styles.document}>
+      <div style={styles.document} className="print-document">
         <div style={styles.documentAccent} />
 
         <div style={styles.topHeader}>
           <div style={styles.companyHeaderBlock}>
             <div style={styles.companyHeaderDetails}>
-              <div style={styles.docTag}>Tax Invoice / Delivery Challan</div>
+              <div style={styles.docTag}>Tax Invoice Cum Delivery Challan</div>
               <h1 style={styles.companyName}>{company.companyName || "-"}</h1>
               <p style={styles.companyLine}>{company.branchName || "-"}</p>
               <p style={styles.companyLine}>{company.addressLine1 || "-"}</p>
@@ -477,16 +489,15 @@ function DispatchPrintPage() {
           ))}
         </div>
 
-        <div style={styles.documentNotice}>
+        <div style={styles.documentNotice} className="print-section">
           <div style={styles.documentNoticeTitle}>Document Use & Reference</div>
           <p style={styles.documentNoticeText}>
-            This print-ready copy is generated from the dispatch ledger and is
-            intended for invoice reference, transport coordination, and movement
-            compliance support.
+            This document is generated from the dispatch ledger for invoice reference,
+            transport coordination, and movement compliance support.
           </p>
           <p style={styles.documentNoticeText}>
-            Commercial values, GST breakup, and E-Way fields shown below follow
-            the system-recorded dispatch transaction for this consignment.
+            Commercial values, GST breakup, and E-Way details shown below are based
+            on the recorded dispatch transaction for this consignment.
           </p>
         </div>
 
@@ -501,7 +512,7 @@ function DispatchPrintPage() {
           </div>
         )}
 
-        <div style={styles.twoColGrid}>
+        <div style={styles.twoColGrid} className="print-section">
           <div style={styles.panel}>
             <div style={styles.panelTitle}>Supplier Details</div>
             <div style={styles.detailRow}>
@@ -545,7 +556,7 @@ function DispatchPrintPage() {
           </div>
         </div>
 
-        <div style={styles.twoColGrid}>
+        <div style={styles.twoColGrid} className="print-section">
           <div style={styles.panel}>
             <div style={styles.panelTitle}>Dispatch & Vehicle Details</div>
             <div style={styles.detailRow}>
@@ -592,7 +603,7 @@ function DispatchPrintPage() {
               <strong>Transporter:</strong> {data.transportVendorName || "-"}
             </div>
             <div style={styles.detailRow}>
-              <strong>Status:</strong> {data.status || "-"}
+              <strong>Status:</strong> {formatStatusLabel(data.status)}
             </div>
             <div style={styles.detailRow}>
               <strong>Tax Mode:</strong> {billing.taxMode}
@@ -600,7 +611,7 @@ function DispatchPrintPage() {
           </div>
         </div>
 
-        <div style={styles.referenceCard}>
+        <div style={styles.referenceCard} className="print-section">
           <div style={styles.referenceHeader}>
             <div>
               <div style={styles.referenceEyebrow}>Digital Reference</div>
@@ -613,14 +624,14 @@ function DispatchPrintPage() {
             </div>
           </div>
           <div style={styles.referenceValue}>{documentReference}</div>
-          <div style={styles.referenceHint}>
+          <div style={styles.referenceHint} className="print-compact-hint">
             A formal QR or barcode should be introduced only after approved e-invoice, IRN, or
             internal scan workflows are defined. This keeps the printed document genuine and avoids
             showing a misleading compliance code.
           </div>
         </div>
 
-        <div style={styles.ewayCard}>
+        <div style={styles.ewayCard} className="print-section">
           <div style={styles.ewayHeader}>
             <div>
               <div style={styles.ewayEyebrow}>Movement Compliance Snapshot</div>
@@ -678,7 +689,7 @@ function DispatchPrintPage() {
           </div>
         </div>
 
-        <div style={styles.tableBlock}>
+        <div style={styles.tableBlock} className="print-section">
           <div style={styles.blockTitle}>Item Details</div>
           <table style={styles.table}>
             <thead>
@@ -712,7 +723,7 @@ function DispatchPrintPage() {
           </table>
         </div>
 
-        <div style={styles.amountGrid}>
+        <div style={styles.amountGrid} className="print-section">
           <div style={styles.panel}>
             <div style={styles.panelTitle}>Billing Notes</div>
             <div style={styles.detailRow}>
@@ -820,7 +831,7 @@ function DispatchPrintPage() {
           </div>
         </div>
 
-        <div style={styles.footerGrid}>
+        <div style={styles.footerGrid} className="print-section print-footer-grid">
           <div style={styles.footerBox}>
             <div style={styles.footerTitle}>Declaration</div>
             <p style={styles.footerText}>
@@ -849,15 +860,60 @@ const printStyles = `
   @media print {
     @page {
       size: A4;
-      margin: 10mm;
+      margin: 8mm;
     }
 
+    html,
     body {
       background: white !important;
+      margin: 0 !important;
+      padding: 0 !important;
     }
 
     .no-print {
       display: none !important;
+    }
+
+    .print-page {
+      min-height: auto !important;
+      background: #ffffff !important;
+      padding: 0 !important;
+    }
+
+    .print-document {
+      max-width: none !important;
+      margin: 0 !important;
+      border: none !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      padding: 6mm 6mm 4mm !important;
+      overflow: visible !important;
+    }
+
+    .print-section {
+      break-inside: avoid-page;
+      page-break-inside: avoid;
+    }
+
+    .print-footer-grid {
+      margin-top: 12px !important;
+      padding-top: 10px !important;
+    }
+
+    .print-compact-hint {
+      margin-top: 6px !important;
+      font-size: 11px !important;
+      line-height: 1.45 !important;
+    }
+
+    table {
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+
+    th,
+    td {
+      padding: 7px 8px !important;
     }
 
     * {
