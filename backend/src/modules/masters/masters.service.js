@@ -119,6 +119,27 @@ const normalizeOptionalText = (value) => {
   return normalized === "" ? null : normalized;
 };
 
+const isUiOtherPlaceholder = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase() === "__other__";
+
+const ensureValidSelectableValue = (value, fieldName) => {
+  if (!value) {
+    return value;
+  }
+
+  if (isUiOtherPlaceholder(value)) {
+    throw createHttpError(400, `${fieldName} is required`);
+  }
+
+  if (String(value).length > 120) {
+    throw createHttpError(400, `${fieldName} is too long`);
+  }
+
+  return value;
+};
+
 const normalizeRequiredText = (value, message) => {
   const normalized = normalizeOptionalText(value);
 
@@ -165,7 +186,10 @@ const normalizeShiftPayload = (payload) => {
 const normalizeVehicleTypePayload = (payload) => ({
   ...payload,
   typeName: normalizeRequiredText(payload.typeName, "Vehicle type name is required"),
-  category: normalizeOptionalText(payload.category),
+  category: ensureValidSelectableValue(
+    normalizeOptionalText(payload.category),
+    "Vehicle category"
+  ),
 });
 
 const normalizeConfigPayload = (payload) => {
@@ -254,8 +278,8 @@ const normalizeMaterialPayload = async (payload) => {
     materialName: normalizedMaterialName,
     materialCode: normalizeOptionalText(payload.materialCode),
     hsnSacCode: inferredHsnSacCode,
-    category: normalizedCategory,
-    unit: normalizeOptionalText(payload.unit),
+    category: ensureValidSelectableValue(normalizedCategory, "Material category"),
+    unit: ensureValidSelectableValue(normalizeOptionalText(payload.unit), "Material unit"),
     gstRate,
   };
 };
@@ -265,8 +289,14 @@ const normalizeCrusherUnitPayload = (payload) => ({
   unitName: normalizeRequiredText(payload.unitName, "Unit name is required"),
   unitCode: normalizeOptionalText(payload.unitCode),
   location: normalizeOptionalText(payload.location),
-  plantType: normalizeRequiredText(payload.plantType, "Plant type is required"),
-  powerSourceType: normalizeOptionalText(payload.powerSourceType),
+  plantType: ensureValidSelectableValue(
+    normalizeRequiredText(payload.plantType, "Plant type is required"),
+    "Plant type"
+  ),
+  powerSourceType: ensureValidSelectableValue(
+    normalizeOptionalText(payload.powerSourceType),
+    "Power source type"
+  ),
 });
 
 const createConfigOption = async (payload) => {

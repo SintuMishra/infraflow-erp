@@ -627,16 +627,27 @@ test("vendor status validation requires boolean isActive", async () => {
   assert.match(res.body.message, /isActive/i);
 });
 
-test("plant validation rejects invalid power source", async () => {
+test("plant validation rejects malformed custom power source", async () => {
   const { res, nextCalled } = runMiddleware(validateCreatePlantInput, {
     plantName: "Main Crusher",
     plantType: "Crusher",
-    powerSourceType: "steam",
+    powerSourceType: "Other:",
   });
 
   assert.equal(nextCalled, false);
   assert.equal(res.statusCode, 400);
   assert.match(res.body.message, /powerSourceType/i);
+});
+
+test("plant validation allows future custom plant type labels", async () => {
+  const { res, nextCalled } = runMiddleware(validateCreatePlantInput, {
+    plantName: "Main Crusher",
+    plantType: "Mobile Recycle Unit",
+    powerSourceType: "solar",
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
 });
 
 test("plant validation allows custom other plant type and power source", async () => {

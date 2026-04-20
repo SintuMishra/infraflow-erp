@@ -313,6 +313,140 @@ test("createCrusherUnit normalizes plant-linked unit payload for typed reporting
   assert.equal(insertedPayload.companyId, 44);
 });
 
+test("createCrusherUnit rejects unresolved UI placeholder values", async () => {
+  await withMastersServiceMocks(
+    {
+      model: {
+        findCrusherUnits: async () => [],
+        findMaterials: async () => [],
+        findShifts: async () => [],
+        findVehicleTypes: async () => [],
+        findConfigOptions: async () => [],
+        insertConfigOption: async () => null,
+        updateConfigOption: async () => null,
+        setConfigOptionStatus: async () => null,
+        insertCrusherUnit: async () => null,
+        insertMaterial: async () => null,
+        insertShift: async () => null,
+        insertVehicleType: async () => null,
+        updateCrusherUnit: async () => null,
+        updateMaterial: async () => null,
+        updateShift: async () => null,
+        updateVehicleType: async () => null,
+        setCrusherUnitStatus: async () => null,
+        setMaterialStatus: async () => null,
+        setShiftStatus: async () => null,
+        setVehicleTypeStatus: async () => null,
+      },
+    },
+    async ({ createCrusherUnit }) => {
+      await assert.rejects(
+        createCrusherUnit({
+          unitName: "RMC Line A",
+          plantType: "__other__",
+          powerSourceType: "diesel",
+          companyId: 44,
+        }),
+        (error) => {
+          assert.equal(error.statusCode, 400);
+          assert.match(error.message, /Plant type is required/i);
+          return true;
+        }
+      );
+    }
+  );
+});
+
+test("createMaterial rejects unresolved UI placeholders for selectable fields", async () => {
+  await withMastersServiceMocks(
+    {
+      model: {
+        findCrusherUnits: async () => [],
+        findMaterials: async () => [],
+        findShifts: async () => [],
+        findVehicleTypes: async () => [],
+        findConfigOptions: async () => [],
+        insertConfigOption: async () => null,
+        updateConfigOption: async () => null,
+        setConfigOptionStatus: async () => null,
+        insertCrusherUnit: async () => null,
+        insertMaterial: async () => null,
+        insertShift: async () => null,
+        insertVehicleType: async () => null,
+        updateCrusherUnit: async () => null,
+        updateMaterial: async () => null,
+        updateShift: async () => null,
+        updateVehicleType: async () => null,
+        setCrusherUnitStatus: async () => null,
+        setMaterialStatus: async () => null,
+        setMaterialHsnSacCode: async () => null,
+        setShiftStatus: async () => null,
+        setVehicleTypeStatus: async () => null,
+      },
+    },
+    async ({ createMaterial }) => {
+      await assert.rejects(
+        createMaterial({
+          materialName: "GSB",
+          materialCode: "GSB-01",
+          category: "__other__",
+          unit: "tons",
+          gstRate: 18,
+          companyId: 44,
+        }),
+        (error) => {
+          assert.equal(error.statusCode, 400);
+          assert.match(error.message, /Material category is required/i);
+          return true;
+        }
+      );
+    }
+  );
+});
+
+test("createVehicleType rejects unresolved UI placeholder category", async () => {
+  await withMastersServiceMocks(
+    {
+      model: {
+        findCrusherUnits: async () => [],
+        findMaterials: async () => [],
+        findShifts: async () => [],
+        findVehicleTypes: async () => [],
+        findConfigOptions: async () => [],
+        insertConfigOption: async () => null,
+        updateConfigOption: async () => null,
+        setConfigOptionStatus: async () => null,
+        insertCrusherUnit: async () => null,
+        insertMaterial: async () => null,
+        insertShift: async () => null,
+        insertVehicleType: async () => null,
+        updateCrusherUnit: async () => null,
+        updateMaterial: async () => null,
+        updateShift: async () => null,
+        updateVehicleType: async () => null,
+        setCrusherUnitStatus: async () => null,
+        setMaterialStatus: async () => null,
+        setShiftStatus: async () => null,
+        setVehicleTypeStatus: async () => null,
+      },
+    },
+    async ({ createVehicleType }) => {
+      await assert.rejects(
+        createVehicleType({
+          typeName: "Tipper",
+          category: "__other__",
+          companyId: 44,
+        }),
+        (error) => {
+          assert.equal(error.statusCode, 400);
+          assert.match(error.message, /Vehicle category is required/i);
+          return true;
+        }
+      );
+    }
+  );
+});
+
 test("getMasterHealthCheck reports missing HSN/SAC and duplicate active material codes", async () => {
   await withMastersServiceMocks(
     {
