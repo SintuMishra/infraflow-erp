@@ -933,6 +933,149 @@ function CrusherReportsPage() {
     window.URL.revokeObjectURL(url);
   };
 
+  const handleExportPdf = () => {
+    if (!normalizedReports.length) {
+      setError("No plant reports match the current filters for PDF export");
+      setSuccess("");
+      return;
+    }
+
+    const reportWindow = window.open("", "_blank", "width=1280,height=900");
+    if (!reportWindow) {
+      setError("Popup blocked. Please allow popups and try PDF export again.");
+      setSuccess("");
+      return;
+    }
+
+    const selectedPlantName =
+      plantFilter &&
+      plantOptions.find((plant) => String(plant.id) === String(plantFilter))?.plantName;
+
+    const activeFilters = [
+      search ? `Search: ${search}` : null,
+      selectedPlantName ? `Plant: ${selectedPlantName}` : null,
+      shiftFilter ? `Shift: ${shiftFilter}` : null,
+      unitFilter ? `Unit: ${unitFilter}` : null,
+      materialFilter ? `Material: ${materialFilter}` : null,
+      statusFilter ? `Status: ${formatStatusLabel(statusFilter)}` : null,
+      startDate ? `From: ${formatDisplayDate(startDate)}` : null,
+      endDate ? `To: ${formatDisplayDate(endDate)}` : null,
+    ].filter(Boolean);
+
+    const rowsHtml = normalizedReports
+      .map(
+        (report) => `
+          <tr>
+            <td>${escapeHtml(formatDisplayDate(report.reportDateValue))}</td>
+            <td>${escapeHtml(getReportDisplayName(report))}</td>
+            <td>${escapeHtml(report.shift || "-")}</td>
+            <td>${escapeHtml(report.materialType || "-")}</td>
+            <td>${escapeHtml(formatStatusLabel(report.operationalStatus))}</td>
+            <td>${escapeHtml(formatCompactNumber(report.productionTons))}</td>
+            <td>${escapeHtml(formatCompactNumber(report.dispatchTons))}</td>
+            <td>${escapeHtml(formatCompactNumber(report.machineHours))}</td>
+            <td>${escapeHtml(formatCompactNumber(report.totalExpense))}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const generatedAt = new Date().toLocaleString("en-IN");
+    const documentTitle = `Plant Unit Reports ${getTimestampFileLabel()}`;
+
+    try {
+      const htmlDocument = `
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>${escapeHtml(documentTitle)}</title>
+            <style>
+              body { font-family: Arial, sans-serif; margin: 20px; color: #0f172a; }
+              h1 { margin: 0 0 8px; font-size: 22px; }
+              .meta { color: #475569; font-size: 12px; margin-bottom: 6px; }
+              .toolbar { margin: 10px 0 14px; }
+              .print-btn { border: 1px solid #94a3b8; background: #0f172a; color: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; font-weight: 700; }
+              .filterbox { margin: 12px 0 16px; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; font-size: 12px; }
+              table { width: 100%; border-collapse: collapse; font-size: 12px; }
+              th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; vertical-align: top; }
+              th { background: #f1f5f9; font-weight: 700; }
+              @media print { .toolbar { display: none; } body { margin: 10mm; } }
+            </style>
+          </head>
+          <body>
+            <h1>Plants & Units Daily Reports</h1>
+            <div class="meta">Generated: ${escapeHtml(generatedAt)}</div>
+            <div class="meta">Total Reports: ${normalizedReports.length}</div>
+            <div class="toolbar">
+              <button class="print-btn" onclick="window.print()">Print / Save PDF</button>
+            </div>
+            ${
+              activeFilters.length
+                ? `<div class="filterbox"><strong>Applied Filters:</strong><br/>${activeFilters
+                    .map((item) => escapeHtml(item))
+                    .join(" | ")}</div>`
+                : ""
+            }
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Plant / Unit</th>
+                  <th>Shift</th>
+                  <th>Material</th>
+                  <th>Status</th>
+                  <th>Production</th>
+                  <th>Dispatch</th>
+                  <th>Machine Hours</th>
+                  <th>Total Expense</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </body>
+        </html>
+      `;
+
+      reportWindow.document.open();
+      reportWindow.document.write(htmlDocument);
+      reportWindow.document.close();
+
+      // Avoid blank-export race by printing only after the new document has rendered.
+      const triggerPrint = () => {
+        setTimeout(() => {
+          try {
+            reportWindow.focus();
+            reportWindow.print();
+          } catch {
+            setError("PDF preview opened, but print dialog could not be triggered automatically.");
+          }
+        }, 500);
+      };
+
+      reportWindow.onload = triggerPrint;
+      setTimeout(triggerPrint, 900);
+    } catch {
+      try {
+        reportWindow.document.open();
+        reportWindow.document.write(`
+          <html><body style="font-family: Arial, sans-serif; padding: 20px;">
+            <h3>PDF preview could not auto-render.</h3>
+            <p>Please close this tab and retry Export PDF. If popup blocking is enabled, allow popups for this site.</p>
+          </body></html>
+        `);
+        reportWindow.document.close();
+      } catch {
+        // ignore nested fallback failure
+      }
+      setError("Failed to render PDF export. Please try again.");
+      setSuccess("");
+    }
+  };
+
   return (
     <AppShell
       title="Plants & Units Reports"
@@ -1163,6 +1306,14 @@ function CrusherReportsPage() {
                     disabled={!normalizedReports.length || loadingReports}
                   >
                     Export CSV
+                  </button>
+                  <button
+                    type="button"
+                    style={styles.secondaryButton}
+                    onClick={handleExportPdf}
+                    disabled={!normalizedReports.length || loadingReports}
+                  >
+                    Export PDF
                   </button>
                 </div>
               </div>
@@ -2479,6 +2630,14 @@ const buildCsv = (rows) => {
     ...rows.map((row) => headers.map((header) => escapeCsvValue(row[header])).join(",")),
   ].join("\n")}\n`;
 };
+
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 
 const parseCrusherQuery = (searchValue) => {
   const params = new URLSearchParams(searchValue);

@@ -20,6 +20,7 @@ const EmployeesPage = lazy(() => import("../pages/EmployeesPage"));
 const CrusherReportsPage = lazy(() => import("../pages/CrusherReportsPage"));
 const ProjectReportsPage = lazy(() => import("../pages/ProjectReportsPage"));
 const DispatchReportsPage = lazy(() => import("../pages/DispatchReportsPage"));
+const BoulderReportsPage = lazy(() => import("../pages/BoulderReportsPage"));
 const VehiclesPage = lazy(() => import("../pages/VehiclesPage"));
 const ChangePasswordPage = lazy(() => import("../pages/ChangePasswordPage"));
 const MastersPage = lazy(() => import("../pages/MastersPage"));
@@ -172,6 +173,18 @@ export function AppRouter() {
               allowWhen={canAccessOperationalWorkspace}
             >
               <DispatchReportsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/boulder-reports"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.boulderReports}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <BoulderReportsPage />
             </ProtectedRoute>
           }
         />

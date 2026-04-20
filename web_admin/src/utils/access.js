@@ -68,6 +68,7 @@ export const ROUTE_ACCESS = {
   crusherReports: ROLE_GROUPS.crusher,
   projectReports: ROLE_GROUPS.projects,
   dispatchReports: ROLE_GROUPS.ops,
+  boulderReports: ROLE_GROUPS.ops,
   vehicles: ROLE_GROUPS.ops,
   changePassword: [],
   masters: ROLE_GROUPS.ops,
@@ -150,6 +151,13 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/dispatch-reports",
         hint: "Dispatch and billing execution",
         allowedRoles: ROUTE_ACCESS.dispatchReports,
+        workspace: "client",
+      },
+      {
+        label: "Boulder Reports",
+        path: "/boulder-reports",
+        hint: "Mine-to-crusher raw boulder flow",
+        allowedRoles: ROUTE_ACCESS.boulderReports,
         workspace: "client",
       },
       {
