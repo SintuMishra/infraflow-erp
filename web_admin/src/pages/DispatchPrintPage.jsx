@@ -135,19 +135,15 @@ const buildBuyerAddress = (record) => {
   return parts.length > 0 ? parts.join(", ") : "-";
 };
 
-const buildDocumentReference = ({ data, company, billing }) => {
-  const parts = [
-    `DOC:DC-${data?.id ?? "-"}`,
-    `INV:${data?.invoiceNumber || "-"}`,
-    `DATE:${data?.invoiceDate || data?.dispatchDate || "-"}`,
-    `SUPPLIER_GST:${company?.gstin || "-"}`,
-    `BUYER_GST:${data?.partyGstin || "-"}`,
-    `AMOUNT:${Number(billing?.totalWithGst || 0).toFixed(2)}`,
-    `EWB:${data?.ewbNumber || "-"}`,
-  ];
-
-  return parts.join(" | ");
-};
+const buildDocumentReference = ({ data, company, billing }) => [
+  { label: "Doc No", value: `DC-${data?.id ?? "-"}` },
+  { label: "Invoice No", value: data?.invoiceNumber || "-" },
+  { label: "Date", value: data?.invoiceDate || data?.dispatchDate || "-" },
+  { label: "Supplier GST", value: company?.gstin || "-" },
+  { label: "Buyer GST", value: data?.partyGstin || "-" },
+  { label: "Amount", value: Number(billing?.totalWithGst || 0).toFixed(2) },
+  { label: "EWB", value: data?.ewbNumber || "-" },
+];
 
 const getEwbStatus = (record) => {
   if (!record?.ewbNumber) {
@@ -623,11 +619,16 @@ function DispatchPrintPage() {
               HSN/SAC: {data.hsnSacCode || "Not configured"}
             </div>
           </div>
-          <div style={styles.referenceValue}>{documentReference}</div>
+          <div style={styles.referenceGrid}>
+            {documentReference.map((entry) => (
+              <div key={entry.label} style={styles.referenceItem}>
+                <span style={styles.referenceItemLabel}>{entry.label}</span>
+                <strong style={styles.referenceItemValue}>{entry.value}</strong>
+              </div>
+            ))}
+          </div>
           <div style={styles.referenceHint} className="print-compact-hint">
-            A formal QR or barcode should be introduced only after approved e-invoice, IRN, or
-            internal scan workflows are defined. This keeps the printed document genuine and avoids
-            showing a misleading compliance code.
+            Internal reconciliation reference only. QR/IRN will be shown once formally enabled.
           </div>
         </div>
 
@@ -1244,17 +1245,38 @@ const styles = {
     fontWeight: "800",
     whiteSpace: "nowrap",
   },
-  referenceValue: {
+  referenceGrid: {
     marginBottom: "10px",
-    padding: "12px 14px",
+    padding: "10px",
     borderRadius: "12px",
     border: "1px dashed #93c5fd",
     background: "#ffffff",
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: "8px",
+  },
+  referenceItem: {
+    border: "1px solid #dbeafe",
+    borderRadius: "10px",
+    padding: "8px 10px",
+    background: "linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)",
+    minWidth: 0,
+  },
+  referenceItemLabel: {
+    display: "block",
+    fontSize: "10px",
+    color: "#1d4ed8",
+    fontWeight: "800",
+    letterSpacing: "0.6px",
+    textTransform: "uppercase",
+    marginBottom: "4px",
+  },
+  referenceItemValue: {
+    display: "block",
+    fontSize: "13px",
     color: "#0f172a",
-    fontSize: "11px",
-    lineHeight: 1.7,
+    fontWeight: "700",
     wordBreak: "break-word",
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
   },
   referenceHint: {
     color: "#475569",
