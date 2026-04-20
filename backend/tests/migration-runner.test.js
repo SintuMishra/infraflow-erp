@@ -50,6 +50,7 @@ test("migration files are ordered and include production hardening migrations", 
     "031_dispatch_reports_royalty_mode_constraint_fix.sql",
     "032_boulder_reports_and_mines_vehicle_registry.sql",
     "033_boulder_reports_shift_and_unit_master_link.sql",
+    "034_boulder_vehicle_runs_shift_summary.sql",
   ]);
 });
 

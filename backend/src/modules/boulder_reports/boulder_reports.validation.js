@@ -93,26 +93,65 @@ const validateReportInput = (req, res, next) => {
 
   if (isProvided(routeType)) {
     const normalizedRouteType = String(routeType).trim();
-    if (!["to_stock_yard", "direct_to_crushing_hub"].includes(normalizedRouteType)) {
+    if (!["to_stock_yard", "direct_to_crushing_hub", "mixed"].includes(normalizedRouteType)) {
       return res.status(400).json({
         success: false,
-        message: "routeType must be to_stock_yard or direct_to_crushing_hub",
+        message: "routeType must be to_stock_yard, direct_to_crushing_hub, or mixed",
       });
     }
   }
 
-  if (!String(vehicleNumberSnapshot || "").trim()) {
+  const runs = Array.isArray(req.body.vehicleRuns) ? req.body.vehicleRuns : [];
+  if (!runs.length && !String(vehicleNumberSnapshot || "").trim()) {
     return res.status(400).json({
       success: false,
-      message: "vehicleNumberSnapshot is required",
+      message: "vehicleNumberSnapshot is required when vehicleRuns are not provided",
     });
   }
 
-  if (!String(contractorNameSnapshot || "").trim()) {
+  if (!runs.length && !String(contractorNameSnapshot || "").trim()) {
     return res.status(400).json({
       success: false,
-      message: "contractorNameSnapshot is required",
+      message: "contractorNameSnapshot is required when vehicleRuns are not provided",
     });
+  }
+
+  if (runs.length) {
+    for (let index = 0; index < runs.length; index += 1) {
+      const run = runs[index] || {};
+      const runRouteType = String(run.routeType || "").trim();
+      const runTons = parseNumber(run.weighedTons);
+      const runVehicleNumber = String(run.vehicleNumberSnapshot || "").trim();
+      const runContractorName = String(run.contractorNameSnapshot || "").trim();
+
+      if (!["to_stock_yard", "direct_to_crushing_hub"].includes(runRouteType)) {
+        return res.status(400).json({
+          success: false,
+          message: `vehicleRuns[${index}].routeType must be to_stock_yard or direct_to_crushing_hub`,
+        });
+      }
+
+      if (!Number.isFinite(runTons) || runTons <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: `vehicleRuns[${index}].weighedTons must be a number greater than 0`,
+        });
+      }
+
+      if (!runVehicleNumber) {
+        return res.status(400).json({
+          success: false,
+          message: `vehicleRuns[${index}].vehicleNumberSnapshot is required`,
+        });
+      }
+
+      if (!runContractorName) {
+        return res.status(400).json({
+          success: false,
+          message: `vehicleRuns[${index}].contractorNameSnapshot is required`,
+        });
+      }
+    }
   }
 
   const numericFields = [

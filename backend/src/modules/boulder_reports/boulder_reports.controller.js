@@ -12,7 +12,7 @@ const { sendControllerError } = require("../../utils/http.util");
 const { recordAuditEvent } = require("../../utils/audit.util");
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const ALLOWED_ROUTE_TYPES = ["to_stock_yard", "direct_to_crushing_hub"];
+const ALLOWED_ROUTE_TYPES = ["to_stock_yard", "direct_to_crushing_hub", "mixed"];
 
 const parsePositiveInteger = (value, field) => {
   const parsed = Number(value);
@@ -47,7 +47,7 @@ const normalizeListQueryFilters = (query = {}) => {
   const vehicleId = rawVehicleId ? parsePositiveInteger(rawVehicleId, "vehicleId") : null;
 
   if (routeType && !ALLOWED_ROUTE_TYPES.includes(routeType)) {
-    const error = new Error("routeType must be to_stock_yard or direct_to_crushing_hub");
+    const error = new Error("routeType must be to_stock_yard, direct_to_crushing_hub, or mixed");
     error.statusCode = 400;
     throw error;
   }

@@ -12,7 +12,7 @@ const {
 const { plantExists } = require("../dispatch/dispatch.model");
 const { findCrusherUnits, findShifts } = require("../masters/masters.model");
 
-const ALLOWED_ROUTE_TYPES = ["to_stock_yard", "direct_to_crushing_hub"];
+const ALLOWED_ROUTE_TYPES = ["to_stock_yard", "direct_to_crushing_hub", "mixed"];
 
 const buildValidationError = (message, statusCode = 400) => {
   const error = new Error(message);
@@ -109,6 +109,96 @@ const normalizeDate = (value, label = "Report date") => {
     throw buildValidationError(`${label} must use YYYY-MM-DD format`);
   }
   return normalized;
+};
+
+const normalizeVehicleRuns = (vehicleRuns, { availableVehicles = [] } = {}) => {
+  const rows = Array.isArray(vehicleRuns) ? vehicleRuns : [];
+  if (!rows.length) {
+    return {
+      vehicleRuns: [],
+      totals: null,
+    };
+  }
+
+  const vehiclesById = new Map(
+    (availableVehicles || [])
+      .filter((item) => Number.isInteger(Number(item?.id)) && Number(item.id) > 0)
+      .map((item) => [Number(item.id), item])
+  );
+
+  let inwardWeightTons = 0;
+  let directToCrusherTons = 0;
+  const routeTypes = new Set();
+
+  const normalizedRuns = rows.map((row, index) => {
+    const vehicleIdRaw =
+      row?.vehicleId === undefined || row?.vehicleId === null || row?.vehicleId === ""
+        ? null
+        : Number(row.vehicleId);
+    const vehicleId =
+      Number.isInteger(vehicleIdRaw) && vehicleIdRaw > 0 ? vehicleIdRaw : null;
+
+    const linkedVehicle = vehicleId ? vehiclesById.get(vehicleId) : null;
+    const routeType = normalizeText(row?.routeType || "to_stock_yard", `Trip #${index + 1} route type`, {
+      required: true,
+      maxLength: 32,
+    });
+    if (!["to_stock_yard", "direct_to_crushing_hub"].includes(routeType)) {
+      throw buildValidationError(
+        `Trip #${index + 1} route type must be to_stock_yard or direct_to_crushing_hub`
+      );
+    }
+
+    const weighedTons = normalizeNumber(row?.weighedTons, `Trip #${index + 1} weighed tons`, {
+      min: 0.01,
+      required: true,
+    });
+
+    const vehicleNumberSnapshot = normalizeText(
+      linkedVehicle?.vehicleNumber || row?.vehicleNumberSnapshot,
+      `Trip #${index + 1} vehicle number`,
+      {
+        required: true,
+        maxLength: 40,
+      }
+    );
+    const contractorNameSnapshot = normalizeText(
+      linkedVehicle?.contractorName || row?.contractorNameSnapshot,
+      `Trip #${index + 1} contractor name`,
+      {
+        required: true,
+        maxLength: 160,
+      }
+    );
+
+    routeTypes.add(routeType);
+    inwardWeightTons += weighedTons;
+    if (routeType === "direct_to_crushing_hub") {
+      directToCrusherTons += weighedTons;
+    }
+
+    return {
+      tripNo: index + 1,
+      vehicleId,
+      vehicleNumberSnapshot,
+      contractorNameSnapshot,
+      routeType,
+      weighedTons,
+      remarks: normalizeText(row?.remarks, `Trip #${index + 1} remarks`, { maxLength: 300 }),
+    };
+  });
+
+  const resolvedRouteType =
+    routeTypes.size <= 1 ? normalizedRuns[0]?.routeType || "to_stock_yard" : "mixed";
+
+  return {
+    vehicleRuns: normalizedRuns,
+    totals: {
+      inwardWeightTons: Number(inwardWeightTons.toFixed(2)),
+      directToCrusherTons: Number(directToCrusherTons.toFixed(2)),
+      routeType: resolvedRouteType,
+    },
+  };
 };
 
 const normalizeVehiclePayload = (payload = {}) => ({
@@ -236,24 +326,29 @@ const normalizeReportPayload = async (payload = {}, { companyId, createdBy = nul
   }
 
   const reportDate = normalizeDate(payload.reportDate);
-  const routeType = normalizeText(payload.routeType || "to_stock_yard", "Route type", {
+  let routeType = normalizeText(payload.routeType || "to_stock_yard", "Route type", {
     required: true,
     maxLength: 32,
   });
 
   if (!ALLOWED_ROUTE_TYPES.includes(routeType)) {
-    throw buildValidationError("Route type must be to_stock_yard or direct_to_crushing_hub");
+    throw buildValidationError(
+      "Route type must be to_stock_yard, direct_to_crushing_hub, or mixed"
+    );
   }
+
+  const availableVehicles = await listBoulderVehicles(companyId);
+  const normalizedRuns = normalizeVehicleRuns(payload.vehicleRuns, { availableVehicles });
 
   const openingStockTons = normalizeNumber(payload.openingStockTons, "Opening stock tons", {
     min: 0,
     required: true,
   });
-  const inwardWeightTons = normalizeNumber(payload.inwardWeightTons, "Inward weighed tons", {
+  let inwardWeightTons = normalizeNumber(payload.inwardWeightTons, "Inward weighed tons", {
     min: 0,
     required: true,
   });
-  const directToCrusherTons = normalizeNumber(payload.directToCrusherTons, "Direct-to-crusher tons", {
+  let directToCrusherTons = normalizeNumber(payload.directToCrusherTons, "Direct-to-crusher tons", {
     min: 0,
     required: true,
   });
@@ -270,6 +365,12 @@ const normalizeReportPayload = async (payload = {}, { companyId, createdBy = nul
     required: false,
   });
 
+  if (normalizedRuns.totals) {
+    inwardWeightTons = normalizedRuns.totals.inwardWeightTons;
+    directToCrusherTons = normalizedRuns.totals.directToCrusherTons;
+    routeType = normalizedRuns.totals.routeType;
+  }
+
   const metrics = deriveCalculatedMetrics({
     openingStockTons,
     inwardWeightTons,
@@ -282,7 +383,12 @@ const normalizeReportPayload = async (payload = {}, { companyId, createdBy = nul
   const vehicleIdRaw = payload.vehicleId === "" || payload.vehicleId === null || payload.vehicleId === undefined
     ? null
     : Number(payload.vehicleId);
-  const vehicleId = Number.isInteger(vehicleIdRaw) && vehicleIdRaw > 0 ? vehicleIdRaw : null;
+  let vehicleId = Number.isInteger(vehicleIdRaw) && vehicleIdRaw > 0 ? vehicleIdRaw : null;
+
+  const leadRun = normalizedRuns.vehicleRuns[0] || null;
+  if (leadRun?.vehicleId) {
+    vehicleId = leadRun.vehicleId;
+  }
 
   return {
     id: isEdit ? Number(payload.id) : undefined,
@@ -300,14 +406,15 @@ const normalizeReportPayload = async (payload = {}, { companyId, createdBy = nul
     sourceMineName: normalizeText(payload.sourceMineName, "Source mine", { maxLength: 160 }),
     vehicleId,
     vehicleNumberSnapshot: normalizeText(payload.vehicleNumberSnapshot, "Vehicle number", {
-      required: true,
+      required: !leadRun,
       maxLength: 40,
-    }),
+    }) || leadRun?.vehicleNumberSnapshot,
     contractorNameSnapshot: normalizeText(payload.contractorNameSnapshot, "Contractor name", {
-      required: true,
+      required: !leadRun,
       maxLength: 160,
-    }),
+    }) || leadRun?.contractorNameSnapshot,
     routeType,
+    vehicleRuns: normalizedRuns.vehicleRuns,
     openingStockTons,
     inwardWeightTons,
     directToCrusherTons,

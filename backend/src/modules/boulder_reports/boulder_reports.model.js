@@ -30,6 +30,8 @@ const mapReportRow = (row) => ({
   vehicleNumberSnapshot: row.vehicleNumberSnapshot,
   contractorNameSnapshot: row.contractorNameSnapshot,
   routeType: row.routeType,
+  vehicleRuns: Array.isArray(row.vehicleRuns) ? row.vehicleRuns : [],
+  vehicleTripCount: Number(row.vehicleTripCount || 0),
   openingStockTons: toNumberOrNull(row.openingStockTons),
   inwardWeightTons: toNumberOrNull(row.inwardWeightTons),
   directToCrusherTons: toNumberOrNull(row.directToCrusherTons),
@@ -275,6 +277,8 @@ const listBoulderReports = async ({
         br.vehicle_number_snapshot AS "vehicleNumberSnapshot",
         br.contractor_name_snapshot AS "contractorNameSnapshot",
         br.route_type AS "routeType",
+        br.vehicle_runs AS "vehicleRuns",
+        COALESCE(jsonb_array_length(br.vehicle_runs), 0) AS "vehicleTripCount",
         br.opening_stock_tons AS "openingStockTons",
         br.inward_weight_tons AS "inwardWeightTons",
         br.direct_to_crusher_tons AS "directToCrusherTons",
@@ -352,6 +356,7 @@ const insertBoulderReport = async (payload) => {
         vehicle_number_snapshot,
         contractor_name_snapshot,
         route_type,
+        vehicle_runs,
         opening_stock_tons,
         inward_weight_tons,
         direct_to_crusher_tons,
@@ -366,7 +371,7 @@ const insertBoulderReport = async (payload) => {
         updated_by
       )
       VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25
       )
       RETURNING id
     `,
@@ -383,6 +388,7 @@ const insertBoulderReport = async (payload) => {
       payload.vehicleNumberSnapshot,
       payload.contractorNameSnapshot,
       payload.routeType,
+      JSON.stringify(Array.isArray(payload.vehicleRuns) ? payload.vehicleRuns : []),
       payload.openingStockTons,
       payload.inwardWeightTons,
       payload.directToCrusherTons,
@@ -417,17 +423,18 @@ const updateBoulderReport = async (payload) => {
         vehicle_number_snapshot = $11,
         contractor_name_snapshot = $12,
         route_type = $13,
-        opening_stock_tons = $14,
-        inward_weight_tons = $15,
-        direct_to_crusher_tons = $16,
-        crusher_consumption_tons = $17,
-        closing_stock_tons = $18,
-        finished_output_tons = $19,
-        yield_percent = $20,
-        process_loss_tons = $21,
-        process_loss_percent = $22,
-        remarks = $23,
-        updated_by = $24,
+        vehicle_runs = $14,
+        opening_stock_tons = $15,
+        inward_weight_tons = $16,
+        direct_to_crusher_tons = $17,
+        crusher_consumption_tons = $18,
+        closing_stock_tons = $19,
+        finished_output_tons = $20,
+        yield_percent = $21,
+        process_loss_tons = $22,
+        process_loss_percent = $23,
+        remarks = $24,
+        updated_by = $25,
         updated_at = NOW()
       WHERE id = $1 AND company_id = $2
       RETURNING id
@@ -446,6 +453,7 @@ const updateBoulderReport = async (payload) => {
       payload.vehicleNumberSnapshot,
       payload.contractorNameSnapshot,
       payload.routeType,
+      JSON.stringify(Array.isArray(payload.vehicleRuns) ? payload.vehicleRuns : []),
       payload.openingStockTons,
       payload.inwardWeightTons,
       payload.directToCrusherTons,
@@ -494,6 +502,8 @@ const getBoulderReportById = async ({ id, companyId }) => {
         br.vehicle_number_snapshot AS "vehicleNumberSnapshot",
         br.contractor_name_snapshot AS "contractorNameSnapshot",
         br.route_type AS "routeType",
+        br.vehicle_runs AS "vehicleRuns",
+        COALESCE(jsonb_array_length(br.vehicle_runs), 0) AS "vehicleTripCount",
         br.opening_stock_tons AS "openingStockTons",
         br.inward_weight_tons AS "inwardWeightTons",
         br.direct_to_crusher_tons AS "directToCrusherTons",

@@ -24,6 +24,16 @@ const INITIAL_REPORT_FORM = {
   closingStockTons: "",
   finishedOutputTons: "",
   remarks: "",
+  vehicleRuns: [],
+};
+
+const INITIAL_TRIP_ROW = {
+  vehicleId: "",
+  vehicleNumberSnapshot: "",
+  contractorNameSnapshot: "",
+  routeType: "to_stock_yard",
+  weighedTons: "",
+  remarks: "",
 };
 
 const INITIAL_VEHICLE_FORM = {
@@ -38,6 +48,19 @@ const formatMetric = (value, digits = 2) =>
     minimumFractionDigits: 0,
     maximumFractionDigits: digits,
   }).format(Number(value || 0));
+
+const formatRouteTypeLabel = (value) => {
+  if (value === "to_stock_yard") {
+    return "To Stock Yard";
+  }
+  if (value === "direct_to_crushing_hub") {
+    return "Direct to Crushing Hub";
+  }
+  if (value === "mixed") {
+    return "Mixed";
+  }
+  return value || "-";
+};
 
 const parsePositiveNumber = (value) => {
   if (value === "" || value === null || value === undefined) {
@@ -125,6 +148,44 @@ const buildMetricsPreview = (form) => {
   };
 };
 
+const buildTripAggregates = (runs = []) => {
+  const rows = Array.isArray(runs) ? runs : [];
+  if (!rows.length) {
+    return {
+      totalInwardWeight: null,
+      totalDirectToCrusher: null,
+      resolvedRouteType: null,
+      leadVehicleNumber: "",
+      leadContractorName: "",
+      count: 0,
+    };
+  }
+
+  let inward = 0;
+  let direct = 0;
+  const routeTypes = new Set();
+
+  rows.forEach((row) => {
+    const tons = parsePositiveNumber(row.weighedTons) || 0;
+    const routeType = String(row.routeType || "to_stock_yard");
+    inward += tons;
+    if (routeType === "direct_to_crushing_hub") {
+      direct += tons;
+    }
+    routeTypes.add(routeType);
+  });
+
+  return {
+    totalInwardWeight: Number(inward.toFixed(2)),
+    totalDirectToCrusher: Number(direct.toFixed(2)),
+    resolvedRouteType:
+      routeTypes.size <= 1 ? rows[0]?.routeType || "to_stock_yard" : "mixed",
+    leadVehicleNumber: rows[0]?.vehicleNumberSnapshot || "",
+    leadContractorName: rows[0]?.contractorNameSnapshot || "",
+    count: rows.length,
+  };
+};
+
 function BoulderReportsPage() {
   const { currentUser } = useAuth();
   const { masters, loadingMasters, mastersError } = useMasters();
@@ -171,7 +232,29 @@ function BoulderReportsPage() {
   const [success, setSuccess] = useState("");
   const [showVehicleForm, setShowVehicleForm] = useState(false);
 
-  const metricsPreview = useMemo(() => buildMetricsPreview(reportForm), [reportForm]);
+  const tripAggregates = useMemo(
+    () => buildTripAggregates(reportForm.vehicleRuns),
+    [reportForm.vehicleRuns]
+  );
+
+  const effectiveReportForm = useMemo(() => {
+    if (!tripAggregates.count) {
+      return reportForm;
+    }
+
+    return {
+      ...reportForm,
+      inwardWeightTons: tripAggregates.totalInwardWeight,
+      directToCrusherTons: tripAggregates.totalDirectToCrusher,
+      routeType: tripAggregates.resolvedRouteType,
+      vehicleNumberSnapshot:
+        reportForm.vehicleNumberSnapshot || tripAggregates.leadVehicleNumber || "",
+      contractorNameSnapshot:
+        reportForm.contractorNameSnapshot || tripAggregates.leadContractorName || "",
+    };
+  }, [reportForm, tripAggregates]);
+
+  const metricsPreview = useMemo(() => buildMetricsPreview(effectiveReportForm), [effectiveReportForm]);
 
   const activeVehicles = useMemo(
     () => (vehicles || []).filter((vehicle) => vehicle.isActive),
@@ -413,6 +496,41 @@ function BoulderReportsPage() {
     }));
   };
 
+  const addVehicleRunRow = () => {
+    setReportForm((prev) => ({
+      ...prev,
+      vehicleRuns: [...(prev.vehicleRuns || []), { ...INITIAL_TRIP_ROW }],
+    }));
+  };
+
+  const removeVehicleRunRow = (index) => {
+    setReportForm((prev) => ({
+      ...prev,
+      vehicleRuns: (prev.vehicleRuns || []).filter((_, rowIndex) => rowIndex !== index),
+    }));
+  };
+
+  const handleVehicleRunChange = (index, field, value) => {
+    setReportForm((prev) => {
+      const nextRows = [...(prev.vehicleRuns || [])];
+      const current = { ...(nextRows[index] || INITIAL_TRIP_ROW), [field]: value };
+
+      if (field === "vehicleId") {
+        const selected = activeVehicles.find((vehicle) => Number(vehicle.id) === Number(value));
+        if (selected) {
+          current.vehicleNumberSnapshot = selected.vehicleNumber || current.vehicleNumberSnapshot;
+          current.contractorNameSnapshot = selected.contractorName || current.contractorNameSnapshot;
+        }
+      }
+
+      nextRows[index] = current;
+      return {
+        ...prev,
+        vehicleRuns: nextRows,
+      };
+    });
+  };
+
   const handleReportSubmit = async (event) => {
     event.preventDefault();
     setError("");
@@ -433,18 +551,35 @@ function BoulderReportsPage() {
       return;
     }
 
-    if (!reportForm.vehicleNumberSnapshot || !reportForm.contractorNameSnapshot) {
+    if (!effectiveReportForm.vehicleNumberSnapshot || !effectiveReportForm.contractorNameSnapshot) {
       setError("Vehicle number and contractor name are required");
       return;
     }
 
     if (
-      parsePositiveNumber(reportForm.directToCrusherTons) !== null &&
-      parsePositiveNumber(reportForm.inwardWeightTons) !== null &&
-      Number(reportForm.directToCrusherTons) > Number(reportForm.inwardWeightTons)
+      parsePositiveNumber(effectiveReportForm.directToCrusherTons) !== null &&
+      parsePositiveNumber(effectiveReportForm.inwardWeightTons) !== null &&
+      Number(effectiveReportForm.directToCrusherTons) > Number(effectiveReportForm.inwardWeightTons)
     ) {
       setError("Direct-to-crusher tons cannot exceed inward weighed tons");
       return;
+    }
+
+    if (tripAggregates.count) {
+      const incompleteTrip = (reportForm.vehicleRuns || []).some((row) => {
+        return (
+          !String(row.vehicleNumberSnapshot || "").trim() ||
+          !String(row.contractorNameSnapshot || "").trim() ||
+          !["to_stock_yard", "direct_to_crushing_hub"].includes(String(row.routeType || "")) ||
+          (parsePositiveNumber(row.weighedTons) || 0) <= 0
+        );
+      });
+      if (incompleteTrip) {
+        setError(
+          "Each vehicle trip row must include vehicle number, contractor, route type, and weighed tons"
+        );
+        return;
+      }
     }
 
     const resolvedCrusherUnitName =
@@ -461,14 +596,24 @@ function BoulderReportsPage() {
     }
 
     const payload = {
-      ...reportForm,
+      ...effectiveReportForm,
       closingStockTons:
-        reportForm.closingStockTons === "" ? metricsPreview.computedClosingStock : reportForm.closingStockTons,
-      plantId: Number(reportForm.plantId),
-      shiftId: Number(reportForm.shiftId),
-      crusherUnitId: reportForm.crusherUnitId ? Number(reportForm.crusherUnitId) : null,
+        effectiveReportForm.closingStockTons === ""
+          ? metricsPreview.computedClosingStock
+          : effectiveReportForm.closingStockTons,
+      plantId: Number(effectiveReportForm.plantId),
+      shiftId: Number(effectiveReportForm.shiftId),
+      crusherUnitId: effectiveReportForm.crusherUnitId ? Number(effectiveReportForm.crusherUnitId) : null,
       crusherUnitNameSnapshot: resolvedCrusherUnitName,
-      vehicleId: reportForm.vehicleId ? Number(reportForm.vehicleId) : null,
+      vehicleId: effectiveReportForm.vehicleId ? Number(effectiveReportForm.vehicleId) : null,
+      vehicleRuns: (reportForm.vehicleRuns || []).map((row) => ({
+        vehicleId: row.vehicleId ? Number(row.vehicleId) : null,
+        vehicleNumberSnapshot: row.vehicleNumberSnapshot,
+        contractorNameSnapshot: row.contractorNameSnapshot,
+        routeType: row.routeType,
+        weighedTons: row.weighedTons,
+        remarks: row.remarks || "",
+      })),
     };
 
     try {
@@ -511,6 +656,16 @@ function BoulderReportsPage() {
       closingStockTons: report.closingStockTons ?? "",
       finishedOutputTons: report.finishedOutputTons ?? "",
       remarks: report.remarks || "",
+      vehicleRuns: Array.isArray(report.vehicleRuns)
+        ? report.vehicleRuns.map((run) => ({
+            vehicleId: run.vehicleId ? String(run.vehicleId) : "",
+            vehicleNumberSnapshot: run.vehicleNumberSnapshot || "",
+            contractorNameSnapshot: run.contractorNameSnapshot || "",
+            routeType: run.routeType || "to_stock_yard",
+            weighedTons: run.weighedTons ?? "",
+            remarks: run.remarks || "",
+          }))
+        : [],
     });
   };
 
@@ -644,6 +799,7 @@ function BoulderReportsPage() {
       "Process Loss Tons",
       "Process Loss Percent",
       "Remarks",
+      "Vehicle Trips",
     ];
 
     const rows = reports.map((report) => [
@@ -652,7 +808,7 @@ function BoulderReportsPage() {
       report.crusherUnitNameSnapshot || "",
       report.shift || "",
       report.sourceMineName || "",
-      report.routeType || "",
+      formatRouteTypeLabel(report.routeType),
       report.vehicleNumberSnapshot || "",
       report.contractorNameSnapshot || "",
       report.openingStockTons ?? "",
@@ -665,6 +821,7 @@ function BoulderReportsPage() {
       report.processLossTons ?? "",
       report.processLossPercent ?? "",
       report.remarks || "",
+      report.vehicleTripCount ?? 0,
     ]);
 
     const csv = [headers, ...rows]
@@ -713,6 +870,7 @@ function BoulderReportsPage() {
             <td>${report.crusherUnitNameSnapshot || "-"}</td>
             <td>${report.shift || "-"}</td>
             <td>${report.sourceMineName || "-"}</td>
+            <td>${formatRouteTypeLabel(report.routeType)}</td>
             <td>${report.vehicleNumberSnapshot || "-"}</td>
             <td>${report.contractorNameSnapshot || "-"}</td>
             <td>${formatMetric(report.inwardWeightTons)}</td>
@@ -720,6 +878,7 @@ function BoulderReportsPage() {
             <td>${formatMetric(report.crusherConsumptionTons)}</td>
             <td>${formatMetric(report.closingStockTons)}</td>
             <td>${report.yieldPercent === null || report.yieldPercent === undefined ? "-" : `${formatMetric(report.yieldPercent)}%`}</td>
+            <td>${report.vehicleTripCount ?? 0}</td>
           </tr>
         `
       )
@@ -759,6 +918,7 @@ function BoulderReportsPage() {
                 <th>Unit</th>
                 <th>Shift</th>
                 <th>Source Mine</th>
+                <th>Route</th>
                 <th>Vehicle</th>
                 <th>Contractor</th>
                 <th>Inward</th>
@@ -766,6 +926,7 @@ function BoulderReportsPage() {
                 <th>Consumption</th>
                 <th>Closing</th>
                 <th>Yield</th>
+                <th>Trips</th>
               </tr>
             </thead>
             <tbody>${rowsHtml}</tbody>
@@ -898,6 +1059,7 @@ function BoulderReportsPage() {
             <option value="">All Routes</option>
             <option value="to_stock_yard">To Stock Yard</option>
             <option value="direct_to_crushing_hub">Direct to Crushing Hub</option>
+            <option value="mixed">Mixed (Stock + Direct)</option>
           </select>
 
           <input
@@ -1043,26 +1205,29 @@ function BoulderReportsPage() {
           </label>
 
           <label style={styles.fieldLabel}>
-            Route Type
+            Shift Route Pattern
             <select
               name="routeType"
-              value={reportForm.routeType}
+              value={tripAggregates.count ? tripAggregates.resolvedRouteType || "mixed" : reportForm.routeType}
               onChange={handleReportChange}
               style={styles.input}
+              disabled={tripAggregates.count > 0}
               required
             >
               <option value="to_stock_yard">To Stock Yard</option>
               <option value="direct_to_crushing_hub">Direct to Crushing Hub</option>
+              <option value="mixed">Mixed (Auto from vehicle trips)</option>
             </select>
           </label>
 
           <label style={styles.fieldLabel}>
-            Mine Vehicle (Optional)
+            Lead Vehicle (Optional)
             <select
               name="vehicleId"
               value={reportForm.vehicleId}
               onChange={handleReportChange}
               style={styles.input}
+              disabled={tripAggregates.count > 0}
             >
               <option value="">Manual entry only</option>
               {activeVehicles.map((vehicle) => (
@@ -1074,28 +1239,134 @@ function BoulderReportsPage() {
           </label>
 
           <label style={styles.fieldLabel}>
-            Vehicle Number Snapshot
+            Lead Vehicle Number Snapshot
             <input
               name="vehicleNumberSnapshot"
-              value={reportForm.vehicleNumberSnapshot}
+              value={
+                tripAggregates.count
+                  ? tripAggregates.leadVehicleNumber
+                  : reportForm.vehicleNumberSnapshot
+              }
               onChange={handleReportChange}
               style={styles.input}
               placeholder="MH12AB9090"
               required
+              readOnly={tripAggregates.count > 0}
             />
           </label>
 
           <label style={styles.fieldLabel}>
-            Contractor Snapshot
+            Lead Contractor Snapshot
             <input
               name="contractorNameSnapshot"
-              value={reportForm.contractorNameSnapshot}
+              value={
+                tripAggregates.count
+                  ? tripAggregates.leadContractorName
+                  : reportForm.contractorNameSnapshot
+              }
               onChange={handleReportChange}
               style={styles.input}
               placeholder="Contractor name"
               required
+              readOnly={tripAggregates.count > 0}
             />
           </label>
+
+          <div style={styles.tripPanel}>
+            <div style={styles.tripPanelHeader}>
+              <p style={styles.tripPanelTitle}>Vehicle-wise Inward Trips (Recommended)</p>
+              <button type="button" style={styles.secondaryButton} onClick={addVehicleRunRow}>
+                Add Trip Row
+              </button>
+            </div>
+            <p style={styles.tripPanelHint}>
+              Enter each mine-to-crusher or mine-to-stock movement here. Shift totals are auto-calculated from these entries.
+            </p>
+            {(reportForm.vehicleRuns || []).length ? (
+              <div style={styles.tripRowsWrap}>
+                {(reportForm.vehicleRuns || []).map((run, index) => (
+                  <div key={`trip-row-${index}`} style={styles.tripRow}>
+                    <select
+                      style={styles.input}
+                      value={run.vehicleId || ""}
+                      onChange={(event) =>
+                        handleVehicleRunChange(index, "vehicleId", event.target.value)
+                      }
+                    >
+                      <option value="">Manual vehicle</option>
+                      {activeVehicles.map((vehicle) => (
+                        <option key={vehicle.id} value={vehicle.id}>
+                          {vehicle.vehicleNumber} - {vehicle.contractorName}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      style={styles.input}
+                      placeholder="Vehicle Number"
+                      value={run.vehicleNumberSnapshot || ""}
+                      onChange={(event) =>
+                        handleVehicleRunChange(index, "vehicleNumberSnapshot", event.target.value)
+                      }
+                    />
+                    <input
+                      style={styles.input}
+                      placeholder="Contractor Name"
+                      value={run.contractorNameSnapshot || ""}
+                      onChange={(event) =>
+                        handleVehicleRunChange(index, "contractorNameSnapshot", event.target.value)
+                      }
+                    />
+                    <select
+                      style={styles.input}
+                      value={run.routeType || "to_stock_yard"}
+                      onChange={(event) =>
+                        handleVehicleRunChange(index, "routeType", event.target.value)
+                      }
+                    >
+                      <option value="to_stock_yard">To Stock Yard</option>
+                      <option value="direct_to_crushing_hub">Direct to Crushing Hub</option>
+                    </select>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      style={styles.input}
+                      placeholder="Weighed Tons"
+                      value={run.weighedTons ?? ""}
+                      onChange={(event) =>
+                        handleVehicleRunChange(index, "weighedTons", event.target.value)
+                      }
+                    />
+                    <input
+                      style={styles.input}
+                      placeholder="Trip remarks (optional)"
+                      value={run.remarks || ""}
+                      onChange={(event) =>
+                        handleVehicleRunChange(index, "remarks", event.target.value)
+                      }
+                    />
+                    <button
+                      type="button"
+                      style={styles.dangerButton}
+                      onClick={() => removeVehicleRunRow(index)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={styles.sectionHint}>
+                No trip rows yet. You can still use manual shift totals below, or add vehicle rows for automatic totals.
+              </p>
+            )}
+          </div>
+
+          {tripAggregates.count ? (
+            <p style={styles.warningText}>
+              {tripAggregates.count} vehicle trip rows are active. Inward tons, direct tons, and route type are auto-derived from trip rows.
+            </p>
+          ) : null}
 
           <label style={styles.fieldLabel}>
             Opening Stock Tons
@@ -1115,13 +1386,18 @@ function BoulderReportsPage() {
             Inward Weighed Tons
             <input
               name="inwardWeightTons"
-              value={reportForm.inwardWeightTons}
+              value={
+                tripAggregates.count
+                  ? tripAggregates.totalInwardWeight ?? ""
+                  : reportForm.inwardWeightTons
+              }
               onChange={handleReportChange}
               type="number"
               min="0"
               step="0.01"
               style={styles.input}
               required
+              readOnly={tripAggregates.count > 0}
             />
           </label>
 
@@ -1129,13 +1405,18 @@ function BoulderReportsPage() {
             Direct to Crusher Tons
             <input
               name="directToCrusherTons"
-              value={reportForm.directToCrusherTons}
+              value={
+                tripAggregates.count
+                  ? tripAggregates.totalDirectToCrusher ?? ""
+                  : reportForm.directToCrusherTons
+              }
               onChange={handleReportChange}
               type="number"
               min="0"
               step="0.01"
               style={styles.input}
               required
+              readOnly={tripAggregates.count > 0}
             />
           </label>
 
@@ -1430,7 +1711,10 @@ function BoulderReportsPage() {
                     <td style={styles.td}>
                       {report.vehicleNumberSnapshot}
                       <br />
-                      <span style={styles.subtleText}>{report.contractorNameSnapshot}</span>
+                      <span style={styles.subtleText}>
+                        {report.contractorNameSnapshot} | {formatRouteTypeLabel(report.routeType)} | Trips{" "}
+                        {report.vehicleTripCount ?? 0}
+                      </span>
                     </td>
                     <td style={styles.td}>
                       Inward {formatMetric(report.inwardWeightTons)} | Direct {formatMetric(report.directToCrusherTons)}
@@ -1567,6 +1851,46 @@ const styles = {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
     gap: "12px",
+  },
+  tripPanel: {
+    gridColumn: "1 / -1",
+    border: "1px solid #dbeafe",
+    borderRadius: "14px",
+    background:
+      "linear-gradient(135deg, rgba(239,246,255,0.85) 0%, rgba(248,250,252,0.95) 100%)",
+    padding: "12px",
+  },
+  tripPanelHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+    flexWrap: "wrap",
+  },
+  tripPanelTitle: {
+    margin: 0,
+    fontWeight: 800,
+    color: "#0f172a",
+    fontSize: "14px",
+  },
+  tripPanelHint: {
+    margin: "6px 0 10px",
+    color: "#475569",
+    fontSize: "13px",
+  },
+  tripRowsWrap: {
+    display: "grid",
+    gap: "8px",
+  },
+  tripRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+    gap: "8px",
+    alignItems: "center",
+    border: "1px solid #dbeafe",
+    background: "rgba(255,255,255,0.92)",
+    borderRadius: "12px",
+    padding: "8px",
   },
   vehicleFormGrid: {
     display: "grid",
