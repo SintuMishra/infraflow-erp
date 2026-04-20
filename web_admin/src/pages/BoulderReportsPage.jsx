@@ -43,6 +43,8 @@ const INITIAL_VEHICLE_FORM = {
   notes: "",
 };
 
+const SHIFT_CONTEXT_STORAGE_KEY_PREFIX = "boulder.shiftContext";
+
 const formatMetric = (value, digits = 2) =>
   new Intl.NumberFormat("en-IN", {
     minimumFractionDigits: 0,
@@ -186,6 +188,21 @@ const buildTripAggregates = (runs = []) => {
   };
 };
 
+const extractShiftContextFromForm = (form = {}, { openingStockOverride = null } = {}) => ({
+  reportDate: form.reportDate || getTodayDateValue(),
+  plantId: form.plantId || "",
+  shiftId: form.shiftId || "",
+  crusherUnitId: form.crusherUnitId || "",
+  crusherUnitNameSnapshot: form.crusherUnitNameSnapshot || "",
+  sourceMineName: form.sourceMineName || "",
+  openingStockTons:
+    openingStockOverride !== null && openingStockOverride !== undefined
+      ? String(openingStockOverride)
+      : form.openingStockTons !== undefined && form.openingStockTons !== null
+        ? String(form.openingStockTons)
+        : "",
+});
+
 function BoulderReportsPage() {
   const { currentUser } = useAuth();
   const { masters, loadingMasters, mastersError } = useMasters();
@@ -231,6 +248,17 @@ function BoulderReportsPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [showVehicleForm, setShowVehicleForm] = useState(false);
+  const [keepShiftContext, setKeepShiftContext] = useState(true);
+  const [autoCarryClosingToOpening, setAutoCarryClosingToOpening] = useState(true);
+  const [allowClosingOverride, setAllowClosingOverride] = useState(false);
+
+  const shiftContextStorageKey = useMemo(
+    () =>
+      `${SHIFT_CONTEXT_STORAGE_KEY_PREFIX}.${currentUser?.companyId || "na"}.${
+        currentUser?.userId || "na"
+      }`,
+    [currentUser?.companyId, currentUser?.userId]
+  );
 
   const tripAggregates = useMemo(
     () => buildTripAggregates(reportForm.vehicleRuns),
@@ -390,6 +418,60 @@ function BoulderReportsPage() {
     }
   }, [filterCrusherUnits, filters.crusherUnitId]);
 
+  useEffect(() => {
+    if (!shiftContextStorageKey) {
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(shiftContextStorageKey);
+      if (!raw) {
+        return;
+      }
+
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") {
+        return;
+      }
+
+      setReportForm((prev) => ({
+        ...prev,
+        ...extractShiftContextFromForm(parsed),
+      }));
+    } catch {
+      // Ignore corrupted context payload and keep default form values.
+    }
+  }, [shiftContextStorageKey]);
+
+  useEffect(() => {
+    const contextPayload = {
+      reportDate: reportForm.reportDate || getTodayDateValue(),
+      plantId: reportForm.plantId || "",
+      shiftId: reportForm.shiftId || "",
+      crusherUnitId: reportForm.crusherUnitId || "",
+      crusherUnitNameSnapshot: reportForm.crusherUnitNameSnapshot || "",
+      sourceMineName: reportForm.sourceMineName || "",
+      openingStockTons:
+        reportForm.openingStockTons !== undefined && reportForm.openingStockTons !== null
+          ? String(reportForm.openingStockTons)
+          : "",
+    };
+    try {
+      window.localStorage.setItem(shiftContextStorageKey, JSON.stringify(contextPayload));
+    } catch {
+      // No-op: localStorage may be blocked in some browser modes.
+    }
+  }, [
+    reportForm.reportDate,
+    reportForm.plantId,
+    reportForm.shiftId,
+    reportForm.crusherUnitId,
+    reportForm.crusherUnitNameSnapshot,
+    reportForm.sourceMineName,
+    reportForm.openingStockTons,
+    shiftContextStorageKey,
+  ]);
+
   const loadInitialData = useCallback(async () => {
     setLoading(true);
 
@@ -468,9 +550,27 @@ function BoulderReportsPage() {
     return () => window.clearTimeout(timeoutId);
   }, [loadReports]);
 
-  const resetReportForm = () => {
-    setReportForm(INITIAL_REPORT_FORM);
+  const resetReportForm = ({ preserveContext = keepShiftContext, openingStockOverride = null } = {}) => {
+    if (!preserveContext) {
+      setReportForm({
+        ...INITIAL_REPORT_FORM,
+        reportDate: getTodayDateValue(),
+      });
+      setEditingReportId(null);
+      setAllowClosingOverride(false);
+      return;
+    }
+
+    const context = extractShiftContextFromForm(reportForm, {
+      openingStockOverride,
+    });
+
+    setReportForm({
+      ...INITIAL_REPORT_FORM,
+      ...context,
+    });
     setEditingReportId(null);
+    setAllowClosingOverride(false);
   };
 
   const resetVehicleForm = () => {
@@ -627,7 +727,13 @@ function BoulderReportsPage() {
         setSuccess("Boulder report added successfully");
       }
 
-      resetReportForm();
+      const nextOpeningStockTons = autoCarryClosingToOpening && !editingReportId
+        ? payload.closingStockTons
+        : reportForm.openingStockTons;
+      resetReportForm({
+        preserveContext: keepShiftContext,
+        openingStockOverride: nextOpeningStockTons,
+      });
       await loadReports();
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to save boulder report");
@@ -638,6 +744,7 @@ function BoulderReportsPage() {
 
   const handleEditReport = (report) => {
     setEditingReportId(report.id);
+    setAllowClosingOverride(true);
     setReportForm({
       reportDate: report.reportDate || getTodayDateValue(),
       plantId: report.plantId ? String(report.plantId) : "",
@@ -750,6 +857,22 @@ function BoulderReportsPage() {
     } finally {
       setStatusUpdatingId(null);
     }
+  };
+
+  const clearSavedShiftContext = () => {
+    try {
+      window.localStorage.removeItem(shiftContextStorageKey);
+    } catch {
+      // No-op
+    }
+
+    setReportForm({
+      ...INITIAL_REPORT_FORM,
+      reportDate: getTodayDateValue(),
+    });
+    setAllowClosingOverride(false);
+    setEditingReportId(null);
+    setSuccess("Shift context cleared. You can start a fresh shift setup.");
   };
 
   const clearFilters = () => {
@@ -1116,6 +1239,34 @@ function BoulderReportsPage() {
             </p>
           ) : null}
 
+          <div style={styles.contextPanel}>
+            <p style={styles.contextTitle}>Shift Context Memory</p>
+            <p style={styles.contextHint}>
+              Keep date, plant, shift, source mine, and opening stock ready between entries so you do not retype for every truck.
+            </p>
+            <label style={styles.toggleLabel}>
+              <input
+                type="checkbox"
+                checked={keepShiftContext}
+                onChange={(event) => setKeepShiftContext(event.target.checked)}
+              />
+              Keep shift context after save
+            </label>
+            <label style={styles.toggleLabel}>
+              <input
+                type="checkbox"
+                checked={autoCarryClosingToOpening}
+                onChange={(event) => setAutoCarryClosingToOpening(event.target.checked)}
+              />
+              Auto carry closing stock as next opening stock
+            </label>
+            <div style={styles.inlineActions}>
+              <button type="button" style={styles.secondaryButton} onClick={clearSavedShiftContext}>
+                Start Fresh Shift
+              </button>
+            </div>
+          </div>
+
           <label style={styles.fieldLabel}>
             Report Date
             <input
@@ -1368,8 +1519,12 @@ function BoulderReportsPage() {
             </p>
           ) : null}
 
+          <p style={styles.sectionHint}>
+            Shift stock formula: Closing = Opening + (Inward to Stock) - (Crusher Feed from Stock). Use manual closing override only for audited corrections.
+          </p>
+
           <label style={styles.fieldLabel}>
-            Opening Stock Tons
+            Opening Boulder Stock (Shift Start Tons)
             <input
               name="openingStockTons"
               value={reportForm.openingStockTons}
@@ -1383,7 +1538,7 @@ function BoulderReportsPage() {
           </label>
 
           <label style={styles.fieldLabel}>
-            Inward Weighed Tons
+            Total Inward Weighbridge Tons
             <input
               name="inwardWeightTons"
               value={
@@ -1402,7 +1557,7 @@ function BoulderReportsPage() {
           </label>
 
           <label style={styles.fieldLabel}>
-            Direct to Crusher Tons
+            Direct-to-Crusher Tons
             <input
               name="directToCrusherTons"
               value={
@@ -1421,7 +1576,7 @@ function BoulderReportsPage() {
           </label>
 
           <label style={styles.fieldLabel}>
-            Crusher Consumption Tons
+            Crusher Feed / Consumption (Shift Tons)
             <input
               name="crusherConsumptionTons"
               value={reportForm.crusherConsumptionTons}
@@ -1435,7 +1590,7 @@ function BoulderReportsPage() {
           </label>
 
           <label style={styles.fieldLabel}>
-            Closing Stock Tons (Optional override)
+            Closing Boulder Stock (Auto)
             <input
               name="closingStockTons"
               value={reportForm.closingStockTons}
@@ -1445,11 +1600,22 @@ function BoulderReportsPage() {
               step="0.01"
               style={styles.input}
               placeholder={`Auto ${metricsPreview.computedClosingStock}`}
+              readOnly={!allowClosingOverride}
+              disabled={!allowClosingOverride}
             />
           </label>
 
+          <label style={styles.toggleLabel}>
+            <input
+              type="checkbox"
+              checked={allowClosingOverride}
+              onChange={(event) => setAllowClosingOverride(event.target.checked)}
+            />
+            Allow manual closing override (for correction only)
+          </label>
+
           <label style={styles.fieldLabel}>
-            Finished Output Tons
+            Finished Output (Shift Close, Optional)
             <input
               name="finishedOutputTons"
               value={reportForm.finishedOutputTons}
@@ -2010,6 +2176,36 @@ const styles = {
     padding: "10px 12px",
     fontSize: "13px",
     fontWeight: 600,
+  },
+  contextPanel: {
+    gridColumn: "1 / -1",
+    border: "1px solid #c7d2fe",
+    background:
+      "linear-gradient(135deg, rgba(238,242,255,0.92) 0%, rgba(248,250,252,0.96) 100%)",
+    borderRadius: "14px",
+    padding: "12px",
+    display: "grid",
+    gap: "8px",
+  },
+  contextTitle: {
+    margin: 0,
+    color: "#1e1b4b",
+    fontWeight: 800,
+    fontSize: "14px",
+  },
+  contextHint: {
+    margin: 0,
+    color: "#3730a3",
+    fontSize: "13px",
+  },
+  toggleLabel: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    color: "#0f172a",
+    fontWeight: 600,
+    fontSize: "13px",
+    gridColumn: "1 / -1",
   },
   tableWrap: {
     width: "100%",
