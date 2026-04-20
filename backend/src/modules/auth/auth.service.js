@@ -513,7 +513,10 @@ const initiatePasswordReset = async ({
     deliveryPolicy: delivery.deliveryPolicy || env.passwordResetDeliverySuccessPolicy,
     channelStatuses: delivery.channelStatuses || {},
     deliveryReason: delivery.reason || null,
-    resetOtp: exposeToken ? resetOtp : null,
+    resetOtp:
+      exposeToken || delivery.mode === "token_response"
+        ? resetOtp
+        : null,
   };
 };
 

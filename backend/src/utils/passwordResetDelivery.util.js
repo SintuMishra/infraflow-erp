@@ -219,7 +219,7 @@ const dispatchPasswordResetInstruction = async ({
   companyId,
   exposeToken = false,
 }) => {
-  if (exposeToken) {
+  if (exposeToken || env.passwordResetDeliveryMode === "token_response") {
     return {
       mode: "token_response",
       accepted: true,

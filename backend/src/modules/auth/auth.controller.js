@@ -239,10 +239,12 @@ const forgotPasswordController = async (req, res) => {
         "If the account details match, a password reset instruction has been created.",
       data: {
         resetOtp: result.resetOtp || null,
+        delivered: Boolean(result.delivered),
         deliveryMode: result.deliveryMode || "unknown",
         deliveryChannels: result.deliveryChannels || [],
         deliveryPolicy: result.deliveryPolicy || "any",
         channelStatuses: result.channelStatuses || {},
+        deliveryReason: result.deliveryReason || null,
       },
     });
   } catch (error) {

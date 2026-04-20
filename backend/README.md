@@ -11,7 +11,7 @@ Copy `.env.example` to `.env` and set production-safe values for:
 - `CORS_ORIGIN`
 - `EXPOSE_PASSWORD_RESET_TOKEN=false` in production
 - `PASSWORD_RESET_DELIVERY_MODE=webhook` in production
-- `PASSWORD_RESET_DELIVERY_CHANNELS=mobile,email` for dual-channel OTP delivery
+- `PASSWORD_RESET_DELIVERY_CHANNELS=mobile` (or `mobile,email` if both are required)
 - `PASSWORD_RESET_DELIVERY_SUCCESS_POLICY=any` (recommended), or `all` for strict mode
 - `PASSWORD_RESET_WEBHOOK_URL` (SMS/email gateway webhook endpoint)
 - optional `PASSWORD_RESET_PUBLIC_RESET_BASE_URL` (frontend reset page base URL)
@@ -155,6 +155,34 @@ To disable local auto-prepare and force explicit credentials, set:
 ```bash
 SMOKE_AUTO_PREPARE_ADMIN=false
 ```
+
+## Local OTP Reset (Mobile Simulation)
+
+For local forgot-password OTP testing without a real SMS provider:
+
+1. Start webhook sandbox:
+
+```bash
+npm run dev:password-reset-webhook
+```
+
+2. Start backend with mobile-only webhook delivery:
+
+```bash
+PASSWORD_RESET_DELIVERY_MODE=webhook \
+PASSWORD_RESET_DELIVERY_CHANNELS=mobile \
+PASSWORD_RESET_WEBHOOK_URL=http://127.0.0.1:5055/password-reset \
+EXPOSE_PASSWORD_RESET_TOKEN=false \
+npm start
+```
+
+3. Open forgot-password page and submit identifier + registered mobile.
+
+4. Read OTP from:
+- backend webhook sandbox terminal log, or
+- `GET http://127.0.0.1:5055/last`
+
+Then enter OTP manually in reset form.
 
 ## Trial Reset Helper
 

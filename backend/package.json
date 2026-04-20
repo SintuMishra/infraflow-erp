@@ -31,7 +31,8 @@
     "verify:practical": "npm run verify:local && npm run test:finance:policy && npm run verify:go-live:local",
     "bootstrap:owner": "node src/scripts/bootstrapCompanyOwner.js",
     "reset:trial": "node src/scripts/resetTrialBaseline.js",
-    "report:missing-hsn": "node src/scripts/reportMissingMaterialHsnSac.js"
+    "report:missing-hsn": "node src/scripts/reportMissingMaterialHsnSac.js",
+    "dev:password-reset-webhook": "node src/scripts/passwordResetWebhookSandbox.js"
   },
   "keywords": [],
   "author": "",

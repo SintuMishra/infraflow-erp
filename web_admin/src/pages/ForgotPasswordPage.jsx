@@ -4,6 +4,7 @@ import { api } from "../services/api";
 
 function ForgotPasswordPage() {
   const navigate = useNavigate();
+  const [companyCode, setCompanyCode] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [mobileNumber, setMobileNumber] = useState("");
   const [resetOtp, setResetOtp] = useState("");
@@ -11,22 +12,50 @@ function ForgotPasswordPage() {
   const [requestMessage, setRequestMessage] = useState("");
   const [deliveryMode, setDeliveryMode] = useState("");
   const [deliveryChannels, setDeliveryChannels] = useState([]);
+  const [channelStatuses, setChannelStatuses] = useState({});
+  const [deliveryReason, setDeliveryReason] = useState("");
+  const [resolvedCompanyId, setResolvedCompanyId] = useState("");
   const [resetMessage, setResetMessage] = useState("");
   const [error, setError] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [resetting, setResetting] = useState(false);
+
+  const resolveCompanyContext = async () => {
+    const normalizedCompanyCode = String(companyCode || "").trim().toUpperCase();
+    if (!normalizedCompanyCode) {
+      setResolvedCompanyId("");
+      return null;
+    }
+
+    const response = await api.get(
+      `/auth/login-context/${encodeURIComponent(normalizedCompanyCode)}`
+    );
+    const company = response.data?.data || null;
+    const nextCompanyId = company?.id ? String(company.id) : "";
+    setResolvedCompanyId(nextCompanyId);
+    return nextCompanyId || null;
+  };
 
   const handleRequestReset = async (event) => {
     event.preventDefault();
     setError("");
     setRequestMessage("");
     setResetMessage("");
+    setDeliveryReason("");
+    setChannelStatuses({});
     setRequesting(true);
 
     try {
+      const companyId = await resolveCompanyContext();
       const response = await api.post("/auth/forgot-password", {
         identifier,
         mobileNumber,
+      }, {
+        headers: companyId
+          ? {
+              "X-Company-Id": String(companyId),
+            }
+          : undefined,
       });
 
       const issuedOtp = response.data?.data?.resetOtp || "";
@@ -34,8 +63,17 @@ function ForgotPasswordPage() {
       const channels = Array.isArray(response.data?.data?.deliveryChannels)
         ? response.data.data.deliveryChannels
         : [];
+      const statuses =
+        response.data?.data?.channelStatuses &&
+        typeof response.data.data.channelStatuses === "object"
+          ? response.data.data.channelStatuses
+          : {};
+      const reason = response.data?.data?.deliveryReason || "";
+      const delivered = Boolean(response.data?.data?.delivered);
       setDeliveryMode(mode);
       setDeliveryChannels(channels);
+      setChannelStatuses(statuses);
+      setDeliveryReason(reason);
 
       if (issuedOtp) {
         setResetOtp(issuedOtp);
@@ -43,13 +81,19 @@ function ForgotPasswordPage() {
           "Reset OTP generated for this environment. Use it below to set a new password."
         );
       } else if (mode === "webhook") {
-        const isDualChannel =
-          channels.includes("mobile") && channels.includes("email");
-        setRequestMessage(
-          isDualChannel
-            ? "If details matched, a 6-digit reset OTP was sent to your registered mobile number and email."
-            : "If details matched, a 6-digit reset OTP was sent to your registered mobile number."
-        );
+        if (!delivered) {
+          setRequestMessage(
+            "Reset request created, but OTP delivery is not confirmed. Check channel status below."
+          );
+        } else if (channels.includes("mobile")) {
+          setRequestMessage(
+            "If details matched, a 6-digit reset OTP was sent to your registered mobile number."
+          );
+        } else {
+          setRequestMessage(
+            "If details matched, a reset instruction was sent through configured channels."
+          );
+        }
       } else {
         setRequestMessage(
           "If the account details matched, a reset request was created. Contact your admin if you do not receive reset instructions."
@@ -69,9 +113,17 @@ function ForgotPasswordPage() {
     setResetting(true);
 
     try {
+      const companyId =
+        resolvedCompanyId || (await resolveCompanyContext()) || "";
       await api.post("/auth/reset-password", {
         resetOtp,
         newPassword,
+      }, {
+        headers: companyId
+          ? {
+              "X-Company-Id": String(companyId),
+            }
+          : undefined,
       });
 
       setResetMessage("Password reset successfully. Redirecting to login...");
@@ -105,6 +157,17 @@ function ForgotPasswordPage() {
             {requestMessage && <p style={styles.success}>{requestMessage}</p>}
 
             <label style={styles.label}>
+              Company Code (Recommended)
+              <input
+                type="text"
+                value={companyCode}
+                onChange={(event) => setCompanyCode(event.target.value.toUpperCase())}
+                style={styles.input}
+                placeholder="Ex: SINSOFTWARE_SOLUTIONS"
+              />
+            </label>
+
+            <label style={styles.label}>
               Username / Employee Code / Mobile
               <input
                 type="text"
@@ -135,6 +198,27 @@ function ForgotPasswordPage() {
               <p style={styles.helperText}>
                 Active channels: <strong>{deliveryChannels.join(", ")}</strong>
               </p>
+            )}
+            {resolvedCompanyId && (
+              <p style={styles.helperText}>
+                Company scope resolved to ID: <strong>{resolvedCompanyId}</strong>
+              </p>
+            )}
+            {deliveryReason && (
+              <p style={styles.warning}>
+                Delivery note: {deliveryReason}
+              </p>
+            )}
+            {Object.keys(channelStatuses).length > 0 && (
+              <div style={styles.channelStatusList}>
+                {Object.entries(channelStatuses).map(([channel, status]) => (
+                  <p key={channel} style={styles.channelStatusItem}>
+                    {channel}:{" "}
+                    <strong>{status?.accepted ? "accepted" : "failed"}</strong>
+                    {status?.reason ? ` (${status.reason})` : ""}
+                  </p>
+                ))}
+              </div>
             )}
 
             <button type="submit" style={styles.button} disabled={requesting}>
@@ -302,6 +386,26 @@ const styles = {
     color: "#047857",
     fontWeight: "600",
     lineHeight: 1.6,
+  },
+  warning: {
+    margin: 0,
+    padding: "12px 14px",
+    borderRadius: "12px",
+    background: "#fffbeb",
+    color: "#92400e",
+    fontWeight: "600",
+    lineHeight: 1.6,
+  },
+  channelStatusList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+  },
+  channelStatusItem: {
+    margin: 0,
+    color: "#334155",
+    fontSize: "12px",
+    lineHeight: 1.5,
   },
 };
 
