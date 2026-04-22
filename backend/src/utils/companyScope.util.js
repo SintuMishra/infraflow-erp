@@ -38,6 +38,14 @@ const requiredScopedTables = [
   "bank_accounts",
   "finance_posting_rules",
   "finance_source_links",
+  "purchase_requests",
+  "purchase_request_lines",
+  "purchase_orders",
+  "purchase_order_lines",
+  "goods_receipts",
+  "goods_receipt_lines",
+  "purchase_invoices",
+  "purchase_invoice_lines",
 ];
 
 const getSchemaCache = (db = pool) => {

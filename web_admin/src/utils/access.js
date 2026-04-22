@@ -1,9 +1,9 @@
 export const ROLE_GROUPS = {
-  admin: ["super_admin", "manager", "hr"],
-  ops: ["super_admin", "manager", "hr", "crusher_supervisor", "site_engineer"],
-  crusher: ["super_admin", "manager", "hr", "crusher_supervisor"],
-  projects: ["super_admin", "manager", "hr", "site_engineer"],
-  finance: ["super_admin", "manager", "hr"],
+  admin: ["super_admin", "manager", "admin", "hr"],
+  ops: ["super_admin", "manager", "admin", "hr", "crusher_supervisor", "site_engineer"],
+  crusher: ["super_admin", "manager", "admin", "hr", "crusher_supervisor"],
+  projects: ["super_admin", "manager", "admin", "hr", "site_engineer"],
+  finance: ["super_admin", "manager", "admin", "hr"],
 };
 
 const PLATFORM_OWNER_COMPANY_ID = (() => {
@@ -47,7 +47,7 @@ export const isOwnerConsoleUser = (user) => {
 };
 
 export const canAccessOperationalWorkspace = (user) => {
-  return !isOwnerConsoleUser(user);
+  return Boolean(user);
 };
 
 export const canAccessOwnerControlPanel = (user) => {
@@ -68,6 +68,7 @@ export const ROUTE_ACCESS = {
   crusherReports: ROLE_GROUPS.crusher,
   projectReports: ROLE_GROUPS.projects,
   dispatchReports: ROLE_GROUPS.ops,
+  boulderReports: ROLE_GROUPS.ops,
   vehicles: ROLE_GROUPS.ops,
   changePassword: [],
   masters: ROLE_GROUPS.ops,
@@ -75,6 +76,18 @@ export const ROUTE_ACCESS = {
   transportRates: ROLE_GROUPS.ops,
   partyMaterialRates: ROLE_GROUPS.admin,
   partyOrders: ROLE_GROUPS.admin,
+  purchaseRequests: [
+    "super_admin",
+    "manager",
+    "admin",
+    "hr",
+    "crusher_supervisor",
+    "site_engineer",
+    "operator",
+  ],
+  purchaseOrders: ROLE_GROUPS.finance,
+  goodsReceipts: ROLE_GROUPS.finance,
+  purchaseInvoices: ROLE_GROUPS.finance,
   partyCommercialProfile: ROLE_GROUPS.admin,
   commercialExceptions: ROLE_GROUPS.admin,
   dispatchPrint: ROLE_GROUPS.ops,
@@ -153,6 +166,13 @@ export const SIDEBAR_MENU_GROUPS = [
         workspace: "client",
       },
       {
+        label: "Boulder Reports",
+        path: "/boulder-reports",
+        hint: "Mine-to-crusher raw boulder flow",
+        allowedRoles: ROUTE_ACCESS.boulderReports,
+        workspace: "client",
+      },
+      {
         label: "Vehicles",
         path: "/vehicles",
         hint: "Fleet, equipment, and linkage",
@@ -171,6 +191,39 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/transport-rates",
         hint: "Plant-wise logistics costing",
         allowedRoles: ROUTE_ACCESS.transportRates,
+        workspace: "client",
+      },
+    ],
+  },
+  {
+    label: "Procurement",
+    items: [
+      {
+        label: "Purchase Requests",
+        path: "/purchase-requests",
+        hint: "Material demand planning and approvals",
+        allowedRoles: ROUTE_ACCESS.purchaseRequests,
+        workspace: "client",
+      },
+      {
+        label: "Purchase Orders",
+        path: "/purchase-orders",
+        hint: "Vendor order placement and control",
+        allowedRoles: ROUTE_ACCESS.purchaseOrders,
+        workspace: "client",
+      },
+      {
+        label: "Goods Receipts",
+        path: "/goods-receipts",
+        hint: "GRN entry and PO quantity updates",
+        allowedRoles: ROUTE_ACCESS.goodsReceipts,
+        workspace: "client",
+      },
+      {
+        label: "Purchase Invoices",
+        path: "/purchase-invoices",
+        hint: "3-way matching and payable linkage",
+        allowedRoles: ROUTE_ACCESS.purchaseInvoices,
         workspace: "client",
       },
     ],

@@ -1,3 +1,5 @@
+import { normalizeRole } from "./roles";
+
 const TOKEN_KEY = "erp_token";
 const REFRESH_TOKEN_KEY = "erp_refresh_token";
 const USER_KEY = "erp_user";
@@ -15,6 +17,18 @@ const parseJwtPayload = (token) => {
   } catch {
     return null;
   }
+};
+
+export const isTokenExpired = (token, skewSeconds = 20) => {
+  const payload = parseJwtPayload(token);
+  const exp = Number(payload?.exp || 0);
+
+  if (!exp) {
+    return false;
+  }
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  return exp <= nowSeconds + Math.max(0, Number(skewSeconds) || 0);
 };
 
 export const getToken = () => {
@@ -48,7 +62,7 @@ export const getStoredUser = () => {
     id: decoded.userId || null,
     employeeId: decoded.employeeId || null,
     username: decoded.username || "",
-    role: decoded.role || "",
+    role: normalizeRole(decoded.role || storedUser?.role || ""),
     companyId: decoded.companyId || null,
     mustChangePassword: Boolean(decoded.mustChangePassword),
   };
@@ -89,7 +103,12 @@ export const hasRole = (allowedRoles = []) => {
   if (!allowedRoles.length) return true;
 
   const user = getStoredUser();
-  return Boolean(user?.role && allowedRoles.includes(user.role));
+  const userRole = normalizeRole(user?.role);
+  if (userRole === "super_admin") {
+    return true;
+  }
+  const normalizedAllowed = allowedRoles.map((role) => normalizeRole(role));
+  return Boolean(userRole && normalizedAllowed.includes(userRole));
 };
 
 export const logout = () => {

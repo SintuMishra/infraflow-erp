@@ -13,6 +13,25 @@ const ALLOWED_SOURCE_TYPES = ["Crusher", "Project", "Plant", "Store"];
 const ALLOWED_STATUSES = ["pending", "completed", "cancelled"];
 const ALLOWED_LINK_FILTERS = ["linked", "unlinked"];
 
+const handleDispatchDbError = (res, error) => {
+  if (!error?.code) {
+    return false;
+  }
+
+  if (
+    error.code === "23514" &&
+    String(error.constraint || "").includes("dispatch_reports_royalty_mode_check")
+  ) {
+    res.status(400).json({
+      success: false,
+      message: "Invalid royalty mode for dispatch billing configuration",
+    });
+    return true;
+  }
+
+  return false;
+};
+
 const normalizeDispatchQueryFilters = (query = {}) => {
   const search = String(query.search || "").trim();
   const rawPlantId = String(query.plantId || "").trim();
@@ -171,6 +190,10 @@ const createDispatchDailyReport = async (req, res) => {
       data: report,
     });
   } catch (error) {
+    if (handleDispatchDbError(res, error)) {
+      return;
+    }
+
     return sendControllerError(req, res, error, "Failed to create dispatch report");
   }
 };
@@ -201,6 +224,10 @@ const editDispatchReportController = async (req, res) => {
       data: report,
     });
   } catch (error) {
+    if (handleDispatchDbError(res, error)) {
+      return;
+    }
+
     return sendControllerError(req, res, error, "Failed to update dispatch report");
   }
 };

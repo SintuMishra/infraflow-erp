@@ -3,30 +3,122 @@ import { api } from "../services/api";
 import AppShell from "../components/layout/AppShell";
 import SectionCard from "../components/dashboard/SectionCard";
 import { useAuth } from "../hooks/useAuth";
+import { useMasters } from "../hooks/useMasters";
+import { normalizeRole } from "../utils/roles";
 
-const DEPARTMENT_ROLE_MAP = {
+const DEPARTMENT_ROLE_EXACT_MAP = {
   HR: "hr",
-  Crusher: "crusher_supervisor",
-  Projects: "site_engineer",
+  "Human Resources": "hr",
   Accounts: "manager",
+  "Finance & Accounts": "manager",
+  Finance: "manager",
   Admin: "manager",
+  Administration: "manager",
+  "IT & Systems": "manager",
+  "Legal & Compliance": "manager",
+  "Business Development": "manager",
+  Sales: "manager",
+  Projects: "site_engineer",
+  "Project Management": "site_engineer",
+  Planning: "site_engineer",
+  Engineering: "site_engineer",
+  Execution: "site_engineer",
+  Crusher: "crusher_supervisor",
+  "Crusher Operations": "crusher_supervisor",
+  "Plant Operations": "crusher_supervisor",
+  Vehicles: "crusher_supervisor",
+  "Fleet & Transport": "crusher_supervisor",
+  "Logistics & Dispatch": "crusher_supervisor",
+  Machinery: "crusher_supervisor",
+  "Machinery & Maintenance": "crusher_supervisor",
 };
 
 const ROLE_ASSIGNMENT_RULES = {
   super_admin: ["hr", "manager", "crusher_supervisor", "site_engineer", "operator"],
   hr: ["crusher_supervisor", "site_engineer", "operator"],
-  manager: ["crusher_supervisor", "site_engineer", "operator"],
+  manager: ["hr", "manager", "crusher_supervisor", "site_engineer", "operator"],
 };
+const OTHER_ENTRY_VALUE = "__other__";
 const BASE_DEPARTMENT_OPTIONS = [
-  "Crusher",
-  "HR",
-  "Projects",
+  "Administration",
+  "Human Resources",
+  "Finance & Accounts",
   "Accounts",
+  "Commercial",
+  "Procurement",
+  "Contracts",
+  "Billing",
+  "Audit",
+  "Project Management",
+  "Projects",
+  "Planning",
+  "Execution",
+  "Engineering",
+  "Quality Assurance",
+  "Quality Control",
+  "Safety (EHS)",
+  "Stores & Inventory",
+  "Logistics & Dispatch",
+  "Fleet & Transport",
   "Plant Operations",
+  "Crusher Operations",
+  "Crusher",
+  "Mining",
+  "Electrical",
+  "Mechanical",
+  "Machinery & Maintenance",
   "Vehicles",
   "Machinery",
+  "IT & Systems",
+  "Legal & Compliance",
+  "Security",
+  "Business Development",
+  "Sales",
+  "Customer Support",
   "Admin",
+  "General",
 ];
+const DESIGNATIONS_BY_ROLE = {
+  hr: [
+    "HR Executive",
+    "HR Manager",
+    "Payroll Executive",
+    "Recruiter",
+    "People Operations",
+  ],
+  manager: [
+    "Admin Executive",
+    "Admin Manager",
+    "Accounts Executive",
+    "Accounts Manager",
+    "Finance Executive",
+    "Finance Manager",
+    "Procurement Executive",
+    "Procurement Manager",
+    "Commercial Executive",
+    "Commercial Manager",
+    "Legal Officer",
+    "IT Administrator",
+  ],
+  site_engineer: [
+    "Site Engineer",
+    "Project Engineer",
+    "Planning Engineer",
+    "Execution Engineer",
+    "Quality Engineer",
+    "Billing Engineer",
+  ],
+  crusher_supervisor: [
+    "Crusher Supervisor",
+    "Plant Incharge",
+    "Dispatch Incharge",
+    "Fleet Supervisor",
+    "Maintenance Supervisor",
+    "Store Incharge",
+    "Operator Incharge",
+  ],
+  operator: ["Operator", "Data Entry Operator", "Field Assistant", "Technician"],
+};
 
 const EMPLOYEE_STATUSES = ["active", "inactive", "resigned", "terminated"];
 const EMPLOYMENT_TYPE_OPTIONS = [
@@ -67,6 +159,186 @@ const toTitleCase = (value) =>
 const isValidPhoneNumber = (value) => /^[0-9]{10,15}$/.test(String(value || "").trim());
 const isValidEmail = (value) =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+const normalizeDepartmentKey = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+const normalizeDesignationKey = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const DEPARTMENT_ROLE_KEYWORD_RULES = [
+  {
+    role: "hr",
+    keywords: ["human resource", "hr", "talent", "recruit", "people ops", "payroll"],
+  },
+  {
+    role: "manager",
+    keywords: [
+      "admin",
+      "administration",
+      "finance",
+      "account",
+      "commercial",
+      "billing",
+      "audit",
+      "procurement",
+      "purchase",
+      "contract",
+      "legal",
+      "compliance",
+      "it ",
+      "system",
+      "business development",
+      "sales",
+      "customer support",
+      "security",
+    ],
+  },
+  {
+    role: "site_engineer",
+    keywords: [
+      "project",
+      "site",
+      "engineering",
+      "execution",
+      "planning",
+      "quality",
+      "qa",
+      "qc",
+      "estimation",
+      "survey",
+    ],
+  },
+  {
+    role: "crusher_supervisor",
+    keywords: [
+      "crusher",
+      "plant",
+      "operation",
+      "production",
+      "fleet",
+      "transport",
+      "logistics",
+      "dispatch",
+      "machinery",
+      "maintenance",
+      "mechanical",
+      "electrical",
+      "store",
+      "inventory",
+      "mine",
+      "workshop",
+      "safety",
+      "ehs",
+    ],
+  },
+];
+
+const DESIGNATION_ROLE_KEYWORD_RULES = [
+  { role: "hr", keywords: ["hr", "human resource", "recruit", "payroll", "people"] },
+  {
+    role: "manager",
+    keywords: [
+      "admin",
+      "account",
+      "finance",
+      "procurement",
+      "commercial",
+      "legal",
+      "it",
+    ],
+  },
+  {
+    role: "site_engineer",
+    keywords: ["engineer", "project", "planning", "execution", "quality", "billing"],
+  },
+  {
+    role: "crusher_supervisor",
+    keywords: ["crusher", "plant", "dispatch", "fleet", "maintenance", "store", "operator"],
+  },
+];
+
+const inferRoleFromDepartment = (department, configuredRoleByDepartment = new Map()) => {
+  const rawDepartment = String(department || "").trim();
+  if (!rawDepartment) {
+    return "operator";
+  }
+
+  const configuredRole = configuredRoleByDepartment.get(
+    normalizeDepartmentKey(rawDepartment)
+  );
+  if (configuredRole) {
+    return configuredRole;
+  }
+
+  if (DEPARTMENT_ROLE_EXACT_MAP[rawDepartment]) {
+    return DEPARTMENT_ROLE_EXACT_MAP[rawDepartment];
+  }
+
+  const normalizedDepartment = normalizeDepartmentKey(rawDepartment);
+  for (const rule of DEPARTMENT_ROLE_KEYWORD_RULES) {
+    if (rule.keywords.some((keyword) => normalizedDepartment.includes(keyword))) {
+      return rule.role;
+    }
+  }
+
+  return "operator";
+};
+
+const inferRoleFromWorkProfile = (
+  department,
+  designation,
+  configuredRoleByDepartment = new Map()
+) => {
+  const departmentInferred = inferRoleFromDepartment(department, configuredRoleByDepartment);
+  const normalizedDesignation = normalizeDesignationKey(designation);
+
+  if (!normalizedDesignation) {
+    return departmentInferred;
+  }
+
+  let designationInferred = "";
+  for (const rule of DESIGNATION_ROLE_KEYWORD_RULES) {
+    if (rule.keywords.some((keyword) => normalizedDesignation.includes(keyword))) {
+      designationInferred = rule.role;
+      break;
+    }
+  }
+
+  if (!designationInferred) {
+    return departmentInferred;
+  }
+
+  if (departmentInferred === "operator") {
+    return designationInferred;
+  }
+
+  if (departmentInferred === designationInferred) {
+    return departmentInferred;
+  }
+
+  const operationsRoles = new Set(["crusher_supervisor", "site_engineer"]);
+  if (operationsRoles.has(departmentInferred) && operationsRoles.has(designationInferred)) {
+    return designationInferred;
+  }
+
+  // Keep department as source of truth to prevent accidental over-privileged access.
+  return departmentInferred;
+};
+
+const resolveManualValue = (selectedValue, customValue = "") => {
+  if (String(selectedValue || "").trim() !== OTHER_ENTRY_VALUE) {
+    return String(selectedValue || "").trim();
+  }
+
+  return String(customValue || "").trim();
+};
 
 const formatDateDisplay = (value) => {
   if (!value) return "-";
@@ -82,6 +354,7 @@ const formatDateDisplay = (value) => {
 
 function EmployeesPage() {
   const { currentUser } = useAuth();
+  const { masters } = useMasters();
   const [employees, setEmployees] = useState([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
   const [isSubmittingEmployee, setIsSubmittingEmployee] = useState(false);
@@ -107,7 +380,9 @@ function EmployeesPage() {
     idProofTypeCustom: "",
     idProofNumber: "",
     department: "",
+    departmentCustom: "",
     designation: "",
+    designationCustom: "",
     joiningDate: "",
     status: "active",
     relievingDate: "",
@@ -126,7 +401,9 @@ function EmployeesPage() {
     idProofTypeCustom: "",
     idProofNumber: "",
     department: "",
+    departmentCustom: "",
     designation: "",
+    designationCustom: "",
     joiningDate: "",
     status: "active",
     remarks: "",
@@ -170,15 +447,86 @@ function EmployeesPage() {
     });
   }, [employees, searchTerm, departmentFilter, statusFilter]);
 
+  const configuredDepartmentOptions = useMemo(() => {
+    const rows = masters?.configOptions?.employeeDepartments || [];
+    return rows
+      .filter((item) => item.isActive)
+      .map((item) => String(item.optionLabel || "").trim())
+      .filter(Boolean);
+  }, [masters?.configOptions?.employeeDepartments]);
+
+  const configuredRoleByDepartment = useMemo(() => {
+    const rows = masters?.configOptions?.employeeDepartments || [];
+    const map = new Map();
+
+    rows.forEach((item) => {
+      if (!item.isActive) {
+        return;
+      }
+
+      const label = normalizeDepartmentKey(item.optionLabel);
+      const role = normalizeRole(item.optionValue);
+      if (!label || !role) {
+        return;
+      }
+
+      map.set(label, role);
+    });
+
+    return map;
+  }, [masters?.configOptions?.employeeDepartments]);
+
   const departmentOptions = useMemo(() => {
     const dynamicDepartments = employees
       .map((employee) => String(employee.department || "").trim())
       .filter(Boolean);
 
     return Array.from(
-      new Set([...BASE_DEPARTMENT_OPTIONS, ...dynamicDepartments])
+      new Set([...BASE_DEPARTMENT_OPTIONS, ...configuredDepartmentOptions, ...dynamicDepartments])
     ).sort((a, b) => a.localeCompare(b));
-  }, [employees]);
+  }, [employees, configuredDepartmentOptions]);
+
+  const resolvedFormDepartment = useMemo(
+    () => resolveManualValue(formData.department, formData.departmentCustom),
+    [formData.department, formData.departmentCustom]
+  );
+  const resolvedEditDepartment = useMemo(
+    () => resolveManualValue(editForm.department, editForm.departmentCustom),
+    [editForm.department, editForm.departmentCustom]
+  );
+
+  const getDesignationOptionsForDepartment = useCallback(
+    (departmentLabel) => {
+      const normalizedDepartment = String(departmentLabel || "").trim();
+      const inferredRole = inferRoleFromDepartment(
+        normalizedDepartment,
+        configuredRoleByDepartment
+      );
+      const mapped = DESIGNATIONS_BY_ROLE[inferredRole] || [];
+      const historical = employees
+        .filter(
+          (employee) =>
+            normalizeDepartmentKey(employee.department) ===
+            normalizeDepartmentKey(normalizedDepartment)
+        )
+        .map((employee) => String(employee.designation || "").trim())
+        .filter(Boolean);
+
+      return Array.from(new Set([...mapped, ...historical])).sort((a, b) =>
+        a.localeCompare(b)
+      );
+    },
+    [configuredRoleByDepartment, employees]
+  );
+
+  const formDesignationOptions = useMemo(
+    () => getDesignationOptionsForDepartment(resolvedFormDepartment),
+    [getDesignationOptionsForDepartment, resolvedFormDepartment]
+  );
+  const editDesignationOptions = useMemo(
+    () => getDesignationOptionsForDepartment(resolvedEditDepartment),
+    [getDesignationOptionsForDepartment, resolvedEditDepartment]
+  );
 
   const employeeInsights = useMemo(() => {
     const activeCount = employees.filter(
@@ -207,10 +555,31 @@ function EmployeesPage() {
   }, [employees, filteredEmployees]);
 
   const handleChange = (e) => {
-    setFormData((prev) => ({
-      ...prev,
-      [e.target.name]: e.target.value,
-    }));
+    const { name, value } = e.target;
+    setFormData((prev) => {
+      if (name === "department") {
+        return {
+          ...prev,
+          department: value,
+          departmentCustom: value === OTHER_ENTRY_VALUE ? prev.departmentCustom : "",
+          designation: "",
+          designationCustom: "",
+        };
+      }
+
+      if (name === "designation") {
+        return {
+          ...prev,
+          designation: value,
+          designationCustom: value === OTHER_ENTRY_VALUE ? prev.designationCustom : "",
+        };
+      }
+
+      return {
+        ...prev,
+        [name]: value,
+      };
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -254,6 +623,25 @@ function EmployeesPage() {
       return;
     }
 
+    const resolvedDepartment = resolveManualValue(
+      formData.department,
+      formData.departmentCustom
+    );
+    const resolvedDesignation = resolveManualValue(
+      formData.designation,
+      formData.designationCustom
+    );
+
+    if (!resolvedDepartment) {
+      setError("Department is required");
+      return;
+    }
+
+    if (!resolvedDesignation) {
+      setError("Designation is required");
+      return;
+    }
+
     const payload = {
       ...formData,
       employmentType:
@@ -264,9 +652,13 @@ function EmployeesPage() {
         formData.idProofType === "other"
           ? buildOtherValue(formData.idProofTypeCustom)
           : formData.idProofType,
+      department: resolvedDepartment,
+      designation: resolvedDesignation,
     };
     delete payload.employmentTypeCustom;
     delete payload.idProofTypeCustom;
+    delete payload.departmentCustom;
+    delete payload.designationCustom;
 
     try {
       setIsSubmittingEmployee(true);
@@ -298,7 +690,9 @@ function EmployeesPage() {
         idProofTypeCustom: "",
         idProofNumber: "",
         department: "",
+        departmentCustom: "",
         designation: "",
+        designationCustom: "",
         joiningDate: "",
         status: "active",
         remarks: "",
@@ -315,6 +709,15 @@ function EmployeesPage() {
   const openEditPanel = (employee) => {
     const hasCustomEmploymentType = isOtherCustomValue(employee.employmentType);
     const hasCustomIdProofType = isOtherCustomValue(employee.idProofType);
+
+    const employeeDepartment = String(employee.department || "").trim();
+    const employeeDesignation = String(employee.designation || "").trim();
+    const knownDepartment = departmentOptions.includes(employeeDepartment);
+    const designationOptionsForDepartment =
+      getDesignationOptionsForDepartment(employeeDepartment);
+    const knownDesignation =
+      employeeDesignation &&
+      designationOptionsForDepartment.includes(employeeDesignation);
 
     setSelectedEmployee(employee);
     setEditForm({
@@ -334,8 +737,10 @@ function EmployeesPage() {
         ? getOtherCustomLabel(employee.idProofType)
         : "",
       idProofNumber: employee.idProofNumber || "",
-      department: employee.department || "",
-      designation: employee.designation || "",
+      department: knownDepartment ? employeeDepartment : OTHER_ENTRY_VALUE,
+      departmentCustom: knownDepartment ? "" : employeeDepartment,
+      designation: knownDesignation ? employeeDesignation : OTHER_ENTRY_VALUE,
+      designationCustom: knownDesignation ? "" : employeeDesignation,
       joiningDate: employee.joiningDate || "",
       status: employee.status || "active",
       relievingDate: employee.relievingDate || "",
@@ -348,10 +753,30 @@ function EmployeesPage() {
   const handleEditChange = (e) => {
     const { name, value } = e.target;
 
-    setEditForm((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setEditForm((prev) => {
+      if (name === "department") {
+        return {
+          ...prev,
+          department: value,
+          departmentCustom: value === OTHER_ENTRY_VALUE ? prev.departmentCustom : "",
+          designation: "",
+          designationCustom: "",
+        };
+      }
+
+      if (name === "designation") {
+        return {
+          ...prev,
+          designation: value,
+          designationCustom: value === OTHER_ENTRY_VALUE ? prev.designationCustom : "",
+        };
+      }
+
+      return {
+        ...prev,
+        [name]: value,
+      };
+    });
   };
 
   const handleEmployeeUpdate = async () => {
@@ -396,6 +821,25 @@ function EmployeesPage() {
       return;
     }
 
+    const resolvedDepartment = resolveManualValue(
+      editForm.department,
+      editForm.departmentCustom
+    );
+    const resolvedDesignation = resolveManualValue(
+      editForm.designation,
+      editForm.designationCustom
+    );
+
+    if (!resolvedDepartment) {
+      setError("Department is required");
+      return;
+    }
+
+    if (!resolvedDesignation) {
+      setError("Designation is required");
+      return;
+    }
+
     const payload = {
       ...editForm,
       employmentType:
@@ -406,9 +850,13 @@ function EmployeesPage() {
         editForm.idProofType === "other"
           ? buildOtherValue(editForm.idProofTypeCustom)
           : editForm.idProofType,
+      department: resolvedDepartment,
+      designation: resolvedDesignation,
     };
     delete payload.employmentTypeCustom;
     delete payload.idProofTypeCustom;
+    delete payload.departmentCustom;
+    delete payload.designationCustom;
 
     try {
       setIsSavingEmployee(true);
@@ -516,7 +964,11 @@ function EmployeesPage() {
     setSuccess("");
 
     try {
-      const role = DEPARTMENT_ROLE_MAP[employee.department] || "operator";
+      const role = inferRoleFromWorkProfile(
+        employee.department,
+        employee.designation,
+        configuredRoleByDepartment
+      );
 
       const res = await api.post("/auth/register", {
         employeeId: employee.id,
@@ -537,8 +989,12 @@ function EmployeesPage() {
   };
 
   const canCreateLoginForEmployee = (employee) => {
-    const actorRole = String(currentUser?.role || "").trim().toLowerCase();
-    const targetRole = DEPARTMENT_ROLE_MAP[employee.department] || "operator";
+    const actorRole = normalizeRole(currentUser?.role);
+    const targetRole = inferRoleFromWorkProfile(
+      employee.department,
+      employee.designation,
+      configuredRoleByDepartment
+    );
     return (ROLE_ASSIGNMENT_RULES[actorRole] || []).includes(targetRole);
   };
 
@@ -680,21 +1136,59 @@ function EmployeesPage() {
               onChange={handleChange}
               style={styles.input}
             />
-            <input
-              list="employee-department-options"
+            <select
               name="department"
-              placeholder="Department (Recommended)"
               value={formData.department}
               onChange={handleChange}
               style={styles.input}
-            />
-            <input
+              required
+            >
+              <option value="">Department *</option>
+              <option value={OTHER_ENTRY_VALUE}>Other (Manual Entry)</option>
+              {departmentOptions.map((department) => (
+                <option key={department} value={department}>
+                  {department}
+                </option>
+              ))}
+            </select>
+            {formData.department === OTHER_ENTRY_VALUE ? (
+              <input
+                name="departmentCustom"
+                placeholder="Custom Department *"
+                value={formData.departmentCustom}
+                onChange={handleChange}
+                style={styles.input}
+                required
+              />
+            ) : null}
+            <select
               name="designation"
-              placeholder="Designation (Recommended)"
               value={formData.designation}
               onChange={handleChange}
               style={styles.input}
-            />
+              required
+              disabled={!resolvedFormDepartment}
+            >
+              <option value="">
+                {resolvedFormDepartment ? "Designation *" : "Choose Department First"}
+              </option>
+              <option value={OTHER_ENTRY_VALUE}>Other (Manual Entry)</option>
+              {formDesignationOptions.map((designation) => (
+                <option key={designation} value={designation}>
+                  {designation}
+                </option>
+              ))}
+            </select>
+            {formData.designation === OTHER_ENTRY_VALUE ? (
+              <input
+                name="designationCustom"
+                placeholder="Custom Designation *"
+                value={formData.designationCustom}
+                onChange={handleChange}
+                style={styles.input}
+                required
+              />
+            ) : null}
             <select
               name="employmentType"
               value={formData.employmentType}
@@ -793,11 +1287,6 @@ function EmployeesPage() {
               {isSubmittingEmployee ? "Adding..." : "Add Employee"}
             </button>
           </form>
-          <datalist id="employee-department-options">
-            {departmentOptions.map((department) => (
-              <option key={department} value={department} />
-            ))}
-          </datalist>
         </SectionCard>
 
         <SectionCard title="Search & Filters">
@@ -1073,25 +1562,59 @@ function EmployeesPage() {
 
               <div>
                 <label style={styles.label}>Department</label>
-                <input
-                  list="employee-department-options"
+                <select
                   name="department"
-                  placeholder="Department (Recommended)"
                   value={editForm.department}
                   onChange={handleEditChange}
                   style={styles.input}
-                />
+                >
+                  <option value="">Department *</option>
+                  <option value={OTHER_ENTRY_VALUE}>Other (Manual Entry)</option>
+                  {departmentOptions.map((department) => (
+                    <option key={department} value={department}>
+                      {department}
+                    </option>
+                  ))}
+                </select>
+                {editForm.department === OTHER_ENTRY_VALUE ? (
+                  <input
+                    name="departmentCustom"
+                    value={editForm.departmentCustom}
+                    onChange={handleEditChange}
+                    placeholder="Custom Department *"
+                    style={styles.input}
+                  />
+                ) : null}
               </div>
 
               <div>
                 <label style={styles.label}>Designation</label>
-                <input
+                <select
                   name="designation"
                   value={editForm.designation}
                   onChange={handleEditChange}
-                  placeholder="Designation (Recommended)"
                   style={styles.input}
-                />
+                  disabled={!resolvedEditDepartment}
+                >
+                  <option value="">
+                    {resolvedEditDepartment ? "Designation *" : "Choose Department First"}
+                  </option>
+                  <option value={OTHER_ENTRY_VALUE}>Other (Manual Entry)</option>
+                  {editDesignationOptions.map((designation) => (
+                    <option key={designation} value={designation}>
+                      {designation}
+                    </option>
+                  ))}
+                </select>
+                {editForm.designation === OTHER_ENTRY_VALUE ? (
+                  <input
+                    name="designationCustom"
+                    value={editForm.designationCustom}
+                    onChange={handleEditChange}
+                    placeholder="Custom Designation *"
+                    style={styles.input}
+                  />
+                ) : null}
               </div>
 
               <div>

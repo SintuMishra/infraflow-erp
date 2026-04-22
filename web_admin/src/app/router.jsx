@@ -20,6 +20,7 @@ const EmployeesPage = lazy(() => import("../pages/EmployeesPage"));
 const CrusherReportsPage = lazy(() => import("../pages/CrusherReportsPage"));
 const ProjectReportsPage = lazy(() => import("../pages/ProjectReportsPage"));
 const DispatchReportsPage = lazy(() => import("../pages/DispatchReportsPage"));
+const BoulderReportsPage = lazy(() => import("../pages/BoulderReportsPage"));
 const VehiclesPage = lazy(() => import("../pages/VehiclesPage"));
 const ChangePasswordPage = lazy(() => import("../pages/ChangePasswordPage"));
 const MastersPage = lazy(() => import("../pages/MastersPage"));
@@ -27,6 +28,10 @@ const VendorsPage = lazy(() => import("../pages/VendorsPage"));
 const TransportRatesPage = lazy(() => import("../pages/TransportRatesPage"));
 const PartyMaterialRatesPage = lazy(() => import("../pages/PartyMaterialRatesPage"));
 const PartyOrdersPage = lazy(() => import("../pages/PartyOrdersPage"));
+const PurchaseRequestsPage = lazy(() => import("../pages/PurchaseRequestsPage"));
+const PurchaseOrdersPage = lazy(() => import("../pages/PurchaseOrdersPage"));
+const GoodsReceiptsPage = lazy(() => import("../pages/GoodsReceiptsPage"));
+const PurchaseInvoicesPage = lazy(() => import("../pages/PurchaseInvoicesPage"));
 const CommercialExceptionsPage = lazy(
   () => import("../pages/CommercialExceptionsPage")
 );
@@ -177,6 +182,18 @@ export function AppRouter() {
         />
 
         <Route
+          path="/boulder-reports"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.boulderReports}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <BoulderReportsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/vehicles"
           element={
             <ProtectedRoute
@@ -253,6 +270,54 @@ export function AppRouter() {
               allowWhen={canAccessOperationalWorkspace}
             >
               <PartyOrdersPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/purchase-requests"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.purchaseRequests}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <PurchaseRequestsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/purchase-orders"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.purchaseOrders}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <PurchaseOrdersPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/goods-receipts"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.goodsReceipts}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <GoodsReceiptsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/purchase-invoices"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.purchaseInvoices}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <PurchaseInvoicesPage />
             </ProtectedRoute>
           }
         />

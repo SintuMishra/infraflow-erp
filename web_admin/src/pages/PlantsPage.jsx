@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../services/api";
 import AppShell from "../components/layout/AppShell";
 import SectionCard from "../components/dashboard/SectionCard";
+import { useMasters } from "../hooks/useMasters";
 
 const OTHER_PREFIX_PATTERN = /^other\s*:\s*/i;
 const isOtherCustomValue = (value) => OTHER_PREFIX_PATTERN.test(String(value || "").trim());
@@ -16,7 +17,7 @@ const getDisplayPlantType = (value) => {
   return custom ? `Other (${custom})` : "Other";
 };
 
-const PLANT_TYPE_OPTIONS = [
+const DEFAULT_PLANT_TYPE_OPTIONS = [
   "Crusher Plant",
   "Stone Plant",
   "Dolomite Plant",
@@ -27,7 +28,7 @@ const PLANT_TYPE_OPTIONS = [
   "Other",
 ];
 
-const POWER_SOURCE_OPTIONS = [
+const DEFAULT_POWER_SOURCE_OPTIONS = [
   { value: "diesel", label: "Diesel" },
   { value: "electric", label: "Electric" },
   { value: "hybrid", label: "Hybrid" },
@@ -38,6 +39,7 @@ function PlantsPage() {
   const [plants, setPlants] = useState([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const { masters } = useMasters();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
@@ -103,14 +105,81 @@ function PlantsPage() {
     });
   }, [plants, searchTerm, typeFilter, statusFilter]);
 
+  const plantTypeOptions = useMemo(() => {
+    const configTypes = (masters?.configOptions?.plantTypes || [])
+      .filter((item) => item?.isActive !== false)
+      .map((item) => String(item.optionValue || item.optionLabel || "").trim())
+      .filter(Boolean);
+    const dynamicTypes = plants
+      .map((plant) => String(plant.plantType || "").trim())
+      .filter(Boolean)
+      .filter((value) => !isOtherCustomValue(value));
+    return Array.from(
+      new Set([...DEFAULT_PLANT_TYPE_OPTIONS, ...configTypes, ...dynamicTypes, "Other"])
+    ).sort((a, b) => a.localeCompare(b));
+  }, [masters?.configOptions?.plantTypes, plants]);
+
+  const powerSourceOptions = useMemo(() => {
+    const configSources = (masters?.configOptions?.powerSources || [])
+      .filter((item) => item?.isActive !== false)
+      .map((item) => String(item.optionValue || item.optionLabel || "").trim())
+      .filter(Boolean);
+    const normalizePowerValue = (value) => {
+      const normalized = String(value || "").trim().toLowerCase();
+      if (normalized === "electricity") {
+        return "electric";
+      }
+      return normalized;
+    };
+    const toLabel = (value) => {
+      const normalized = normalizePowerValue(value);
+      if (!normalized) {
+        return "";
+      }
+      if (normalized === "diesel") {
+        return "Diesel";
+      }
+      if (normalized === "electric") {
+        return "Electric";
+      }
+      if (normalized === "hybrid") {
+        return "Hybrid";
+      }
+      if (normalized === "other") {
+        return "Other";
+      }
+      return normalized
+        .split(" ")
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+    };
+    const dynamicSources = plants
+      .map((plant) => String(plant.powerSourceType || "").trim())
+      .filter(Boolean)
+      .filter((value) => !isOtherCustomValue(value));
+    const values = Array.from(
+      new Set([
+        ...DEFAULT_POWER_SOURCE_OPTIONS.map((option) => option.value),
+        ...configSources.map(normalizePowerValue),
+        ...dynamicSources.map(normalizePowerValue),
+        "other",
+      ])
+    ).filter(Boolean);
+    return values.map((value) => ({
+      value,
+      label: toLabel(value),
+    }));
+  }, [masters?.configOptions?.powerSources, plants]);
+
   const filterPlantTypeOptions = useMemo(() => {
     const dynamicTypes = plants
       .map((plant) => String(plant.plantType || "").trim())
       .filter(Boolean);
-    return Array.from(new Set([...PLANT_TYPE_OPTIONS, ...dynamicTypes])).sort((a, b) =>
+    return Array.from(new Set([...plantTypeOptions, ...dynamicTypes])).sort((a, b) =>
       a.localeCompare(b)
     );
-  }, [plants]);
+  }, [plants, plantTypeOptions]);
 
   const handleChange = (setter) => (e) => {
     setter((prev) => ({
@@ -313,7 +382,7 @@ function PlantsPage() {
               style={styles.input}
             >
               <option value="">Select Plant Type</option>
-              {PLANT_TYPE_OPTIONS.map((type) => (
+              {plantTypeOptions.map((type) => (
                 <option key={type} value={type}>
                   {type}
                 </option>
@@ -343,7 +412,7 @@ function PlantsPage() {
               onChange={handleChange(setFormData)}
               style={styles.input}
             >
-              {POWER_SOURCE_OPTIONS.map((option) => (
+              {powerSourceOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -487,7 +556,7 @@ function PlantsPage() {
                 style={styles.input}
               >
                 <option value="">Select Plant Type</option>
-                {PLANT_TYPE_OPTIONS.map((type) => (
+                {plantTypeOptions.map((type) => (
                   <option key={type} value={type}>
                     {type}
                   </option>
@@ -517,7 +586,7 @@ function PlantsPage() {
                 onChange={handleChange(setEditForm)}
                 style={styles.input}
             >
-              {POWER_SOURCE_OPTIONS.map((option) => (
+              {powerSourceOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>

@@ -13,6 +13,7 @@ SELECT
   pmr.rate_per_ton AS "ratePerTon",
   pmr.royalty_mode AS "royaltyMode",
   pmr.royalty_value AS "royaltyValue",
+  pmr.tons_per_brass AS "tonsPerBrass",
   pmr.loading_charge AS "loadingCharge",
   pmr.notes,
   pmr.is_active AS "isActive"
@@ -41,6 +42,7 @@ const insertRate = async (data) => {
     ratePerTon,
     royaltyMode,
     royaltyValue,
+    tonsPerBrass,
     loadingCharge,
     notes,
     companyId,
@@ -49,10 +51,10 @@ const insertRate = async (data) => {
 
   const query = `
     INSERT INTO party_material_rates
-    (plant_id, party_id, material_id, rate_per_ton, royalty_mode, royalty_value, loading_charge, notes${
+    (plant_id, party_id, material_id, rate_per_ton, royalty_mode, royalty_value, tons_per_brass, loading_charge, notes${
       ratesHasCompany ? `, company_id` : ""
     })
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8${ratesHasCompany ? `,$9` : ""})
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9${ratesHasCompany ? `,$10` : ""})
     RETURNING id
   `;
 
@@ -63,6 +65,7 @@ const insertRate = async (data) => {
     ratePerTon,
     royaltyMode,
     royaltyValue,
+    royaltyMode === "per_brass" ? tonsPerBrass : null,
     loadingCharge,
     notes,
     ...(ratesHasCompany ? [companyId || null] : []),
@@ -90,6 +93,7 @@ const updateRate = async (id, data) => {
     ratePerTon,
     royaltyMode,
     royaltyValue,
+    tonsPerBrass,
     loadingCharge,
     notes,
     companyId,
@@ -104,11 +108,12 @@ const updateRate = async (id, data) => {
         rate_per_ton=$4,
         royalty_mode=$5,
         royalty_value=$6,
-        loading_charge=$7,
-        notes=$8,
+        tons_per_brass=$7,
+        loading_charge=$8,
+        notes=$9,
         updated_at = CURRENT_TIMESTAMP
-    WHERE id=$9
-    ${ratesHasCompany && companyId !== null ? `AND company_id = $10` : ""}
+    WHERE id=$10
+    ${ratesHasCompany && companyId !== null ? `AND company_id = $11` : ""}
     RETURNING id
   `;
 
@@ -119,6 +124,7 @@ const updateRate = async (id, data) => {
     ratePerTon,
     royaltyMode,
     royaltyValue,
+    royaltyMode === "per_brass" ? tonsPerBrass : null,
     loadingCharge,
     notes,
     id,

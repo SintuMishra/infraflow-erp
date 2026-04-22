@@ -1,0 +1,44 @@
+Ticket,Summary,Sprint,Stream,OwnerRole,Priority,DependsOn,AcceptanceCriteria,Status
+P1-DB-01,Add purchase_requests and purchase_request_lines tables,Sprint 1,Procurement,Backend,P0,,Migration runs clean with company-safe FK scope and key indexes,todo
+P1-BE-01,Implement purchase_requests module CRUD submit cancel,Sprint 1,Procurement,Backend,P0,P1-DB-01,Valid state transitions with audit logs and company scope enforcement,todo
+P1-FE-01,Build PurchaseRequestsPage with submit flow,Sprint 1,Procurement,Frontend,P1,P1-BE-01,Role-guarded page supports list create edit submit,todo
+P1-QA-01,Add PR validation and access rule tests,Sprint 1,Procurement,QA,P0,P1-BE-01,Negative authorization and invalid transition tests are green,todo
+P1-DB-02,Add purchase_orders and purchase_order_lines tables,Sprint 1,Procurement,Backend,P0,P1-DB-01,PO lines linked to PR lines and masters with scoped FK constraints,todo
+P1-BE-02,Implement purchase_orders module with approve close,Sprint 1,Procurement,Backend,P0,P1-DB-02,Partial full quantity tracking and invalid transitions blocked,todo
+P1-FE-02,Build PurchaseOrdersPage with approval queue,Sprint 1,Procurement,Frontend,P1,P1-BE-02,Maker checker behavior visible and enforced in UI flow,todo
+P1-QA-02,Add integration test PR to PO,Sprint 1,Procurement,QA,P0,P1-BE-02,Happy path and over quantity rejection path pass,todo
+P2-DB-01,Add goods_receipts and goods_receipt_lines tables,Sprint 2,Procurement,Backend,P0,P1-DB-02,GRN lines linked to PO lines with received quantity caps,todo
+P2-BE-01,Implement goods_receipts module partial full receipt,Sprint 2,Procurement,Backend,P0,P2-DB-01,PO status auto updates correctly based on receipt quantities,todo
+P2-FE-01,Build GoodsReceiptsPage,Sprint 2,Procurement,Frontend,P1,P2-BE-01,Users can receive only against open PO lines,todo
+P2-QA-01,Add integration test PR PO partial GRN full GRN,Sprint 2,Procurement,QA,P0,P2-BE-01,PO closes correctly and duplicate receipt is blocked,todo
+P2-DB-02,Add inventory_items and inventory_site_balances,Sprint 2,Inventory,Backend,P0,P2-DB-01,Material plus site unique balance rows enforced,todo
+P2-BE-02,Implement inventory_items master module,Sprint 2,Inventory,Backend,P1,P2-DB-02,CRUD with unit category validation and company scope,todo
+P2-FE-02,Build InventoryItemsPage,Sprint 2,Inventory,Frontend,P2,P2-BE-02,Search filter and CRUD actions operate correctly,todo
+P3-DB-01,Add stock_movements and stock_reorder_rules,Sprint 3,Inventory,Backend,P0,P2-DB-02,Movement type constraints and reorder rule scoping enforced,todo
+P3-BE-01,Implement stock movement engine,Sprint 3,Inventory,Backend,P0,P3-DB-01,Running balances accurate with negative stock blocked by default,todo
+P3-BE-02,Implement reorder alert APIs,Sprint 3,Inventory,Backend,P1,P3-DB-01,Below-threshold items list returns correct site wise data,todo
+P3-FE-01,Build StockLedgerPage,Sprint 3,Inventory,Frontend,P1,P3-BE-01,Opening running closing balances visible by date range,todo
+P3-FE-02,Build MaterialIssueReturnPage,Sprint 3,Inventory,Frontend,P1,P3-BE-01,Issue return forms validate direction and quantity correctly,todo
+P3-QA-01,Add inventory concurrency tests,Sprint 3,Inventory,QA,P0,P3-BE-01,Parallel issues cannot cause negative stock race violations,todo
+P4-DB-01,Add client_contracts and client_contract_items,Sprint 4,ContractBilling,Backend,P0,,Company scoped contract quantity and value integrity enforced,todo
+P4-BE-01,Implement contracts module create amend activate close,Sprint 4,ContractBilling,Backend,P0,P4-DB-01,Closed contracts block further billable transactions,todo
+P4-FE-01,Build ClientContractsPage,Sprint 4,ContractBilling,Frontend,P1,P4-BE-01,Contract item setup and status transitions are role-guarded,todo
+P4-DB-02,Add ra_bills and ra_bill_lines,Sprint 4,ContractBilling,Backend,P0,P4-DB-01,Line level caps prevent billing beyond contract limits,todo
+P4-BE-02,Implement RA workflow module,Sprint 4,ContractBilling,Backend,P0,P4-DB-02,Valid RA transitions with certification audit trail,todo
+P4-BE-03,Integrate certified RA to receivables,Sprint 4,ContractBilling,Backend,P0,P4-BE-02,AR entries are source linked and idempotent,todo
+P4-FE-02,Build RABillsPage and RACertificationQueuePage,Sprint 4,ContractBilling,Frontend,P1,P4-BE-02,Certification queue works with role restrictions,todo
+P4-QA-01,Add integration test contract RA certify receivable,Sprint 4,ContractBilling,QA,P0,P4-BE-03,Overbilling and duplicate AR posting are blocked,todo
+P5-DB-01,Add attendance_entries payroll_runs payroll_run_lines,Sprint 5,PayrollCompliance,Backend,P0,,Payroll period and line integrity constraints enforced,todo
+P5-BE-01,Implement attendance CSV ingest with validation,Sprint 5,PayrollCompliance,Backend,P1,P5-DB-01,Invalid rows are rejected with row level errors,todo
+P5-BE-02,Implement payroll computation service,Sprint 5,PayrollCompliance,Backend,P0,P5-DB-01,Deterministic and idempotent payroll totals generated,todo
+P5-DB-02,Add statutory_register_snapshots,Sprint 5,PayrollCompliance,Backend,P1,P5-BE-02,Finalized payroll register snapshots are immutable,todo
+P5-BE-03,Implement PF ESI TDS export APIs,Sprint 5,PayrollCompliance,Backend,P1,P5-DB-02,Exports available only for finalized runs,todo
+P5-FE-01,Build AttendanceImportPage,Sprint 5,PayrollCompliance,Frontend,P1,P5-BE-01,Preview and validation errors are shown before commit,todo
+P5-FE-02,Build PayrollRunPage,Sprint 5,PayrollCompliance,Frontend,P1,P5-BE-02,Draft finalize cycle works with role restrictions,todo
+P5-FE-03,Build ComplianceRegistersPage,Sprint 5,PayrollCompliance,Frontend,P2,P5-BE-03,Register export actions function and are auditable,todo
+P5-QA-01,Add payroll edge case test pack,Sprint 5,PayrollCompliance,QA,P0,P5-BE-02,LOP OT deduction cap scenarios pass regression fixtures,todo
+P5-QA-02,Run full phase regression and pre-live checks,Sprint 5,Stabilization,QA,P0,P1-BE-01;P2-BE-01;P3-BE-01;P4-BE-02;P5-BE-02,final-prelive-check remains green with no critical regressions,todo
+UAT-01,Close operations UAT defects,UAT Hardening,UAT,Engineering,P0,P5-QA-02,All Sev1 and Sev2 operations defects closed,todo
+UAT-02,Close finance UAT defects,UAT Hardening,UAT,Engineering,P0,P5-QA-02,All posting and report mismatch defects closed,todo
+UAT-03,Run access security regression,UAT Hardening,UAT,QA,P0,P5-QA-02,Unauthorized access blocked across all new modules,todo
+UAT-04,Execute deployment dry run and rollback proof,UAT Hardening,UAT,DevOps,P0,UAT-01;UAT-02,Successful deployment rehearsal with verified rollback evidence,todo

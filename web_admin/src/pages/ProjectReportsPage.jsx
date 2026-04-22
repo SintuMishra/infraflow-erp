@@ -5,6 +5,8 @@ import AppShell from "../components/layout/AppShell";
 import SectionCard from "../components/dashboard/SectionCard";
 import { useAuth } from "../hooks/useAuth";
 import { useMasters } from "../hooks/useMasters";
+import { normalizeRole } from "../utils/roles";
+import { getProjectShiftOptions, normalizeShiftValue } from "../utils/shifts";
 import {
   formatDisplayDate,
   getTodayDateValue,
@@ -18,12 +20,6 @@ const REPORT_STATUS_OPTIONS = [
   { value: "watch", label: "Watch" },
   { value: "blocked", label: "Blocked" },
   { value: "completed", label: "Completed" },
-];
-const SHIFT_OPTIONS = [
-  { value: "", label: "Not Set" },
-  { value: "general", label: "General" },
-  { value: "day", label: "Day" },
-  { value: "night", label: "Night" },
 ];
 const WEATHER_OPTIONS = [
   { value: "", label: "Not Set" },
@@ -45,7 +41,7 @@ const INITIAL_FORM = {
   plantId: "",
   projectName: "",
   siteName: "",
-  shift: "general",
+  shift: "",
   weather: "",
   reportStatus: "on_track",
   progressPercent: "",
@@ -72,8 +68,9 @@ function ProjectReportsPage() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const { masters, loadingMasters, mastersError } = useMasters();
+  const currentRole = normalizeRole(currentUser?.role);
   const canManageProjectReports = ["super_admin", "manager", "site_engineer"].includes(
-    String(currentUser?.role || "")
+    currentRole
   );
   const initialFilters = useMemo(
     () => parseProjectReportQuery(location.search),
@@ -86,6 +83,7 @@ function ProjectReportsPage() {
     projectNames: [],
     siteNames: [],
     reportStatuses: [],
+    shifts: [],
   });
   const [pagination, setPagination] = useState({
     total: 0,
@@ -196,6 +194,7 @@ function ProjectReportsPage() {
           projectNames: [],
           siteNames: [],
           reportStatuses: [],
+          shifts: [],
         }
       );
       setPagination(
@@ -294,23 +293,15 @@ function ProjectReportsPage() {
   );
 
   const shiftOptions = useMemo(() => {
-    const masterShiftOptions = (masters?.shifts || []).map((shift) => ({
-      value: String(shift.shiftName || "").trim().toLowerCase().replace(/\s+/g, "_"),
-      label: shift.shiftName,
-    }));
-
-    return [...SHIFT_OPTIONS, ...masterShiftOptions].reduce((accumulator, option) => {
-      if (!option.label) {
-        return accumulator;
-      }
-
-      if (!accumulator.find((entry) => entry.value === option.value)) {
-        accumulator.push(option);
-      }
-
-      return accumulator;
-    }, []);
-  }, [masters?.shifts]);
+    return getProjectShiftOptions({
+      masters,
+      includeBlank: true,
+    });
+  }, [masters]);
+  const activeMasterShiftValues = useMemo(
+    () => new Set(shiftOptions.map((option) => option.value).filter(Boolean)),
+    [shiftOptions]
+  );
 
   const trendRows = useMemo(() => {
     const grouped = new Map();
@@ -444,7 +435,7 @@ function ProjectReportsPage() {
     const { name, value } = event.target;
     setFormData((current) => ({
       ...current,
-      [name]: value,
+      [name]: name === "shift" ? normalizeShiftValue(value) : value,
     }));
   };
 
@@ -454,12 +445,14 @@ function ProjectReportsPage() {
   };
 
   const handleEditReport = (report) => {
+    const normalizedReportShift = normalizeShiftValue(report.shift || "");
+
     setFormData({
       reportDate: report.reportDateValue || todayDate,
       plantId: report.plantId ? String(report.plantId) : "",
       projectName: report.projectName || "",
       siteName: report.siteName || "",
-      shift: report.shift || "general",
+      shift: activeMasterShiftValues.has(normalizedReportShift) ? normalizedReportShift : "",
       weather: report.weather || "",
       reportStatus: report.reportStatus || "on_track",
       progressPercent:
@@ -482,6 +475,17 @@ function ProjectReportsPage() {
     }));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  useEffect(() => {
+    if (!formData.shift || activeMasterShiftValues.has(formData.shift)) {
+      return;
+    }
+
+    setFormData((current) => ({
+      ...current,
+      shift: "",
+    }));
+  }, [activeMasterShiftValues, formData.shift]);
 
   const handleDeleteReport = async (report) => {
     const confirmed = window.confirm(
@@ -531,7 +535,7 @@ function ProjectReportsPage() {
       plantId: Number(formData.plantId),
       projectName: String(formData.projectName || "").trim(),
       siteName: String(formData.siteName || "").trim(),
-      shift: String(formData.shift || "").trim(),
+      shift: normalizeShiftValue(formData.shift || ""),
       weather: String(formData.weather || "").trim(),
       reportStatus: String(formData.reportStatus || "").trim(),
       progressPercent:
@@ -573,6 +577,11 @@ function ProjectReportsPage() {
       (Number(payload.progressPercent) < 0 || Number(payload.progressPercent) > 100)
     ) {
       setError("Progress percent must be between 0 and 100");
+      return;
+    }
+
+    if (payload.shift && !activeMasterShiftValues.has(payload.shift)) {
+      setError("Selected shift is not active in masters. Please select a valid master shift.");
       return;
     }
 
@@ -643,7 +652,7 @@ function ProjectReportsPage() {
       plant_name: report.plantName || "",
       project_name: report.projectName || "",
       site_name: report.siteName || "",
-      shift: report.shift || "",
+      shift: normalizeShiftValue(report.shift || ""),
       weather: report.weather || "",
       report_status: formatReportStatusLabel(report.reportStatus),
       progress_percent: report.progressPercent ?? "",
@@ -1172,7 +1181,7 @@ function ProjectReportsPage() {
                       ))}
                     </select>
                     <span style={styles.inputHint}>
-                      Shift options stay aligned with masters when your company configures them there.
+                      Shift values are sourced only from active Masters shifts.
                     </span>
                   </label>
 

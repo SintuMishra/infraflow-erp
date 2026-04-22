@@ -2,6 +2,7 @@ const STRONG_PASSWORD_MESSAGE =
   "New password must be at least 8 characters and include uppercase, lowercase, number, and special character";
 const ASSIGNABLE_LOGIN_ROLES = [
   "hr",
+  "admin",
   "manager",
   "crusher_supervisor",
   "site_engineer",
@@ -52,7 +53,7 @@ const validateCreateUserInput = (req, res, next) => {
     return res.status(400).json({
       success: false,
       message:
-        "role must be one of hr, manager, crusher_supervisor, site_engineer, or operator",
+        "role must be one of hr, admin, manager, crusher_supervisor, site_engineer, or operator",
     });
   }
 

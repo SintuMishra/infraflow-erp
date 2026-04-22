@@ -255,3 +255,39 @@ test("authorizeRoles allows matching role", async () => {
   assert.equal(nextCalled, true);
   assert.equal(res.body, null);
 });
+
+test("authorizeRoles treats legacy admin role as manager role", async () => {
+  const req = {
+    user: {
+      role: "admin",
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  authorizeRoles("manager", "super_admin")(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
+});
+
+test("authorizeRoles normalizes super admin role aliases", async () => {
+  for (const alias of ["super admin", "super-admin", "superadmin", "owner"]) {
+    const req = {
+      user: {
+        role: alias,
+      },
+    };
+    const res = createResponse();
+    let nextCalled = false;
+
+    authorizeRoles("super_admin")(req, res, () => {
+      nextCalled = true;
+    });
+
+    assert.equal(nextCalled, true);
+    assert.equal(res.body, null);
+  }
+});

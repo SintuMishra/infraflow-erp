@@ -238,6 +238,8 @@ function MastersPage() {
       materialUnits: [],
       vehicleCategories: [],
       materialHsnRules: [],
+      employeeDepartments: [],
+      procurementItemCategories: [],
     },
   };
 
@@ -265,6 +267,14 @@ function MastersPage() {
     () => safeMasters.configOptions.materialHsnRules || [],
     [safeMasters.configOptions.materialHsnRules]
   );
+  const employeeDepartments = useMemo(
+    () => safeMasters.configOptions.employeeDepartments || [],
+    [safeMasters.configOptions.employeeDepartments]
+  );
+  const procurementItemCategories = useMemo(
+    () => safeMasters.configOptions.procurementItemCategories || [],
+    [safeMasters.configOptions.procurementItemCategories]
+  );
 
   const allConfigOptions = useMemo(
     () => [
@@ -274,6 +284,8 @@ function MastersPage() {
       ...materialUnits,
       ...vehicleCategories,
       ...materialHsnRules,
+      ...employeeDepartments,
+      ...procurementItemCategories,
     ],
     [
       plantTypes,
@@ -282,6 +294,8 @@ function MastersPage() {
       materialUnits,
       vehicleCategories,
       materialHsnRules,
+      employeeDepartments,
+      procurementItemCategories,
     ]
   );
 
@@ -1160,12 +1174,18 @@ function MastersPage() {
                 <option value="material_unit">Material Unit</option>
                 <option value="vehicle_category">Vehicle Category</option>
                 <option value="material_hsn_rule">Material HSN Auto Rule</option>
+                <option value="employee_department">Employee Department</option>
+                <option value="procurement_item_category">Procurement Item Category</option>
               </select>
               <input
                 name="optionLabel"
                 placeholder={
                   editState.values.configType === "material_hsn_rule"
                     ? "Match text or keyword, e.g. aggregate"
+                    : editState.values.configType === "employee_department"
+                      ? "Department name, e.g. Procurement"
+                    : editState.values.configType === "procurement_item_category"
+                      ? "Category label, e.g. Spare Part"
                     : "Option Label"
                 }
                 value={editState.values.optionLabel || ""}
@@ -1177,6 +1197,10 @@ function MastersPage() {
                 placeholder={
                   editState.values.configType === "material_hsn_rule"
                     ? "HSN / SAC code, e.g. 2517"
+                    : editState.values.configType === "employee_department"
+                      ? "Default role, e.g. manager"
+                    : editState.values.configType === "procurement_item_category"
+                      ? "Category key, e.g. spare_part"
                     : "Option Value"
                 }
                 value={editState.values.optionValue || ""}
@@ -1195,6 +1219,18 @@ function MastersPage() {
                 <div style={styles.inlineInfoBanner}>
                   `Option Label` is the keyword or phrase to match in the material name/category.
                   `Option Value` is the HSN / SAC code to auto-fill when the rule matches.
+                </div>
+              ) : null}
+              {editState.values.configType === "employee_department" ? (
+                <div style={styles.inlineInfoBanner}>
+                  `Option Label` is department name. `Option Value` is default login role:
+                  `manager`, `hr`, `crusher_supervisor`, `site_engineer`, `operator`, or `admin`.
+                </div>
+              ) : null}
+              {editState.values.configType === "procurement_item_category" ? (
+                <div style={styles.inlineInfoBanner}>
+                  `Option Label` is the visible item category name in Procurement forms.
+                  `Option Value` is the stored category key, e.g. `material`, `spare_part`, `service`.
                 </div>
               ) : null}
             </div>
@@ -1967,11 +2003,16 @@ function MastersPage() {
                     <option value="material_unit">Material Unit</option>
                     <option value="vehicle_category">Vehicle Category</option>
                     <option value="material_hsn_rule">Material HSN Auto Rule</option>
+                    <option value="employee_department">Employee Department</option>
                   </select>
 
                   <input
                     name="optionLabel"
-                    placeholder="Option Label"
+                    placeholder={
+                      configForm.configType === "employee_department"
+                        ? "Department name, e.g. Procurement"
+                        : "Option Label"
+                    }
                     value={configForm.optionLabel}
                     onChange={handleChange(setConfigForm)}
                     style={styles.input}
@@ -1979,7 +2020,11 @@ function MastersPage() {
 
                   <input
                     name="optionValue"
-                    placeholder="Option Value (optional)"
+                    placeholder={
+                      configForm.configType === "employee_department"
+                        ? "Default role, e.g. manager"
+                        : "Option Value (optional)"
+                    }
                     value={configForm.optionValue}
                     onChange={handleChange(setConfigForm)}
                     style={styles.input}

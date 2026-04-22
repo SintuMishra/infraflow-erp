@@ -26,7 +26,7 @@ router.get(
 router.post(
   "/",
   authenticate,
-  authorizeRoles("super_admin", "hr"),
+  authorizeRoles("super_admin", "manager", "hr"),
   validateCreateEmployeeInput,
   createEmployee
 );
@@ -42,7 +42,7 @@ router.patch(
 router.patch(
   "/:id/status",
   authenticate,
-  authorizeRoles("super_admin", "hr"),
+  authorizeRoles("super_admin", "manager", "hr"),
   validateEmployeeStatusInput,
   updateStatus
 );
@@ -50,7 +50,7 @@ router.patch(
 router.patch(
   "/:id/login-status",
   authenticate,
-  authorizeRoles("super_admin", "hr"),
+  authorizeRoles("super_admin", "manager", "hr"),
   updateLoginStatus
 );
 

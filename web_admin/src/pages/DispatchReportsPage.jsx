@@ -735,16 +735,29 @@ function DispatchReportsPage() {
 
     const partyRate = getSelectedPartyRate(payload);
     const transportRate = getSelectedTransportRate(payload);
+    const requiresPartyRate =
+      Boolean(payload.plantId) && Boolean(payload.materialId) && Boolean(payload.partyId);
+    const hasPartyRate = Boolean(partyRate);
 
     const materialRatePerTon = Number(partyRate?.ratePerTon || 0);
     const materialAmount = roundMoney(quantity * materialRatePerTon);
 
     const royaltyMode = partyRate?.royaltyMode || "none";
     const royaltyValue = Number(partyRate?.royaltyValue || 0);
+    const tonsPerBrass =
+      partyRate?.tonsPerBrass === null || partyRate?.tonsPerBrass === undefined
+        ? null
+        : Number(partyRate?.tonsPerBrass);
     let royaltyAmount = 0;
 
     if (royaltyMode === "per_ton") {
       royaltyAmount = roundMoney(quantity * royaltyValue);
+    } else if (
+      royaltyMode === "per_brass" &&
+      Number.isFinite(tonsPerBrass) &&
+      tonsPerBrass > 0
+    ) {
+      royaltyAmount = roundMoney((quantity / tonsPerBrass) * royaltyValue);
     } else if (royaltyMode === "fixed") {
       royaltyAmount = roundMoney(royaltyValue);
     }
@@ -767,18 +780,24 @@ function DispatchReportsPage() {
       }
     }
 
+    if (!hasPartyRate) {
+      transportCost = 0;
+    }
+
     transportCost = roundMoney(transportCost);
 
-    const computedTotal = roundMoney(
-      materialAmount +
-      royaltyAmount +
-      loadingCharge +
-      transportCost +
-      otherCharge
-    );
+    const computedTotal = hasPartyRate
+      ? roundMoney(
+          materialAmount +
+            royaltyAmount +
+            loadingCharge +
+            transportCost +
+            otherCharge
+        )
+      : 0;
 
     const finalInvoiceValue =
-      payload.invoiceValue !== "" && payload.invoiceValue !== null
+      hasPartyRate && payload.invoiceValue !== "" && payload.invoiceValue !== null
         ? roundMoney(payload.invoiceValue)
         : computedTotal;
     const hasManualOverride =
@@ -791,6 +810,8 @@ function DispatchReportsPage() {
 
     return {
       partyRate,
+      hasPartyRate,
+      requiresPartyRate,
       transportRate,
       materialRatePerTon,
       materialAmount,
@@ -1223,7 +1244,7 @@ function DispatchReportsPage() {
       setShowForm(false);
       setShowList(true);
       setPage(1);
-      await loadDispatchReports(1);
+      await Promise.all([loadDispatchReports(1), loadReferenceData()]);
     } catch (err) {
       setError(
         err?.response?.data?.message || "Failed to add dispatch report"
@@ -1360,7 +1381,7 @@ function DispatchReportsPage() {
 
       setSuccess("Dispatch report updated successfully");
       closeEditPanel();
-      await loadDispatchReports(page);
+      await Promise.all([loadDispatchReports(page), loadReferenceData()]);
     } catch (err) {
       setError(
         err?.response?.data?.message || "Failed to update dispatch report"
@@ -1387,7 +1408,7 @@ function DispatchReportsPage() {
       setStatusUpdatingId(report.id);
       await api.patch(`/dispatch-reports/${report.id}/status`, { status });
       setSuccess(`Dispatch status changed to ${status}`);
-      await loadDispatchReports(page);
+      await Promise.all([loadDispatchReports(page), loadReferenceData()]);
     } catch (err) {
       setError(
         err?.response?.data?.message || "Failed to update dispatch status"
@@ -1708,6 +1729,15 @@ function DispatchReportsPage() {
       <div style={styles.billingFlowNote}>
         Party material rate drives the material side. Transporter rate adds only the transportation side. Taxable value is auto-computed from material amount + royalty + loading + transport + other charges unless you explicitly override it.
       </div>
+
+      {billingPreview.requiresPartyRate && !billingPreview.hasPartyRate ? (
+        <div style={styles.overrideWarningCard}>
+          <strong>Billing preview is blocked until party material rate is configured</strong>
+          <span>
+            Create an active rate for this party + plant + material combination first. Dispatch save is intentionally blocked without it.
+          </span>
+        </div>
+      ) : null}
 
       {billingPreview.hasManualOverride ? (
         <div style={styles.overrideWarningCard}>
@@ -2437,7 +2467,14 @@ function DispatchReportsPage() {
               <button
                 type="submit"
                 style={styles.button}
-                disabled={isSubmitting || !activePlants.length}
+                disabled={
+                  isSubmitting || !activePlants.length || !formReadiness.isReady
+                }
+                title={
+                  formReadiness.isReady
+                    ? "Save dispatch report"
+                    : `Blocked: ${formReadiness.missingItems.join(" | ")}`
+                }
               >
                 {isSubmitting ? "Saving Dispatch..." : "Add Dispatch Report"}
               </button>
@@ -2770,7 +2807,12 @@ function DispatchReportsPage() {
                 <button
                   type="submit"
                   style={styles.button}
-                  disabled={isUpdating}
+                  disabled={isUpdating || !editReadiness.isReady}
+                  title={
+                    editReadiness.isReady
+                      ? "Save dispatch changes"
+                      : `Blocked: ${editReadiness.missingItems.join(" | ")}`
+                  }
                 >
                   {isUpdating ? "Saving Changes..." : "Save Changes"}
                 </button>

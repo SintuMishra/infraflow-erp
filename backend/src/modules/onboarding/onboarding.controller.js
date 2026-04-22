@@ -601,8 +601,10 @@ const permanentlyDeleteManagedCompanyController = async (req, res) => {
     await recordOnboardingAudit({
       action: "onboarding.company_permanently_deleted_by_owner",
       req,
-      companyId: data.company?.id || null,
+      // Tenant record is already deleted, so avoid FK-linked company_id in audit row.
+      companyId: null,
       details: {
+        deletedCompanyId: data.company?.id || null,
         companyCode: data.company?.companyCode || null,
         companyName: data.company?.companyName || null,
         reason: reason || null,

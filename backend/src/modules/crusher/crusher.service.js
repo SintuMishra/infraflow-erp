@@ -7,6 +7,7 @@ const {
   deleteCrusherReportById,
 } = require("./crusher.model");
 const { plantExists } = require("../dispatch/dispatch.model");
+const { findShifts } = require("../masters/masters.model");
 
 const ALLOWED_OPERATIONAL_STATUSES = ["running", "watch", "breakdown", "maintenance", "closed"];
 
@@ -64,6 +65,33 @@ const normalizeReportDate = (value) => {
   }
 
   return normalized;
+};
+
+const normalizeShiftKey = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const resolveMasterLinkedShift = async ({ companyId = null, shift = "" } = {}) => {
+  const normalizedShift = String(shift || "").trim();
+
+  if (!normalizedShift) {
+    return null;
+  }
+
+  const shiftMasters = await findShifts(companyId);
+  const activeShift = (shiftMasters || []).find(
+    (item) =>
+      item &&
+      item.isActive !== false &&
+      normalizeShiftKey(item.shiftName) === normalizeShiftKey(normalizedShift)
+  );
+
+  if (!activeShift) {
+    throw createValidationError("Shift must match an active shift configured in Masters");
+  }
+
+  return String(activeShift.shiftName || "").trim() || null;
 };
 
 const normalizeCrusherReportInput = (reportData = {}) => {
@@ -367,6 +395,10 @@ const createCrusherReport = async (reportData) => {
   }
 
   enforceOperationalConstraints(normalized);
+  const resolvedShift = await resolveMasterLinkedShift({
+    companyId: reportData.companyId || null,
+    shift: normalized.shift,
+  });
 
   const {
     derivedElectricityKwh,
@@ -377,7 +409,7 @@ const createCrusherReport = async (reportData) => {
 
   return insertCrusherReport({
     ...normalized,
-    shift: normalized.shift || null,
+    shift: resolvedShift,
     materialType: normalized.materialType || null,
     productionTons: normalized.productionTons ?? 0,
     dispatchTons: normalized.dispatchTons ?? 0,
@@ -400,6 +432,10 @@ const editCrusherReport = async (reportData) => {
   }
 
   enforceOperationalConstraints(normalized);
+  const resolvedShift = await resolveMasterLinkedShift({
+    companyId: reportData.companyId || null,
+    shift: normalized.shift,
+  });
 
   const {
     derivedElectricityKwh,
@@ -412,7 +448,7 @@ const editCrusherReport = async (reportData) => {
     id: reportData.id,
     companyId: reportData.companyId || null,
     ...normalized,
-    shift: normalized.shift || null,
+    shift: resolvedShift,
     materialType: normalized.materialType || null,
     productionTons: normalized.productionTons ?? 0,
     dispatchTons: normalized.dispatchTons ?? 0,

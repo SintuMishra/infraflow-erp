@@ -38,6 +38,7 @@ function PartyMaterialRatesPage() {
     ratePerTon: "",
     royaltyMode: "per_ton",
     royaltyValue: "",
+    tonsPerBrass: "",
     loadingCharge: "",
     notes: "",
   });
@@ -50,6 +51,7 @@ function PartyMaterialRatesPage() {
     ratePerTon: "",
     royaltyMode: "per_ton",
     royaltyValue: "",
+    tonsPerBrass: "",
     loadingCharge: "",
     notes: "",
   });
@@ -264,6 +266,13 @@ function PartyMaterialRatesPage() {
     if (item.royaltyMode === "fixed") {
       return `Fixed (${item.royaltyValue || 0})`;
     }
+    if (item.royaltyMode === "per_brass") {
+      const tonsPerBrass =
+        item.tonsPerBrass === null || item.tonsPerBrass === undefined || item.tonsPerBrass === ""
+          ? "-"
+          : item.tonsPerBrass;
+      return `Per Brass (${item.royaltyValue || 0}, ${tonsPerBrass} ton/brass)`;
+    }
     return `Per Ton (${item.royaltyValue || 0})`;
   };
 
@@ -278,7 +287,7 @@ function PartyMaterialRatesPage() {
       return false;
     }
 
-    if (!["per_ton", "fixed", "none"].includes(data.royaltyMode)) {
+    if (!["per_ton", "per_brass", "fixed", "none"].includes(data.royaltyMode)) {
       setError("Please select a valid royalty mode");
       return false;
     }
@@ -288,6 +297,14 @@ function PartyMaterialRatesPage() {
       (data.royaltyValue === "" || Number(data.royaltyValue) < 0)
     ) {
       setError("Royalty value must be 0 or more");
+      return false;
+    }
+
+    if (
+      data.royaltyMode === "per_brass" &&
+      (data.tonsPerBrass === "" || Number(data.tonsPerBrass) <= 0)
+    ) {
+      setError("Tons per brass must be greater than 0 for royalty per brass");
       return false;
     }
 
@@ -311,6 +328,12 @@ function PartyMaterialRatesPage() {
         : data.royaltyValue === ""
         ? 0
         : Number(data.royaltyValue),
+    tonsPerBrass:
+      data.royaltyMode === "per_brass"
+        ? data.tonsPerBrass === ""
+          ? null
+          : Number(data.tonsPerBrass)
+        : null,
     loadingCharge:
       data.loadingCharge === "" ? 0 : Number(data.loadingCharge),
     notes: data.notes || "",
@@ -334,6 +357,7 @@ function PartyMaterialRatesPage() {
         ratePerTon: "",
         royaltyMode: "per_ton",
         royaltyValue: "",
+        tonsPerBrass: "",
         loadingCharge: "",
         notes: "",
       });
@@ -370,6 +394,10 @@ function PartyMaterialRatesPage() {
       royaltyValue:
         item.royaltyValue !== null && item.royaltyValue !== undefined
           ? String(item.royaltyValue)
+          : "",
+      tonsPerBrass:
+        item.tonsPerBrass !== null && item.tonsPerBrass !== undefined
+          ? String(item.tonsPerBrass)
           : "",
       loadingCharge:
         item.loadingCharge !== null && item.loadingCharge !== undefined
@@ -837,7 +865,7 @@ function PartyMaterialRatesPage() {
               <h3 style={styles.blockTitle}>Add Party Material Rate</h3>
               <p style={styles.blockSubtitle}>
                 Create a default selling rate with optional royalty and loading charge.
-                Royalty can be per ton, fixed, or none.
+                Royalty can be per ton, per brass, fixed, or none.
               </p>
 
               <form onSubmit={handleSubmit} style={styles.form}>
@@ -900,6 +928,7 @@ function PartyMaterialRatesPage() {
                   style={styles.input}
                 >
                   <option value="per_ton">Royalty Per Ton</option>
+                  <option value="per_brass">Royalty Per Brass</option>
                   <option value="fixed">Fixed Royalty</option>
                   <option value="none">No Royalty</option>
                 </select>
@@ -917,6 +946,21 @@ function PartyMaterialRatesPage() {
                   onChange={handleChange(setForm)}
                   style={styles.input}
                   disabled={form.royaltyMode === "none"}
+                />
+
+                <input
+                  name="tonsPerBrass"
+                  type="number"
+                  step="0.0001"
+                  placeholder={
+                    form.royaltyMode === "per_brass"
+                      ? "Tons Per Brass"
+                      : "Tons/Brass not required"
+                  }
+                  value={form.tonsPerBrass}
+                  onChange={handleChange(setForm)}
+                  style={styles.input}
+                  disabled={form.royaltyMode !== "per_brass"}
                 />
 
                 <input
@@ -1014,6 +1058,7 @@ function PartyMaterialRatesPage() {
                 style={styles.input}
               >
                 <option value="per_ton">Royalty Per Ton</option>
+                <option value="per_brass">Royalty Per Brass</option>
                 <option value="fixed">Fixed Royalty</option>
                 <option value="none">No Royalty</option>
               </select>
@@ -1031,6 +1076,21 @@ function PartyMaterialRatesPage() {
                 onChange={handleChange(setEditForm)}
                 style={styles.input}
                 disabled={editForm.royaltyMode === "none"}
+              />
+
+              <input
+                name="tonsPerBrass"
+                type="number"
+                step="0.0001"
+                placeholder={
+                  editForm.royaltyMode === "per_brass"
+                    ? "Tons Per Brass"
+                    : "Tons/Brass not required"
+                }
+                value={editForm.tonsPerBrass}
+                onChange={handleChange(setEditForm)}
+                style={styles.input}
+                disabled={editForm.royaltyMode !== "per_brass"}
               />
 
               <input

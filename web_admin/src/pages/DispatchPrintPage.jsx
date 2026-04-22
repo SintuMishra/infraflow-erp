@@ -9,6 +9,23 @@ const currencyFormatter = new Intl.NumberFormat("en-IN", {
 });
 
 const formatCurrency = (value) => currencyFormatter.format(Number(value || 0));
+const formatNumber = (value, fractionDigits = 3) =>
+  new Intl.NumberFormat("en-IN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: fractionDigits,
+  }).format(Number(value || 0));
+
+const formatStatusLabel = (value) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return "-";
+  }
+
+  return normalized
+    .split(/[_\s]+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+};
 
 const sanitizeFilenamePart = (value, fallback = "Dispatch") => {
   const normalized = Array.from(String(value || ""))
@@ -118,19 +135,15 @@ const buildBuyerAddress = (record) => {
   return parts.length > 0 ? parts.join(", ") : "-";
 };
 
-const buildDocumentReference = ({ data, company, billing }) => {
-  const parts = [
-    `DOC:DC-${data?.id ?? "-"}`,
-    `INV:${data?.invoiceNumber || "-"}`,
-    `DATE:${data?.invoiceDate || data?.dispatchDate || "-"}`,
-    `SUPPLIER_GST:${company?.gstin || "-"}`,
-    `BUYER_GST:${data?.partyGstin || "-"}`,
-    `AMOUNT:${Number(billing?.totalWithGst || 0).toFixed(2)}`,
-    `EWB:${data?.ewbNumber || "-"}`,
-  ];
-
-  return parts.join(" | ");
-};
+const buildDocumentReference = ({ data, company, billing }) => [
+  { label: "Doc No", value: `DC-${data?.id ?? "-"}` },
+  { label: "Invoice No", value: data?.invoiceNumber || "-" },
+  { label: "Date", value: data?.invoiceDate || data?.dispatchDate || "-" },
+  { label: "Supplier GST", value: company?.gstin || "-" },
+  { label: "Buyer GST", value: data?.partyGstin || "-" },
+  { label: "Amount", value: Number(billing?.totalWithGst || 0).toFixed(2) },
+  { label: "EWB", value: data?.ewbNumber || "-" },
+];
 
 const getEwbStatus = (record) => {
   if (!record?.ewbNumber) {
@@ -242,6 +255,28 @@ function DispatchPrintPage() {
     const amountInWords = formatAmountInWords(totalWithGst);
     const taxMode = igst > 0 ? "Inter-state supply (IGST)" : "Intra-state supply (CGST + SGST)";
     const invoiceAdjustment = Number((taxableValue - componentSubtotal).toFixed(2));
+    const royaltyMode = String(data.royaltyMode || "none").trim();
+    const quantityTons = Number(data.quantityTons || 0);
+    let royaltyBasisLabel = "No royalty applied";
+
+    if (royaltyMode === "per_ton") {
+      royaltyBasisLabel = `${formatNumber(quantityTons)} tons x ${formatCurrency(
+        data.royaltyValue || 0
+      )} per ton`;
+    } else if (royaltyMode === "per_brass") {
+      const royaltyValuePerBrass = Number(data.royaltyValue || 0);
+      const brassQuantity =
+        royaltyValuePerBrass > 0
+          ? Number((royaltyAmount / royaltyValuePerBrass).toFixed(4))
+          : 0;
+
+      royaltyBasisLabel = `${formatNumber(quantityTons)} tons ~ ${formatNumber(
+        brassQuantity,
+        4
+      )} brass x ${formatCurrency(royaltyValuePerBrass)} per brass`;
+    } else if (royaltyMode === "fixed") {
+      royaltyBasisLabel = `Fixed royalty ${formatCurrency(data.royaltyValue || 0)}`;
+    }
 
     return {
       componentSubtotal,
@@ -260,6 +295,7 @@ function DispatchPrintPage() {
       totalWithGst,
       amountInWords,
       taxMode,
+      royaltyBasisLabel,
     };
   }, [data]);
 
@@ -314,7 +350,7 @@ function DispatchPrintPage() {
   }
 
   return (
-    <div style={styles.page}>
+    <div style={styles.page} className="print-page">
       <style>{printStyles}</style>
 
       <div style={styles.toolbar} className="no-print">
@@ -338,13 +374,13 @@ function DispatchPrintPage() {
         </div>
       </div>
 
-      <div style={styles.document}>
+      <div style={styles.document} className="print-document">
         <div style={styles.documentAccent} />
 
         <div style={styles.topHeader}>
           <div style={styles.companyHeaderBlock}>
             <div style={styles.companyHeaderDetails}>
-              <div style={styles.docTag}>Tax Invoice / Delivery Challan</div>
+              <div style={styles.docTag}>Tax Invoice Cum Delivery Challan</div>
               <h1 style={styles.companyName}>{company.companyName || "-"}</h1>
               <p style={styles.companyLine}>{company.branchName || "-"}</p>
               <p style={styles.companyLine}>{company.addressLine1 || "-"}</p>
@@ -449,16 +485,15 @@ function DispatchPrintPage() {
           ))}
         </div>
 
-        <div style={styles.documentNotice}>
+        <div style={styles.documentNotice} className="print-section">
           <div style={styles.documentNoticeTitle}>Document Use & Reference</div>
           <p style={styles.documentNoticeText}>
-            This print-ready copy is generated from the dispatch ledger and is
-            intended for invoice reference, transport coordination, and movement
-            compliance support.
+            This document is generated from the dispatch ledger for invoice reference,
+            transport coordination, and movement compliance support.
           </p>
           <p style={styles.documentNoticeText}>
-            Commercial values, GST breakup, and E-Way fields shown below follow
-            the system-recorded dispatch transaction for this consignment.
+            Commercial values, GST breakup, and E-Way details shown below are based
+            on the recorded dispatch transaction for this consignment.
           </p>
         </div>
 
@@ -473,7 +508,7 @@ function DispatchPrintPage() {
           </div>
         )}
 
-        <div style={styles.twoColGrid}>
+        <div style={styles.twoColGrid} className="print-section">
           <div style={styles.panel}>
             <div style={styles.panelTitle}>Supplier Details</div>
             <div style={styles.detailRow}>
@@ -517,7 +552,7 @@ function DispatchPrintPage() {
           </div>
         </div>
 
-        <div style={styles.twoColGrid}>
+        <div style={styles.twoColGrid} className="print-section">
           <div style={styles.panel}>
             <div style={styles.panelTitle}>Dispatch & Vehicle Details</div>
             <div style={styles.detailRow}>
@@ -564,7 +599,7 @@ function DispatchPrintPage() {
               <strong>Transporter:</strong> {data.transportVendorName || "-"}
             </div>
             <div style={styles.detailRow}>
-              <strong>Status:</strong> {data.status || "-"}
+              <strong>Status:</strong> {formatStatusLabel(data.status)}
             </div>
             <div style={styles.detailRow}>
               <strong>Tax Mode:</strong> {billing.taxMode}
@@ -572,7 +607,7 @@ function DispatchPrintPage() {
           </div>
         </div>
 
-        <div style={styles.referenceCard}>
+        <div style={styles.referenceCard} className="print-section">
           <div style={styles.referenceHeader}>
             <div>
               <div style={styles.referenceEyebrow}>Digital Reference</div>
@@ -584,15 +619,20 @@ function DispatchPrintPage() {
               HSN/SAC: {data.hsnSacCode || "Not configured"}
             </div>
           </div>
-          <div style={styles.referenceValue}>{documentReference}</div>
-          <div style={styles.referenceHint}>
-            A formal QR or barcode should be introduced only after approved e-invoice, IRN, or
-            internal scan workflows are defined. This keeps the printed document genuine and avoids
-            showing a misleading compliance code.
+          <div style={styles.referenceGrid}>
+            {documentReference.map((entry) => (
+              <div key={entry.label} style={styles.referenceItem}>
+                <span style={styles.referenceItemLabel}>{entry.label}</span>
+                <strong style={styles.referenceItemValue}>{entry.value}</strong>
+              </div>
+            ))}
+          </div>
+          <div style={styles.referenceHint} className="print-compact-hint">
+            Internal reconciliation reference only. QR/IRN will be shown once formally enabled.
           </div>
         </div>
 
-        <div style={styles.ewayCard}>
+        <div style={styles.ewayCard} className="print-section">
           <div style={styles.ewayHeader}>
             <div>
               <div style={styles.ewayEyebrow}>Movement Compliance Snapshot</div>
@@ -650,7 +690,7 @@ function DispatchPrintPage() {
           </div>
         </div>
 
-        <div style={styles.tableBlock}>
+        <div style={styles.tableBlock} className="print-section">
           <div style={styles.blockTitle}>Item Details</div>
           <table style={styles.table}>
             <thead>
@@ -684,7 +724,7 @@ function DispatchPrintPage() {
           </table>
         </div>
 
-        <div style={styles.amountGrid}>
+        <div style={styles.amountGrid} className="print-section">
           <div style={styles.panel}>
             <div style={styles.panelTitle}>Billing Notes</div>
             <div style={styles.detailRow}>
@@ -695,6 +735,9 @@ function DispatchPrintPage() {
             </div>
             <div style={styles.detailRow}>
               <strong>Royalty Mode:</strong> {data.royaltyMode || "-"}
+            </div>
+            <div style={styles.detailRow}>
+              <strong>Royalty Basis:</strong> {billing?.royaltyBasisLabel || "-"}
             </div>
             <div style={styles.detailRow}>
               <strong>Transport Rate Type:</strong>{" "}
@@ -789,7 +832,7 @@ function DispatchPrintPage() {
           </div>
         </div>
 
-        <div style={styles.footerGrid}>
+        <div style={styles.footerGrid} className="print-section print-footer-grid">
           <div style={styles.footerBox}>
             <div style={styles.footerTitle}>Declaration</div>
             <p style={styles.footerText}>
@@ -818,15 +861,60 @@ const printStyles = `
   @media print {
     @page {
       size: A4;
-      margin: 10mm;
+      margin: 8mm;
     }
 
+    html,
     body {
       background: white !important;
+      margin: 0 !important;
+      padding: 0 !important;
     }
 
     .no-print {
       display: none !important;
+    }
+
+    .print-page {
+      min-height: auto !important;
+      background: #ffffff !important;
+      padding: 0 !important;
+    }
+
+    .print-document {
+      max-width: none !important;
+      margin: 0 !important;
+      border: none !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      padding: 6mm 6mm 4mm !important;
+      overflow: visible !important;
+    }
+
+    .print-section {
+      break-inside: avoid-page;
+      page-break-inside: avoid;
+    }
+
+    .print-footer-grid {
+      margin-top: 12px !important;
+      padding-top: 10px !important;
+    }
+
+    .print-compact-hint {
+      margin-top: 6px !important;
+      font-size: 11px !important;
+      line-height: 1.45 !important;
+    }
+
+    table {
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+
+    th,
+    td {
+      padding: 7px 8px !important;
     }
 
     * {
@@ -1157,17 +1245,38 @@ const styles = {
     fontWeight: "800",
     whiteSpace: "nowrap",
   },
-  referenceValue: {
+  referenceGrid: {
     marginBottom: "10px",
-    padding: "12px 14px",
+    padding: "10px",
     borderRadius: "12px",
     border: "1px dashed #93c5fd",
     background: "#ffffff",
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: "8px",
+  },
+  referenceItem: {
+    border: "1px solid #dbeafe",
+    borderRadius: "10px",
+    padding: "8px 10px",
+    background: "linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)",
+    minWidth: 0,
+  },
+  referenceItemLabel: {
+    display: "block",
+    fontSize: "10px",
+    color: "#1d4ed8",
+    fontWeight: "800",
+    letterSpacing: "0.6px",
+    textTransform: "uppercase",
+    marginBottom: "4px",
+  },
+  referenceItemValue: {
+    display: "block",
+    fontSize: "13px",
     color: "#0f172a",
-    fontSize: "11px",
-    lineHeight: 1.7,
+    fontWeight: "700",
     wordBreak: "break-word",
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
   },
   referenceHint: {
     color: "#475569",

@@ -36,7 +36,7 @@ export function AuthProvider({ children }) {
         setSession({ token, user: mergedUser });
 
         if (!cancelled) {
-          setCurrentUser(mergedUser);
+          setCurrentUser(getStoredUser());
         }
       } catch {
         clearSession();
@@ -86,7 +86,7 @@ export function AuthProvider({ children }) {
           : getStoredUser();
 
         setSession({ token, refreshToken, user: mergedUser });
-        setCurrentUser(mergedUser);
+        setCurrentUser(getStoredUser());
       },
       clearAuth: () => {
         clearSession();

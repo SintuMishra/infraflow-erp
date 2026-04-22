@@ -5,7 +5,7 @@ const isPositiveNumber = (value) =>
   !Number.isNaN(Number(value)) &&
   Number(value) > 0;
 
-const allowedRoyaltyModes = ["per_ton", "fixed", "none"];
+const allowedRoyaltyModes = ["per_ton", "per_brass", "fixed", "none"];
 
 const validateRatePayload = (req, res, next) => {
   const {
@@ -16,6 +16,7 @@ const validateRatePayload = (req, res, next) => {
     royaltyMode,
     royaltyValue,
     loadingCharge,
+    tonsPerBrass,
     effectiveFrom,
   } = req.body || {};
 
@@ -36,7 +37,7 @@ const validateRatePayload = (req, res, next) => {
   if (!allowedRoyaltyModes.includes(String(royaltyMode || "").trim())) {
     return res.status(400).json({
       success: false,
-      message: "royaltyMode must be one of per_ton, fixed, none",
+      message: "royaltyMode must be one of per_ton, per_brass, fixed, none",
     });
   }
 
@@ -54,6 +55,22 @@ const validateRatePayload = (req, res, next) => {
       return res.status(400).json({
         success: false,
         message: "loadingCharge must be 0 or greater",
+      });
+    }
+  }
+
+  if (String(royaltyMode || "").trim() === "per_brass") {
+    if (!isPositiveNumber(tonsPerBrass)) {
+      return res.status(400).json({
+        success: false,
+        message: "tonsPerBrass must be a valid number greater than 0 when royaltyMode is per_brass",
+      });
+    }
+  } else if (tonsPerBrass !== undefined && tonsPerBrass !== null && tonsPerBrass !== "") {
+    if (Number.isNaN(Number(tonsPerBrass)) || Number(tonsPerBrass) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "tonsPerBrass must be greater than 0 when provided",
       });
     }
   }

@@ -160,10 +160,12 @@ test("project service preserves company scope on create", async () => {
   const servicePath = require.resolve("../src/modules/projects/projects.service.js");
   const modelPath = require.resolve("../src/modules/projects/projects.model.js");
   const dispatchModelPath = require.resolve("../src/modules/dispatch/dispatch.model.js");
+  const mastersModelPath = require.resolve("../src/modules/masters/masters.model.js");
 
   const originalService = require.cache[servicePath];
   const originalModel = require.cache[modelPath];
   const originalDispatchModel = require.cache[dispatchModelPath];
+  const originalMastersModel = require.cache[mastersModelPath];
 
   let capturedPayload = null;
 
@@ -193,6 +195,15 @@ test("project service preserves company scope on create", async () => {
     },
   };
 
+  require.cache[mastersModelPath] = {
+    id: mastersModelPath,
+    filename: mastersModelPath,
+    loaded: true,
+    exports: {
+      findShifts: async () => [{ id: 4, shiftName: "Day Shift", isActive: true }],
+    },
+  };
+
   delete require.cache[servicePath];
 
   try {
@@ -205,6 +216,7 @@ test("project service preserves company scope on create", async () => {
       workDone: "  Initial setup  ",
       labourCount: 15,
       machineCount: 4,
+      shift: " day shift ",
       createdBy: 77,
       companyId: 88,
     });
@@ -216,13 +228,93 @@ test("project service preserves company scope on create", async () => {
     else delete require.cache[modelPath];
     if (originalDispatchModel) require.cache[dispatchModelPath] = originalDispatchModel;
     else delete require.cache[dispatchModelPath];
+    if (originalMastersModel) require.cache[mastersModelPath] = originalMastersModel;
+    else delete require.cache[mastersModelPath];
   }
 
   assert.equal(capturedPayload.projectName, "Flyover");
   assert.equal(capturedPayload.siteName, "Zone A");
   assert.equal(capturedPayload.workDone, "Initial setup");
+  assert.equal(capturedPayload.shift, "day_shift");
   assert.equal(capturedPayload.createdBy, 77);
   assert.equal(capturedPayload.companyId, 88);
+});
+
+test("project service rejects create when shift is not an active master shift", async () => {
+  const servicePath = require.resolve("../src/modules/projects/projects.service.js");
+  const modelPath = require.resolve("../src/modules/projects/projects.model.js");
+  const dispatchModelPath = require.resolve("../src/modules/dispatch/dispatch.model.js");
+  const mastersModelPath = require.resolve("../src/modules/masters/masters.model.js");
+
+  const originalService = require.cache[servicePath];
+  const originalModel = require.cache[modelPath];
+  const originalDispatchModel = require.cache[dispatchModelPath];
+  const originalMastersModel = require.cache[mastersModelPath];
+
+  require.cache[modelPath] = {
+    id: modelPath,
+    filename: modelPath,
+    loaded: true,
+    exports: {
+      findAllProjectReports: async () => ({ items: [], total: 0, page: 1, limit: 25 }),
+      findProjectReportLookups: async () => ({}),
+      findProjectReportSummary: async () => ({}),
+      insertProjectReport: async () => {
+        throw new Error("insertProjectReport should not be called");
+      },
+      updateProjectReportById: async () => null,
+      deleteProjectReportById: async () => null,
+    },
+  };
+
+  require.cache[dispatchModelPath] = {
+    id: dispatchModelPath,
+    filename: dispatchModelPath,
+    loaded: true,
+    exports: {
+      plantExists: async () => ({ id: 9, plantName: "HQ Plant" }),
+    },
+  };
+
+  require.cache[mastersModelPath] = {
+    id: mastersModelPath,
+    filename: mastersModelPath,
+    loaded: true,
+    exports: {
+      findShifts: async () => [{ id: 7, shiftName: "Night Shift", isActive: false }],
+    },
+  };
+
+  delete require.cache[servicePath];
+
+  try {
+    const { createProjectReport } = require(servicePath);
+    await assert.rejects(
+      () =>
+        createProjectReport({
+          reportDate: "2026-04-17",
+          plantId: 9,
+          projectName: "Flyover",
+          siteName: "Zone A",
+          workDone: "Initial setup",
+          labourCount: 15,
+          machineCount: 4,
+          shift: "day_shift",
+          companyId: 88,
+        }),
+      /active shift configured in Masters/
+    );
+  } finally {
+    delete require.cache[servicePath];
+
+    if (originalService) require.cache[servicePath] = originalService;
+    if (originalModel) require.cache[modelPath] = originalModel;
+    else delete require.cache[modelPath];
+    if (originalDispatchModel) require.cache[dispatchModelPath] = originalDispatchModel;
+    else delete require.cache[dispatchModelPath];
+    if (originalMastersModel) require.cache[mastersModelPath] = originalMastersModel;
+    else delete require.cache[mastersModelPath];
+  }
 });
 
 test("plant service trims payload before insert", async () => {
@@ -287,10 +379,25 @@ test("plant service returns not found when update target is missing", async () =
 test("party material rate service normalizes payload fields before insert", async () => {
   let capturedPayload = null;
 
-  await withMockedModule(
-    "../src/modules/party_material_rates/party_material_rates.service.js",
-    "../src/modules/party_material_rates/party_material_rates.model.js",
-    {
+  const servicePath = require.resolve(
+    "../src/modules/party_material_rates/party_material_rates.service.js"
+  );
+  const modelPath = require.resolve(
+    "../src/modules/party_material_rates/party_material_rates.model.js"
+  );
+  const dispatchModelPath = require.resolve("../src/modules/dispatch/dispatch.model.js");
+  const partiesModelPath = require.resolve("../src/modules/parties/parties.model.js");
+
+  const originalService = require.cache[servicePath];
+  const originalModel = require.cache[modelPath];
+  const originalDispatchModel = require.cache[dispatchModelPath];
+  const originalPartiesModel = require.cache[partiesModelPath];
+
+  require.cache[modelPath] = {
+    id: modelPath,
+    filename: modelPath,
+    loaded: true,
+    exports: {
       getAllRates: async () => [],
       insertRate: async (payload) => {
         capturedPayload = payload;
@@ -299,20 +406,52 @@ test("party material rate service normalizes payload fields before insert", asyn
       updateRate: async () => null,
       toggleStatus: async () => null,
     },
-    async ({ createRate }) => {
-      await createRate({
-        plantId: "1",
-        partyId: "2",
-        materialId: "3",
-        ratePerTon: "1250",
-        royaltyMode: " none ",
-        royaltyValue: "",
-        loadingCharge: " 20 ",
-        notes: "  smoke note  ",
-        companyId: 55,
-      });
-    }
-  );
+  };
+
+  require.cache[dispatchModelPath] = {
+    id: dispatchModelPath,
+    filename: dispatchModelPath,
+    loaded: true,
+    exports: {
+      plantExists: async () => ({ id: 1, plantName: "Main Plant" }),
+      materialExists: async () => ({ id: 3, materialName: "Dust" }),
+    },
+  };
+
+  require.cache[partiesModelPath] = {
+    id: partiesModelPath,
+    filename: partiesModelPath,
+    loaded: true,
+    exports: {
+      getPartyById: async () => ({ id: 2, partyName: "ABC Infra" }),
+    },
+  };
+
+  delete require.cache[servicePath];
+
+  try {
+    const { createRate } = require(servicePath);
+    await createRate({
+      plantId: "1",
+      partyId: "2",
+      materialId: "3",
+      ratePerTon: "1250",
+      royaltyMode: " none ",
+      royaltyValue: "",
+      loadingCharge: " 20 ",
+      notes: "  smoke note  ",
+      companyId: 55,
+    });
+  } finally {
+    delete require.cache[servicePath];
+    if (originalService) require.cache[servicePath] = originalService;
+    if (originalModel) require.cache[modelPath] = originalModel;
+    else delete require.cache[modelPath];
+    if (originalDispatchModel) require.cache[dispatchModelPath] = originalDispatchModel;
+    else delete require.cache[dispatchModelPath];
+    if (originalPartiesModel) require.cache[partiesModelPath] = originalPartiesModel;
+    else delete require.cache[partiesModelPath];
+  }
 
   assert.equal(capturedPayload.plantId, 1);
   assert.equal(capturedPayload.partyId, 2);
@@ -323,6 +462,87 @@ test("party material rate service normalizes payload fields before insert", asyn
   assert.equal(capturedPayload.loadingCharge, 20);
   assert.equal(capturedPayload.notes, "smoke note");
   assert.equal(capturedPayload.companyId, 55);
+  assert.equal(capturedPayload.tonsPerBrass, null);
+});
+
+test("party material rate service keeps tonsPerBrass for per_brass mode", async () => {
+  let capturedPayload = null;
+
+  const servicePath = require.resolve(
+    "../src/modules/party_material_rates/party_material_rates.service.js"
+  );
+  const modelPath = require.resolve(
+    "../src/modules/party_material_rates/party_material_rates.model.js"
+  );
+  const dispatchModelPath = require.resolve("../src/modules/dispatch/dispatch.model.js");
+  const partiesModelPath = require.resolve("../src/modules/parties/parties.model.js");
+
+  const originalService = require.cache[servicePath];
+  const originalModel = require.cache[modelPath];
+  const originalDispatchModel = require.cache[dispatchModelPath];
+  const originalPartiesModel = require.cache[partiesModelPath];
+
+  require.cache[modelPath] = {
+    id: modelPath,
+    filename: modelPath,
+    loaded: true,
+    exports: {
+      getAllRates: async () => [],
+      insertRate: async (payload) => {
+        capturedPayload = payload;
+        return payload;
+      },
+      updateRate: async () => null,
+      toggleStatus: async () => null,
+    },
+  };
+
+  require.cache[dispatchModelPath] = {
+    id: dispatchModelPath,
+    filename: dispatchModelPath,
+    loaded: true,
+    exports: {
+      plantExists: async () => ({ id: 1, plantName: "Main Plant" }),
+      materialExists: async () => ({ id: 3, materialName: "Dust" }),
+    },
+  };
+
+  require.cache[partiesModelPath] = {
+    id: partiesModelPath,
+    filename: partiesModelPath,
+    loaded: true,
+    exports: {
+      getPartyById: async () => ({ id: 2, partyName: "ABC Infra" }),
+    },
+  };
+
+  delete require.cache[servicePath];
+
+  try {
+    const { createRate } = require(servicePath);
+    await createRate({
+      plantId: "1",
+      partyId: "2",
+      materialId: "3",
+      ratePerTon: "1250",
+      royaltyMode: " per_brass ",
+      royaltyValue: "80",
+      tonsPerBrass: "2.83",
+      loadingCharge: "0",
+    });
+  } finally {
+    delete require.cache[servicePath];
+    if (originalService) require.cache[servicePath] = originalService;
+    if (originalModel) require.cache[modelPath] = originalModel;
+    else delete require.cache[modelPath];
+    if (originalDispatchModel) require.cache[dispatchModelPath] = originalDispatchModel;
+    else delete require.cache[dispatchModelPath];
+    if (originalPartiesModel) require.cache[partiesModelPath] = originalPartiesModel;
+    else delete require.cache[partiesModelPath];
+  }
+
+  assert.equal(capturedPayload.royaltyMode, "per_brass");
+  assert.equal(capturedPayload.tonsPerBrass, 2.83);
 });
 
 test("party material rate service rejects non-boolean status payload", async () => {
@@ -342,6 +562,83 @@ test("party material rate service rejects non-boolean status payload", async () 
       );
     }
   );
+});
+
+test("party material rate service rejects creation when linked masters are missing", async () => {
+  const servicePath = require.resolve(
+    "../src/modules/party_material_rates/party_material_rates.service.js"
+  );
+  const modelPath = require.resolve(
+    "../src/modules/party_material_rates/party_material_rates.model.js"
+  );
+  const dispatchModelPath = require.resolve("../src/modules/dispatch/dispatch.model.js");
+  const partiesModelPath = require.resolve("../src/modules/parties/parties.model.js");
+
+  const originalService = require.cache[servicePath];
+  const originalModel = require.cache[modelPath];
+  const originalDispatchModel = require.cache[dispatchModelPath];
+  const originalPartiesModel = require.cache[partiesModelPath];
+
+  require.cache[modelPath] = {
+    id: modelPath,
+    filename: modelPath,
+    loaded: true,
+    exports: {
+      getAllRates: async () => [],
+      insertRate: async () => {
+        throw new Error("insert should not run when links are missing");
+      },
+      updateRate: async () => null,
+      toggleStatus: async () => null,
+    },
+  };
+
+  require.cache[dispatchModelPath] = {
+    id: dispatchModelPath,
+    filename: dispatchModelPath,
+    loaded: true,
+    exports: {
+      plantExists: async () => null,
+      materialExists: async () => ({ id: 3, materialName: "Dust" }),
+    },
+  };
+
+  require.cache[partiesModelPath] = {
+    id: partiesModelPath,
+    filename: partiesModelPath,
+    loaded: true,
+    exports: {
+      getPartyById: async () => ({ id: 2, partyName: "ABC Infra" }),
+    },
+  };
+
+  delete require.cache[servicePath];
+
+  try {
+    const { createRate } = require(servicePath);
+    await assert.rejects(
+      () =>
+        createRate({
+          plantId: 1,
+          partyId: 2,
+          materialId: 3,
+          ratePerTon: 1200,
+          royaltyMode: "none",
+          companyId: 44,
+        }),
+      /Selected plant does not exist/
+    );
+  } finally {
+    delete require.cache[servicePath];
+
+    if (originalService) require.cache[servicePath] = originalService;
+    if (originalModel) require.cache[modelPath] = originalModel;
+    else delete require.cache[modelPath];
+    if (originalDispatchModel) require.cache[dispatchModelPath] = originalDispatchModel;
+    else delete require.cache[dispatchModelPath];
+    if (originalPartiesModel) require.cache[partiesModelPath] = originalPartiesModel;
+    else delete require.cache[partiesModelPath];
+  }
 });
 
 test("company profile service normalizes tax identifiers before save", async () => {
@@ -442,6 +739,151 @@ test("crusher service computes total expense from expense components", async () 
   }
 
   assert.equal(capturedPayload.totalExpense, 2050);
+});
+
+test("crusher service maps shift to active master shift label", async () => {
+  const servicePath = require.resolve("../src/modules/crusher/crusher.service.js");
+  const modelPath = require.resolve("../src/modules/crusher/crusher.model.js");
+  const dispatchModelPath = require.resolve("../src/modules/dispatch/dispatch.model.js");
+  const mastersModelPath = require.resolve("../src/modules/masters/masters.model.js");
+
+  const originalService = require.cache[servicePath];
+  const originalModel = require.cache[modelPath];
+  const originalDispatchModel = require.cache[dispatchModelPath];
+  const originalMastersModel = require.cache[mastersModelPath];
+
+  let capturedPayload = null;
+
+  require.cache[modelPath] = {
+    id: modelPath,
+    filename: modelPath,
+    loaded: true,
+    exports: {
+      findAllCrusherReports: async () => ({ items: [], total: 0, page: 1, limit: 25 }),
+      findCrusherReportSummary: async () => ({}),
+      findCrusherReportLookups: async () => ({}),
+      insertCrusherReport: async (payload) => {
+        capturedPayload = payload;
+        return { id: 1, ...payload };
+      },
+      updateCrusherReportById: async () => null,
+      deleteCrusherReportById: async () => null,
+    },
+  };
+
+  require.cache[dispatchModelPath] = {
+    id: dispatchModelPath,
+    filename: dispatchModelPath,
+    loaded: true,
+    exports: {
+      plantExists: async () => ({ id: 4, plantName: "Main Crusher" }),
+    },
+  };
+
+  require.cache[mastersModelPath] = {
+    id: mastersModelPath,
+    filename: mastersModelPath,
+    loaded: true,
+    exports: {
+      findShifts: async () => [{ id: 3, shiftName: "Night Shift", isActive: true }],
+    },
+  };
+
+  delete require.cache[servicePath];
+
+  try {
+    const { createCrusherReport } = require(servicePath);
+    await createCrusherReport({
+      reportDate: "2026-04-17",
+      plantId: 4,
+      shift: " night shift ",
+      companyId: 88,
+    });
+  } finally {
+    delete require.cache[servicePath];
+
+    if (originalService) require.cache[servicePath] = originalService;
+    if (originalModel) require.cache[modelPath] = originalModel;
+    else delete require.cache[modelPath];
+    if (originalDispatchModel) require.cache[dispatchModelPath] = originalDispatchModel;
+    else delete require.cache[dispatchModelPath];
+    if (originalMastersModel) require.cache[mastersModelPath] = originalMastersModel;
+    else delete require.cache[mastersModelPath];
+  }
+
+  assert.equal(capturedPayload.shift, "Night Shift");
+});
+
+test("crusher service rejects create when shift is not an active master shift", async () => {
+  const servicePath = require.resolve("../src/modules/crusher/crusher.service.js");
+  const modelPath = require.resolve("../src/modules/crusher/crusher.model.js");
+  const dispatchModelPath = require.resolve("../src/modules/dispatch/dispatch.model.js");
+  const mastersModelPath = require.resolve("../src/modules/masters/masters.model.js");
+
+  const originalService = require.cache[servicePath];
+  const originalModel = require.cache[modelPath];
+  const originalDispatchModel = require.cache[dispatchModelPath];
+  const originalMastersModel = require.cache[mastersModelPath];
+
+  require.cache[modelPath] = {
+    id: modelPath,
+    filename: modelPath,
+    loaded: true,
+    exports: {
+      findAllCrusherReports: async () => ({ items: [], total: 0, page: 1, limit: 25 }),
+      findCrusherReportSummary: async () => ({}),
+      findCrusherReportLookups: async () => ({}),
+      insertCrusherReport: async () => {
+        throw new Error("insertCrusherReport should not be called");
+      },
+      updateCrusherReportById: async () => null,
+      deleteCrusherReportById: async () => null,
+    },
+  };
+
+  require.cache[dispatchModelPath] = {
+    id: dispatchModelPath,
+    filename: dispatchModelPath,
+    loaded: true,
+    exports: {
+      plantExists: async () => ({ id: 4, plantName: "Main Crusher" }),
+    },
+  };
+
+  require.cache[mastersModelPath] = {
+    id: mastersModelPath,
+    filename: mastersModelPath,
+    loaded: true,
+    exports: {
+      findShifts: async () => [{ id: 3, shiftName: "Night Shift", isActive: false }],
+    },
+  };
+
+  delete require.cache[servicePath];
+
+  try {
+    const { createCrusherReport } = require(servicePath);
+    await assert.rejects(
+      () =>
+        createCrusherReport({
+          reportDate: "2026-04-17",
+          plantId: 4,
+          shift: "Night Shift",
+          companyId: 88,
+        }),
+      /active shift configured in Masters/
+    );
+  } finally {
+    delete require.cache[servicePath];
+
+    if (originalService) require.cache[servicePath] = originalService;
+    if (originalModel) require.cache[modelPath] = originalModel;
+    else delete require.cache[modelPath];
+    if (originalDispatchModel) require.cache[dispatchModelPath] = originalDispatchModel;
+    else delete require.cache[dispatchModelPath];
+    if (originalMastersModel) require.cache[mastersModelPath] = originalMastersModel;
+    else delete require.cache[mastersModelPath];
+  }
 });
 
 test("crusher service derives diesel/electricity costs from usage and rates", async () => {

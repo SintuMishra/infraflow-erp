@@ -1,6 +1,15 @@
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const ALLOWED_REPORT_STATUSES = ["on_track", "watch", "blocked", "completed"];
-const ALLOWED_SHIFTS = ["general", "day", "night"];
+const SHIFT_VALUE_PATTERN = /^[a-z][a-z0-9_]{1,49}$/;
+
+const normalizeShiftValue = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_")
+    .replace(/[^a-z0-9_]/g, "")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
 
 const validateProjectReportInput = (req, res, next) => {
   const {
@@ -77,12 +86,19 @@ const validateProjectReportInput = (req, res, next) => {
     });
   }
 
-  if (shift && !ALLOWED_SHIFTS.includes(String(shift).trim().toLowerCase())) {
+  const normalizedShift = normalizeShiftValue(shift);
+  if (shift && !SHIFT_VALUE_PATTERN.test(normalizedShift)) {
     return res.status(400).json({
       success: false,
-      message: `shift must be one of: ${ALLOWED_SHIFTS.join(", ")}`,
+      message:
+        "shift must be 2-50 chars and use letters, numbers, spaces, hyphens, or underscores",
     });
   }
+
+  req.body.shift = normalizedShift;
+  req.body.reportStatus = String(reportStatus || "")
+    .trim()
+    .toLowerCase();
 
   return next();
 };

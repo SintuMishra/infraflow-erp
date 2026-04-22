@@ -268,6 +268,26 @@ test("project report validation requires plantId for plant-linked reporting", as
   assert.match(res.body.message, /plantId/i);
 });
 
+test("project report validation accepts master-style shift names and normalizes them", async () => {
+  const payload = {
+    reportDate: "2026-04-22",
+    plantId: 2,
+    projectName: "Riverfront Bridge",
+    siteName: "Pier Zone 2",
+    workDone: "Foundation casting completed",
+    labourCount: 18,
+    machineCount: 3,
+    shift: "Day Shift",
+    reportStatus: "On_Track",
+  };
+  const { req, res, nextCalled } = runMiddleware(validateProjectReportInput, payload);
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
+  assert.equal(req.body.shift, "day_shift");
+  assert.equal(req.body.reportStatus, "on_track");
+});
+
 test("crusher report validation requires plantId for plant-linked reporting", async () => {
   const { res, nextCalled } = runMiddleware(validateCrusherReportInput, {
     reportDate: "2026-04-17",
@@ -627,16 +647,27 @@ test("vendor status validation requires boolean isActive", async () => {
   assert.match(res.body.message, /isActive/i);
 });
 
-test("plant validation rejects invalid power source", async () => {
+test("plant validation rejects malformed custom power source", async () => {
   const { res, nextCalled } = runMiddleware(validateCreatePlantInput, {
     plantName: "Main Crusher",
     plantType: "Crusher",
-    powerSourceType: "steam",
+    powerSourceType: "Other:",
   });
 
   assert.equal(nextCalled, false);
   assert.equal(res.statusCode, 400);
   assert.match(res.body.message, /powerSourceType/i);
+});
+
+test("plant validation allows future custom plant type labels", async () => {
+  const { res, nextCalled } = runMiddleware(validateCreatePlantInput, {
+    plantName: "Main Crusher",
+    plantType: "Mobile Recycle Unit",
+    powerSourceType: "solar",
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
 });
 
 test("plant validation allows custom other plant type and power source", async () => {
@@ -672,6 +703,36 @@ test("party material rate validation rejects non-positive rate", async () => {
   assert.equal(nextCalled, false);
   assert.equal(res.statusCode, 400);
   assert.match(res.body.message, /ratePerTon/i);
+});
+
+test("party material rate validation requires tonsPerBrass for per_brass mode", async () => {
+  const { res, nextCalled } = runMiddleware(validateCreateRateInput, {
+    plantId: 1,
+    partyId: 1,
+    materialId: 1,
+    ratePerTon: 1000,
+    royaltyMode: "per_brass",
+    royaltyValue: 200,
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body.message, /tonsPerBrass/i);
+});
+
+test("party material rate validation accepts valid per_brass payload", async () => {
+  const { res, nextCalled } = runMiddleware(validateCreateRateInput, {
+    plantId: 1,
+    partyId: 1,
+    materialId: 1,
+    ratePerTon: 1000,
+    royaltyMode: "per_brass",
+    royaltyValue: 200,
+    tonsPerBrass: 2.83,
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
 });
 
 test("party material rate status validation requires boolean isActive", async () => {

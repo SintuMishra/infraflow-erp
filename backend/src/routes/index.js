@@ -24,6 +24,11 @@ const accountsPayableRoutes = require("../modules/accounts_payable");
 const cashBankRoutes = require("../modules/cash_bank");
 const financePostingRulesRoutes = require("../modules/finance_posting_rules");
 const financialReportsRoutes = require("../modules/financial_reports");
+const boulderReportsRoutes = require("../modules/boulder_reports");
+const purchaseRequestsRoutes = require("../modules/purchase_requests");
+const purchaseOrdersRoutes = require("../modules/purchase_orders");
+const goodsReceiptsRoutes = require("../modules/goods_receipts");
+const purchaseInvoicesRoutes = require("../modules/purchase_invoices");
 const { checkDbHealth } = require("../config/db");
 
 const router = express.Router();
@@ -89,5 +94,10 @@ router.use("/accounts/payables", accountsPayableRoutes);
 router.use("/accounts/cash-bank", cashBankRoutes);
 router.use("/accounts/posting-rules", financePostingRulesRoutes);
 router.use("/accounts/reports", financialReportsRoutes);
+router.use("/boulder-reports", boulderReportsRoutes);
+router.use("/purchase-requests", purchaseRequestsRoutes);
+router.use("/purchase-orders", purchaseOrdersRoutes);
+router.use("/goods-receipts", goodsReceiptsRoutes);
+router.use("/purchase-invoices", purchaseInvoicesRoutes);
 
 module.exports = router;
