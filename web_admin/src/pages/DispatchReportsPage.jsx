@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../services/api";
 import AppShell from "../components/layout/AppShell";
 import SectionCard from "../components/dashboard/SectionCard";
@@ -164,6 +164,7 @@ const createDispatchFormState = () => ({
 
 function DispatchReportsPage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { currentUser } = useAuth();
   const hasAppliedPrefillRef = useRef(false);
   const focusedDispatchIdRef = useRef("");
@@ -3199,7 +3200,7 @@ function DispatchReportsPage() {
                             <button
                               type="button"
                               style={{ ...styles.smallButton, background: "#2563eb" }}
-                              onClick={() => window.open(`/dispatch-print/${report.id}`, "_blank")}
+                              onClick={() => navigate(`/dispatch-print/${report.id}`)}
                               disabled={statusUpdatingId === report.id}
                             >
                               Print
