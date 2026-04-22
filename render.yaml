@@ -3,7 +3,7 @@ services:
     name: construction-erp-api
     runtime: node
     plan: free
-    rootDir: production_ready_clone/backend
+    rootDir: backend
     buildCommand: npm ci
     startCommand: npm run migrate && npm start
     autoDeploy: true
