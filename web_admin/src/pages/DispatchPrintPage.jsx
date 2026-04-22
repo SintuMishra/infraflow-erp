@@ -44,6 +44,24 @@ const sanitizeFilenamePart = (value, fallback = "Dispatch") => {
   return normalized || fallback;
 };
 
+const normalizeLogoUrl = (value) => {
+  const candidate = String(value || "").trim();
+  if (!candidate) {
+    return "";
+  }
+
+  // Allow only data URLs or absolute http(s) URLs to avoid broken relative fetches like /dispatch-print/16
+  if (
+    candidate.startsWith("data:image/") ||
+    candidate.startsWith("http://") ||
+    candidate.startsWith("https://")
+  ) {
+    return candidate;
+  }
+
+  return "";
+};
+
 const numberToWordsBelowThousand = (value) => {
   const ones = [
     "",
@@ -299,6 +317,11 @@ function DispatchPrintPage() {
     };
   }, [data]);
 
+  const printableLogoUrl = useMemo(
+    () => normalizeLogoUrl(company?.logoUrl),
+    [company?.logoUrl]
+  );
+
   const ewbStatus = useMemo(() => getEwbStatus(data), [data]);
   const documentReference = useMemo(
     () => buildDocumentReference({ data, company, billing }),
@@ -393,10 +416,10 @@ function DispatchPrintPage() {
                 Mobile: {company.mobile || "-"} | Email: {company.email || "-"}
               </p>
             </div>
-            {String(company.logoUrl || "").trim() ? (
+            {printableLogoUrl ? (
               <div style={styles.companyLogoCard}>
                 <img
-                  src={company.logoUrl}
+                  src={printableLogoUrl}
                   alt="Company logo"
                   style={styles.companyLogoImage}
                 />
