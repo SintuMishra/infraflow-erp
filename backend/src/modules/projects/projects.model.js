@@ -299,6 +299,11 @@ const findProjectReportLookups = async (companyId = null) => {
           ? `, ARRAY_REMOVE(ARRAY_AGG(DISTINCT pdr.report_status ORDER BY pdr.report_status), NULL) AS "reportStatuses"`
           : `, ARRAY[]::text[] AS "reportStatuses"`
       }
+      ${
+        schema.hasShift
+          ? `, ARRAY_REMOVE(ARRAY_AGG(DISTINCT pdr.shift ORDER BY pdr.shift), NULL) AS "shifts"`
+          : `, ARRAY[]::text[] AS "shifts"`
+      }
     FROM project_daily_reports pdr
     ${schema.hasPlantId ? "LEFT JOIN plant_master pm ON pm.id = pdr.plant_id" : ""}
     ${whereClause}
@@ -311,6 +316,7 @@ const findProjectReportLookups = async (companyId = null) => {
     siteNames: result.rows[0]?.siteNames || [],
     plants: result.rows[0]?.plants || [],
     reportStatuses: result.rows[0]?.reportStatuses || [],
+    shifts: result.rows[0]?.shifts || [],
   };
 };
 

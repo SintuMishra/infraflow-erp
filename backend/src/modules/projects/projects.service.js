@@ -7,6 +7,16 @@ const {
   deleteProjectReportById,
 } = require("./projects.model");
 const { plantExists } = require("../dispatch/dispatch.model");
+const { findShifts } = require("../masters/masters.model");
+
+const normalizeShiftValue = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_")
+    .replace(/[^a-z0-9_]/g, "")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
 
 const normalizeProjectReportPayload = (payload = {}) => ({
   reportDate: payload.reportDate,
@@ -18,7 +28,7 @@ const normalizeProjectReportPayload = (payload = {}) => ({
   machineCount: Number(payload.machineCount),
   materialUsed: String(payload.materialUsed || "").trim(),
   remarks: String(payload.remarks || "").trim(),
-  shift: String(payload.shift || "").trim(),
+  shift: normalizeShiftValue(payload.shift),
   weather: String(payload.weather || "").trim(),
   blockers: String(payload.blockers || "").trim(),
   nextPlan: String(payload.nextPlan || "").trim(),
@@ -30,6 +40,32 @@ const normalizeProjectReportPayload = (payload = {}) => ({
       ? null
       : Number(payload.progressPercent),
 });
+
+const resolveMasterLinkedShift = async ({ companyId = null, shift = "" } = {}) => {
+  const normalizedShift = normalizeShiftValue(shift);
+
+  if (!normalizedShift) {
+    return "";
+  }
+
+  const masterShifts = await findShifts(companyId);
+  const activeShift = masterShifts.find(
+    (item) =>
+      item &&
+      item.isActive !== false &&
+      normalizeShiftValue(item.shiftName) === normalizedShift
+  );
+
+  if (!activeShift) {
+    const error = new Error(
+      "Shift must match an active shift configured in Masters"
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalizeShiftValue(activeShift.shiftName);
+};
 
 const buildProjectReportSummary = (summaryRow = {}, reports = []) => {
   const total = Number(summaryRow.total || 0);
@@ -123,6 +159,11 @@ const createProjectReport = async (reportData) => {
     throw error;
   }
 
+  normalized.shift = await resolveMasterLinkedShift({
+    companyId: reportData.companyId || null,
+    shift: normalized.shift,
+  });
+
   return insertProjectReport({
     ...normalized,
     createdBy: reportData.createdBy || null,
@@ -146,6 +187,11 @@ const editProjectReport = async (reportData) => {
     error.statusCode = 400;
     throw error;
   }
+
+  normalized.shift = await resolveMasterLinkedShift({
+    companyId: reportData.companyId || null,
+    shift: normalized.shift,
+  });
 
   return updateProjectReportById({
     id: reportData.id,

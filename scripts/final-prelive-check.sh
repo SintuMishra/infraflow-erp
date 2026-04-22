@@ -21,10 +21,10 @@ echo "==> [3/7] Backend owner-lock verification"
   npm run verify:owner-lock
 )
 
-echo "==> [4/7] Backend go-live verification (production mode override)"
+echo "==> [4/7] Backend go-live verification (production-safe local override)"
 (
   cd "$ROOT_DIR/backend"
-  NODE_ENV=production npm run verify:go-live
+  npm run verify:go-live:local
 )
 
 echo "==> [5/7] Owner governance smoke (conditional)"

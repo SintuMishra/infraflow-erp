@@ -369,9 +369,15 @@ function CrusherReportsPage() {
   );
 
   const shiftOptions = useMemo(() => {
-    const masterOptions = (masters?.shifts || []).map((shift) => shift.shiftName);
-    return uniqStrings([...masterOptions, ...(lookups.shifts || [])]);
-  }, [lookups.shifts, masters?.shifts]);
+    const activeMasterOptions = (masters?.shifts || [])
+      .filter((shift) => shift?.isActive)
+      .map((shift) => shift.shiftName);
+    return uniqStrings(activeMasterOptions);
+  }, [masters?.shifts]);
+  const activeMasterShiftKeySet = useMemo(
+    () => new Set(shiftOptions.map((shift) => normalizeShiftKey(shift))),
+    [shiftOptions]
+  );
 
   const crusherUnitOptions = useMemo(() => {
     const masterOptions = (masters?.crusherUnits || []).map((unit) => unit.unitName);
@@ -444,6 +450,27 @@ function CrusherReportsPage() {
       }));
     }
   }, [filteredCrusherUnitOptions, formData.crusherUnitName, selectedPlant]);
+
+  useEffect(() => {
+    const normalizedFilterShift = normalizeShiftKey(shiftFilter);
+    if (!normalizedFilterShift || activeMasterShiftKeySet.has(normalizedFilterShift)) {
+      return;
+    }
+
+    setShiftFilter("");
+  }, [activeMasterShiftKeySet, shiftFilter]);
+
+  useEffect(() => {
+    const normalizedFormShift = normalizeShiftKey(formData.shift);
+    if (!normalizedFormShift || activeMasterShiftKeySet.has(normalizedFormShift)) {
+      return;
+    }
+
+    setFormData((current) => ({
+      ...current,
+      shift: "",
+    }));
+  }, [activeMasterShiftKeySet, formData.shift]);
 
   const operationalStatusOptions = useMemo(() => {
     const merged = [
@@ -577,10 +604,12 @@ function CrusherReportsPage() {
   };
 
   const handleEditReport = (report) => {
+    const normalizedReportShift = normalizeShiftKey(report.shift || "");
+
     setFormData({
       reportDate: report.reportDateValue || todayDate,
       plantId: report.plantId ? String(report.plantId) : "",
-      shift: report.shift || "",
+      shift: activeMasterShiftKeySet.has(normalizedReportShift) ? String(report.shift || "").trim() : "",
       crusherUnitName: report.crusherUnitName || "",
       materialType: report.materialType || "",
       operationalStatus: report.operationalStatus || "running",
@@ -758,6 +787,11 @@ function CrusherReportsPage() {
       !formData.plantId
     ) {
       setError("Report date and plant are required");
+      return;
+    }
+
+    if (payload.shift && !activeMasterShiftKeySet.has(normalizeShiftKey(payload.shift))) {
+      setError("Selected shift is not active in masters. Please select a valid master shift.");
       return;
     }
 
@@ -1460,8 +1494,8 @@ function CrusherReportsPage() {
                   <span style={styles.advisoryEyebrow}>Synchronized</span>
                   <strong style={styles.advisoryTitle}>Master-driven dropdowns stay aligned</strong>
                   <p style={styles.advisoryText}>
-                    Plants, shifts, materials, and operational lines pull from masters and saved
-                    records so the team works with one naming standard.
+                    Plants, shifts, materials, and operational lines pull from masters so the team
+                    works with one naming standard.
                   </p>
                 </div>
               </div>
@@ -1558,7 +1592,7 @@ function CrusherReportsPage() {
                       ))}
                     </select>
                     <span style={styles.inputHint}>
-                      Ex: `Morning` or `Night`. Leave blank if the site reports by calendar day only.
+                      Shift values are sourced only from active Masters shifts.
                     </span>
                   </label>
 
@@ -2322,6 +2356,8 @@ function CollapsedNote({ text }) {
 
 const uniqStrings = (values) =>
   Array.from(new Set(values.filter(Boolean).map((value) => String(value).trim()))).sort();
+
+const normalizeShiftKey = (value) => String(value || "").trim().toLowerCase();
 
 const normalizePlantTypeLabel = (value) =>
   String(value || "")

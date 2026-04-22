@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
 const env = require("../config/env");
 const { normalizeCompanyId } = require("../utils/companyScope.util");
+const { normalizeRole } = require("../utils/role.util");
 const authModel = require("../modules/auth/auth.model");
 
 const authenticate = async (req, res, next) => {
@@ -46,7 +47,10 @@ const authenticate = async (req, res, next) => {
       });
     }
 
-    req.user = decoded;
+    req.user = {
+      ...decoded,
+      role: normalizeRole(decoded.role),
+    };
     req.companyId = tokenCompanyId || headerCompanyId || null;
 
     if (req.companyId !== null) {

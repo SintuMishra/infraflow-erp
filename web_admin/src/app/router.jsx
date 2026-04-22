@@ -28,6 +28,10 @@ const VendorsPage = lazy(() => import("../pages/VendorsPage"));
 const TransportRatesPage = lazy(() => import("../pages/TransportRatesPage"));
 const PartyMaterialRatesPage = lazy(() => import("../pages/PartyMaterialRatesPage"));
 const PartyOrdersPage = lazy(() => import("../pages/PartyOrdersPage"));
+const PurchaseRequestsPage = lazy(() => import("../pages/PurchaseRequestsPage"));
+const PurchaseOrdersPage = lazy(() => import("../pages/PurchaseOrdersPage"));
+const GoodsReceiptsPage = lazy(() => import("../pages/GoodsReceiptsPage"));
+const PurchaseInvoicesPage = lazy(() => import("../pages/PurchaseInvoicesPage"));
 const CommercialExceptionsPage = lazy(
   () => import("../pages/CommercialExceptionsPage")
 );
@@ -266,6 +270,54 @@ export function AppRouter() {
               allowWhen={canAccessOperationalWorkspace}
             >
               <PartyOrdersPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/purchase-requests"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.purchaseRequests}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <PurchaseRequestsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/purchase-orders"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.purchaseOrders}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <PurchaseOrdersPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/goods-receipts"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.goodsReceipts}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <GoodsReceiptsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/purchase-invoices"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.purchaseInvoices}
+              allowWhen={canAccessOperationalWorkspace}
+            >
+              <PurchaseInvoicesPage />
             </ProtectedRoute>
           }
         />

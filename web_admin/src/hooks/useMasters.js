@@ -13,6 +13,8 @@ const emptyMastersState = {
     materialUnits: [],
     vehicleCategories: [],
     materialHsnRules: [],
+    employeeDepartments: [],
+    procurementItemCategories: [],
   },
 };
 

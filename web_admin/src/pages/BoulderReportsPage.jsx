@@ -9,14 +9,18 @@ import { useMasters } from "../hooks/useMasters";
 const INITIAL_REPORT_FORM = {
   reportDate: getTodayDateValue(),
   plantId: "",
+  plantNameOther: "",
   shiftId: "",
+  shiftNameOther: "",
   crusherUnitId: "",
+  crusherUnitNameOther: "",
   crusherUnitNameSnapshot: "",
   sourceMineName: "",
   vehicleId: "",
   vehicleNumberSnapshot: "",
   contractorNameSnapshot: "",
   routeType: "to_stock_yard",
+  routeTypeOther: "",
   openingStockTons: "",
   inwardWeightTons: "",
   directToCrusherTons: "",
@@ -32,6 +36,7 @@ const INITIAL_TRIP_ROW = {
   vehicleNumberSnapshot: "",
   contractorNameSnapshot: "",
   routeType: "to_stock_yard",
+  routeTypeOther: "",
   weighedTons: "",
   remarks: "",
 };
@@ -41,6 +46,7 @@ const INITIAL_QUICK_TRIP_FORM = {
   vehicleNumberSnapshot: "",
   contractorNameSnapshot: "",
   routeType: "to_stock_yard",
+  routeTypeOther: "",
   weighedTons: "",
   remarks: "",
 };
@@ -53,6 +59,7 @@ const INITIAL_VEHICLE_FORM = {
 };
 
 const SHIFT_CONTEXT_STORAGE_KEY_PREFIX = "boulder.shiftContext";
+const OTHER_OPTION_VALUE = "__other__";
 
 const formatMetric = (value, digits = 2) =>
   new Intl.NumberFormat("en-IN", {
@@ -71,6 +78,24 @@ const formatRouteTypeLabel = (value) => {
     return "Mixed";
   }
   return value || "-";
+};
+
+const isOtherOption = (value) => String(value || "").trim() === OTHER_OPTION_VALUE;
+
+const normalizeRouteFromSelection = (routeType, routeTypeOther = "") => {
+  if (!isOtherOption(routeType)) {
+    return String(routeType || "to_stock_yard");
+  }
+
+  const hint = String(routeTypeOther || "")
+    .trim()
+    .toLowerCase();
+
+  if (hint.includes("direct") || hint.includes("crusher")) {
+    return "direct_to_crushing_hub";
+  }
+
+  return "to_stock_yard";
 };
 
 const parsePositiveNumber = (value) => {
@@ -222,24 +247,19 @@ function BoulderReportsPage() {
   const [plants, setPlants] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [reports, setReports] = useState([]);
-  const [summary, setSummary] = useState({
-    total: 0,
-    totalInwardWeight: 0,
-    totalDirectToCrusher: 0,
-    totalCrusherConsumption: 0,
-    totalFinishedOutput: 0,
-    averageYieldPercent: 0,
-    totalProcessLoss: 0,
-    latestDate: null,
-  });
 
   const [filters, setFilters] = useState({
     search: "",
     plantId: "",
+    plantOther: "",
     shiftId: "",
+    shiftOther: "",
     crusherUnitId: "",
+    crusherUnitOther: "",
     vehicleId: "",
+    vehicleOther: "",
     routeType: "",
+    routeTypeOther: "",
     contractorName: "",
     startDate: "",
     endDate: "",
@@ -371,7 +391,7 @@ function BoulderReportsPage() {
   }, [selectedVehicle]);
 
   useEffect(() => {
-    if (!reportForm.crusherUnitId) {
+    if (!reportForm.crusherUnitId || isOtherOption(reportForm.crusherUnitId)) {
       return;
     }
 
@@ -388,7 +408,7 @@ function BoulderReportsPage() {
   }, [reportFormCrusherUnits, reportForm.crusherUnitId]);
 
   useEffect(() => {
-    if (reportForm.crusherUnitId) {
+    if (reportForm.crusherUnitId && !isOtherOption(reportForm.crusherUnitId)) {
       const selectedUnit = reportFormCrusherUnits.find(
         (unit) => Number(unit.id) === Number(reportForm.crusherUnitId)
       );
@@ -398,6 +418,14 @@ function BoulderReportsPage() {
           crusherUnitNameSnapshot: selectedUnit.unitName,
         }));
       }
+      return;
+    }
+
+    if (isOtherOption(reportForm.crusherUnitId)) {
+      setReportForm((prev) => ({
+        ...prev,
+        crusherUnitNameSnapshot: String(prev.crusherUnitNameOther || "").trim(),
+      }));
       return;
     }
 
@@ -414,7 +442,7 @@ function BoulderReportsPage() {
   ]);
 
   useEffect(() => {
-    if (!filters.crusherUnitId) {
+    if (!filters.crusherUnitId || isOtherOption(filters.crusherUnitId)) {
       return;
     }
 
@@ -510,11 +538,16 @@ function BoulderReportsPage() {
       const res = await api.get("/boulder-reports", {
         params: {
           search: filters.search || undefined,
-          plantId: filters.plantId || undefined,
-          shiftId: filters.shiftId || undefined,
-          crusherUnitId: filters.crusherUnitId || undefined,
-          vehicleId: filters.vehicleId || undefined,
-          routeType: filters.routeType || undefined,
+          plantId: filters.plantId && !isOtherOption(filters.plantId) ? filters.plantId : undefined,
+          shiftId: filters.shiftId && !isOtherOption(filters.shiftId) ? filters.shiftId : undefined,
+          crusherUnitId:
+            filters.crusherUnitId && !isOtherOption(filters.crusherUnitId)
+              ? filters.crusherUnitId
+              : undefined,
+          vehicleId:
+            filters.vehicleId && !isOtherOption(filters.vehicleId) ? filters.vehicleId : undefined,
+          routeType:
+            filters.routeType && !isOtherOption(filters.routeType) ? filters.routeType : undefined,
           contractorName: filters.contractorName || undefined,
           startDate: filters.startDate || undefined,
           endDate: filters.endDate || undefined,
@@ -524,18 +557,6 @@ function BoulderReportsPage() {
       });
 
       setReports(res.data?.data || []);
-      setSummary(
-        res.data?.meta?.summary || {
-          total: 0,
-          totalInwardWeight: 0,
-          totalDirectToCrusher: 0,
-          totalCrusherConsumption: 0,
-          totalFinishedOutput: 0,
-          averageYieldPercent: 0,
-          totalProcessLoss: 0,
-          latestDate: null,
-        }
-      );
       setError("");
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to load boulder reports");
@@ -561,6 +582,114 @@ function BoulderReportsPage() {
 
     return () => window.clearTimeout(timeoutId);
   }, [loadReports]);
+
+  const filteredReports = useMemo(() => {
+    const byText = (value, needle) =>
+      String(value || "")
+        .toLowerCase()
+        .includes(String(needle || "").trim().toLowerCase());
+
+    return (reports || []).filter((report) => {
+      if (isOtherOption(filters.plantId) && filters.plantOther) {
+        if (!byText(report.plantName, filters.plantOther)) {
+          return false;
+        }
+      }
+      if (isOtherOption(filters.shiftId) && filters.shiftOther) {
+        if (!byText(report.shift, filters.shiftOther)) {
+          return false;
+        }
+      }
+      if (isOtherOption(filters.crusherUnitId) && filters.crusherUnitOther) {
+        if (!byText(report.crusherUnitNameSnapshot, filters.crusherUnitOther)) {
+          return false;
+        }
+      }
+      if (isOtherOption(filters.vehicleId) && filters.vehicleOther) {
+        const vehicleText = `${report.vehicleNumberSnapshot || ""} ${report.contractorNameSnapshot || ""}`;
+        if (!byText(vehicleText, filters.vehicleOther)) {
+          return false;
+        }
+      }
+      if (isOtherOption(filters.routeType) && filters.routeTypeOther) {
+        if (!byText(formatRouteTypeLabel(report.routeType), filters.routeTypeOther)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [
+    filters.crusherUnitId,
+    filters.crusherUnitOther,
+    filters.plantId,
+    filters.plantOther,
+    filters.routeType,
+    filters.routeTypeOther,
+    filters.shiftId,
+    filters.shiftOther,
+    filters.vehicleId,
+    filters.vehicleOther,
+    reports,
+  ]);
+
+  const effectiveSummary = useMemo(() => {
+    if (!filteredReports.length) {
+      return {
+        total: 0,
+        totalInwardWeight: 0,
+        totalDirectToCrusher: 0,
+        totalCrusherConsumption: 0,
+        totalFinishedOutput: 0,
+        averageYieldPercent: 0,
+        totalProcessLoss: 0,
+        latestDate: null,
+      };
+    }
+
+    const totals = filteredReports.reduce(
+      (acc, item) => {
+        acc.total += 1;
+        acc.totalInwardWeight += Number(item.inwardWeightTons || 0);
+        acc.totalDirectToCrusher += Number(item.directToCrusherTons || 0);
+        acc.totalCrusherConsumption += Number(item.crusherConsumptionTons || 0);
+        acc.totalFinishedOutput += Number(item.finishedOutputTons || 0);
+        acc.totalProcessLoss += Number(item.processLossTons || 0);
+        if (item.yieldPercent !== null && item.yieldPercent !== undefined) {
+          acc.yieldSamples += 1;
+          acc.yieldSum += Number(item.yieldPercent || 0);
+        }
+        const dateValue = String(item.reportDate || "");
+        if (!acc.latestDate || dateValue > acc.latestDate) {
+          acc.latestDate = dateValue;
+        }
+        return acc;
+      },
+      {
+        total: 0,
+        totalInwardWeight: 0,
+        totalDirectToCrusher: 0,
+        totalCrusherConsumption: 0,
+        totalFinishedOutput: 0,
+        totalProcessLoss: 0,
+        yieldSamples: 0,
+        yieldSum: 0,
+        latestDate: null,
+      }
+    );
+
+    return {
+      total: totals.total,
+      totalInwardWeight: totals.totalInwardWeight,
+      totalDirectToCrusher: totals.totalDirectToCrusher,
+      totalCrusherConsumption: totals.totalCrusherConsumption,
+      totalFinishedOutput: totals.totalFinishedOutput,
+      averageYieldPercent: totals.yieldSamples
+        ? Number((totals.yieldSum / totals.yieldSamples).toFixed(2))
+        : 0,
+      totalProcessLoss: totals.totalProcessLoss,
+      latestDate: totals.latestDate,
+    };
+  }, [filteredReports]);
 
   const resetReportForm = ({ preserveContext = keepShiftContext, openingStockOverride = null } = {}) => {
     if (!preserveContext) {
@@ -601,10 +730,61 @@ function BoulderReportsPage() {
   const handleReportChange = (event) => {
     const { name, value } = event.target;
 
-    setReportForm((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setReportForm((prev) => {
+      if (name === "vehicleId") {
+        const selected = activeVehicles.find((vehicle) => Number(vehicle.id) === Number(value));
+
+        return {
+          ...prev,
+          vehicleId: value,
+          vehicleNumberSnapshot:
+            selected && !isOtherOption(value)
+              ? selected.vehicleNumber || prev.vehicleNumberSnapshot
+              : prev.vehicleNumberSnapshot,
+          contractorNameSnapshot:
+            selected && !isOtherOption(value)
+              ? selected.contractorName || prev.contractorNameSnapshot
+              : prev.contractorNameSnapshot,
+        };
+      }
+
+      if (name === "shiftId") {
+        return {
+          ...prev,
+          shiftId: value,
+          shiftNameOther: isOtherOption(value) ? prev.shiftNameOther : "",
+        };
+      }
+
+      if (name === "plantId") {
+        return {
+          ...prev,
+          plantId: value,
+          plantNameOther: isOtherOption(value) ? prev.plantNameOther : "",
+        };
+      }
+
+      if (name === "crusherUnitId") {
+        return {
+          ...prev,
+          crusherUnitId: value,
+          crusherUnitNameOther: isOtherOption(value) ? prev.crusherUnitNameOther : "",
+        };
+      }
+
+      if (name === "routeType") {
+        return {
+          ...prev,
+          routeType: value,
+          routeTypeOther: isOtherOption(value) ? prev.routeTypeOther : "",
+        };
+      }
+
+      return {
+        ...prev,
+        [name]: value,
+      };
+    });
   };
 
   const handleVehicleChange = (event) => {
@@ -687,7 +867,16 @@ function BoulderReportsPage() {
       return false;
     }
 
-    if (!["to_stock_yard", "direct_to_crushing_hub"].includes(String(quickTripForm.routeType || ""))) {
+    if (isOtherOption(quickTripForm.routeType) && !String(quickTripForm.routeTypeOther || "").trim()) {
+      setError("Please provide custom route label when selecting Other route");
+      return false;
+    }
+
+    const normalizedQuickRouteType = normalizeRouteFromSelection(
+      quickTripForm.routeType,
+      quickTripForm.routeTypeOther
+    );
+    if (!["to_stock_yard", "direct_to_crushing_hub"].includes(String(normalizedQuickRouteType || ""))) {
       setError("Quick trip route type is invalid");
       return false;
     }
@@ -700,9 +889,16 @@ function BoulderReportsPage() {
           vehicleId: quickTripForm.vehicleId || "",
           vehicleNumberSnapshot: String(quickTripForm.vehicleNumberSnapshot || "").trim(),
           contractorNameSnapshot: String(quickTripForm.contractorNameSnapshot || "").trim(),
-          routeType: quickTripForm.routeType || "to_stock_yard",
+          routeType: normalizedQuickRouteType,
           weighedTons: Number(weighedTons.toFixed(2)),
-          remarks: String(quickTripForm.remarks || "").trim(),
+          remarks: [
+            isOtherOption(quickTripForm.routeType) && String(quickTripForm.routeTypeOther || "").trim()
+              ? `Route label: ${String(quickTripForm.routeTypeOther || "").trim()}`
+              : "",
+            String(quickTripForm.remarks || "").trim(),
+          ]
+            .filter(Boolean)
+            .join(" | "),
         },
       ],
     }));
@@ -714,6 +910,7 @@ function BoulderReportsPage() {
       return {
         ...prev,
         weighedTons: "",
+        routeTypeOther: "",
         remarks: "",
       };
     });
@@ -747,6 +944,48 @@ function BoulderReportsPage() {
       return;
     }
 
+    const resolvedPlantId = (() => {
+      if (!isOtherOption(reportForm.plantId)) {
+        return Number(reportForm.plantId);
+      }
+      const manualName = String(reportForm.plantNameOther || "").trim().toLowerCase();
+      if (!manualName) {
+        return null;
+      }
+      const matchedPlant = (plants || []).find(
+        (item) => String(item.plantName || "").trim().toLowerCase() === manualName
+      );
+      return matchedPlant ? Number(matchedPlant.id) : null;
+    })();
+
+    if (!Number.isInteger(resolvedPlantId) || resolvedPlantId <= 0) {
+      setError(
+        "Plant is master-governed. If using Other, enter an exact existing plant name or add plant in Masters first."
+      );
+      return;
+    }
+
+    const resolvedShiftId = (() => {
+      if (!isOtherOption(reportForm.shiftId)) {
+        return Number(reportForm.shiftId);
+      }
+      const manualName = String(reportForm.shiftNameOther || "").trim().toLowerCase();
+      if (!manualName) {
+        return null;
+      }
+      const matchedShift = (activeShifts || []).find(
+        (item) => String(item.shiftName || "").trim().toLowerCase() === manualName
+      );
+      return matchedShift ? Number(matchedShift.id) : null;
+    })();
+
+    if (!Number.isInteger(resolvedShiftId) || resolvedShiftId <= 0) {
+      setError(
+        "Shift is master-governed. If using Other, enter an exact active shift name or add it in Masters first."
+      );
+      return;
+    }
+
     if (!effectiveReportForm.vehicleNumberSnapshot || !effectiveReportForm.contractorNameSnapshot) {
       setError("Vehicle number and contractor name are required");
       return;
@@ -763,31 +1002,50 @@ function BoulderReportsPage() {
 
     if (tripAggregates.count) {
       const incompleteTrip = (reportForm.vehicleRuns || []).some((row) => {
+        const normalizedTripRouteType = normalizeRouteFromSelection(
+          row.routeType,
+          row.routeTypeOther
+        );
         return (
           !String(row.vehicleNumberSnapshot || "").trim() ||
           !String(row.contractorNameSnapshot || "").trim() ||
-          !["to_stock_yard", "direct_to_crushing_hub"].includes(String(row.routeType || "")) ||
+          (isOtherOption(row.routeType) && !String(row.routeTypeOther || "").trim()) ||
+          !["to_stock_yard", "direct_to_crushing_hub"].includes(String(normalizedTripRouteType || "")) ||
           (parsePositiveNumber(row.weighedTons) || 0) <= 0
         );
       });
       if (incompleteTrip) {
         setError(
-          "Each vehicle trip row must include vehicle number, contractor, route type, and weighed tons"
+          "Each vehicle trip row must include vehicle number, contractor, route type, weighed tons, and custom route label when using Other"
         );
         return;
       }
     }
 
-    const resolvedCrusherUnitName =
-      reportFormCrusherUnits.find(
-        (unit) => Number(unit.id) === Number(reportForm.crusherUnitId)
-      )?.unitName ||
-      reportForm.crusherUnitNameSnapshot ||
-      selectedPlant?.plantName ||
-      "";
+    const resolvedCrusherUnitName = isOtherOption(reportForm.crusherUnitId)
+      ? String(reportForm.crusherUnitNameOther || "").trim()
+      : reportFormCrusherUnits.find(
+          (unit) => Number(unit.id) === Number(reportForm.crusherUnitId)
+        )?.unitName ||
+        reportForm.crusherUnitNameSnapshot ||
+        selectedPlant?.plantName ||
+        "";
 
     if (!resolvedCrusherUnitName) {
       setError("Plant unit context is required");
+      return;
+    }
+
+    const normalizedReportRouteType = normalizeRouteFromSelection(
+      effectiveReportForm.routeType,
+      effectiveReportForm.routeTypeOther
+    );
+
+    if (
+      isOtherOption(effectiveReportForm.routeType) &&
+      !String(effectiveReportForm.routeTypeOther || "").trim()
+    ) {
+      setError("Please provide custom route label when selecting Other for shift route pattern");
       return;
     }
 
@@ -797,19 +1055,41 @@ function BoulderReportsPage() {
         effectiveReportForm.closingStockTons === ""
           ? metricsPreview.computedClosingStock
           : effectiveReportForm.closingStockTons,
-      plantId: Number(effectiveReportForm.plantId),
-      shiftId: Number(effectiveReportForm.shiftId),
-      crusherUnitId: effectiveReportForm.crusherUnitId ? Number(effectiveReportForm.crusherUnitId) : null,
+      plantId: resolvedPlantId,
+      shiftId: resolvedShiftId,
+      crusherUnitId:
+        effectiveReportForm.crusherUnitId && !isOtherOption(effectiveReportForm.crusherUnitId)
+          ? Number(effectiveReportForm.crusherUnitId)
+          : null,
       crusherUnitNameSnapshot: resolvedCrusherUnitName,
-      vehicleId: effectiveReportForm.vehicleId ? Number(effectiveReportForm.vehicleId) : null,
+      vehicleId:
+        effectiveReportForm.vehicleId && !isOtherOption(effectiveReportForm.vehicleId)
+          ? Number(effectiveReportForm.vehicleId)
+          : null,
+      routeType: normalizedReportRouteType,
       vehicleRuns: (reportForm.vehicleRuns || []).map((row) => ({
-        vehicleId: row.vehicleId ? Number(row.vehicleId) : null,
+        vehicleId: row.vehicleId && !isOtherOption(row.vehicleId) ? Number(row.vehicleId) : null,
         vehicleNumberSnapshot: row.vehicleNumberSnapshot,
         contractorNameSnapshot: row.contractorNameSnapshot,
-        routeType: row.routeType,
+        routeType: normalizeRouteFromSelection(row.routeType, row.routeTypeOther),
         weighedTons: row.weighedTons,
-        remarks: row.remarks || "",
+        remarks: [
+          isOtherOption(row.routeType) && String(row.routeTypeOther || "").trim()
+            ? `Route label: ${String(row.routeTypeOther || "").trim()}`
+            : "",
+          row.remarks || "",
+        ]
+          .filter(Boolean)
+          .join(" | "),
       })),
+      remarks: [
+        isOtherOption(effectiveReportForm.routeType) && String(effectiveReportForm.routeTypeOther || "").trim()
+          ? `Shift route label: ${String(effectiveReportForm.routeTypeOther || "").trim()}`
+          : "",
+        String(effectiveReportForm.remarks || "").trim(),
+      ]
+        .filter(Boolean)
+        .join(" | "),
     };
 
     try {
@@ -846,14 +1126,18 @@ function BoulderReportsPage() {
     setReportForm({
       reportDate: report.reportDate || getTodayDateValue(),
       plantId: report.plantId ? String(report.plantId) : "",
+      plantNameOther: "",
       shiftId: report.shiftId ? String(report.shiftId) : "",
-      crusherUnitId: report.crusherUnitId ? String(report.crusherUnitId) : "",
+      shiftNameOther: "",
+      crusherUnitId: report.crusherUnitId ? String(report.crusherUnitId) : OTHER_OPTION_VALUE,
+      crusherUnitNameOther: report.crusherUnitId ? "" : report.crusherUnitNameSnapshot || "",
       crusherUnitNameSnapshot: report.crusherUnitNameSnapshot || "",
       sourceMineName: report.sourceMineName || "",
       vehicleId: report.vehicleId ? String(report.vehicleId) : "",
       vehicleNumberSnapshot: report.vehicleNumberSnapshot || "",
       contractorNameSnapshot: report.contractorNameSnapshot || "",
       routeType: report.routeType || "to_stock_yard",
+      routeTypeOther: "",
       openingStockTons: report.openingStockTons ?? "",
       inwardWeightTons: report.inwardWeightTons ?? "",
       directToCrusherTons: report.directToCrusherTons ?? "",
@@ -867,6 +1151,7 @@ function BoulderReportsPage() {
             vehicleNumberSnapshot: run.vehicleNumberSnapshot || "",
             contractorNameSnapshot: run.contractorNameSnapshot || "",
             routeType: run.routeType || "to_stock_yard",
+            routeTypeOther: "",
             weighedTons: run.weighedTons ?? "",
             remarks: run.remarks || "",
           }))
@@ -978,10 +1263,15 @@ function BoulderReportsPage() {
     setFilters({
       search: "",
       plantId: "",
+      plantOther: "",
       shiftId: "",
+      shiftOther: "",
       crusherUnitId: "",
+      crusherUnitOther: "",
       vehicleId: "",
+      vehicleOther: "",
       routeType: "",
+      routeTypeOther: "",
       contractorName: "",
       startDate: "",
       endDate: "",
@@ -997,7 +1287,7 @@ function BoulderReportsPage() {
   };
 
   const exportAnalysisCsv = () => {
-    if (!reports.length) {
+    if (!filteredReports.length) {
       setError("No reports available to export");
       return;
     }
@@ -1024,7 +1314,7 @@ function BoulderReportsPage() {
       "Vehicle Trips",
     ];
 
-    const rows = reports.map((report) => [
+    const rows = filteredReports.map((report) => [
       formatDisplayDate(report.reportDate),
       report.plantName || "",
       report.crusherUnitNameSnapshot || "",
@@ -1063,7 +1353,7 @@ function BoulderReportsPage() {
   };
 
   const exportAnalysisPdf = () => {
-    if (!reports.length) {
+    if (!filteredReports.length) {
       setError("No reports available to export");
       return;
     }
@@ -1075,14 +1365,14 @@ function BoulderReportsPage() {
     }
 
     const summaryLine = `
-      Total: ${formatMetric(summary.total)} | Inward: ${formatMetric(summary.totalInwardWeight)} tons | 
-      Direct: ${formatMetric(summary.totalDirectToCrusher)} tons | 
-      Consumption: ${formatMetric(summary.totalCrusherConsumption)} tons | 
-      Output: ${formatMetric(summary.totalFinishedOutput)} tons | 
-      Avg Yield: ${formatMetric(summary.averageYieldPercent)}%
+      Total: ${formatMetric(effectiveSummary.total)} | Inward: ${formatMetric(effectiveSummary.totalInwardWeight)} tons | 
+      Direct: ${formatMetric(effectiveSummary.totalDirectToCrusher)} tons | 
+      Consumption: ${formatMetric(effectiveSummary.totalCrusherConsumption)} tons | 
+      Output: ${formatMetric(effectiveSummary.totalFinishedOutput)} tons | 
+      Avg Yield: ${formatMetric(effectiveSummary.averageYieldPercent)}%
     `;
 
-    const rowsHtml = reports
+    const rowsHtml = filteredReports
       .map(
         (report, index) => `
           <tr>
@@ -1185,19 +1475,19 @@ function BoulderReportsPage() {
 
       <SectionCard title="Boulder Snapshot">
         <div style={styles.metricsGrid}>
-          <Metric label="Reports" value={summary.total} />
-          <Metric label="Inward Tons" value={formatMetric(summary.totalInwardWeight)} />
-          <Metric label="Direct to Crusher" value={formatMetric(summary.totalDirectToCrusher)} />
+          <Metric label="Reports" value={effectiveSummary.total} />
+          <Metric label="Inward Tons" value={formatMetric(effectiveSummary.totalInwardWeight)} />
+          <Metric label="Direct to Crusher" value={formatMetric(effectiveSummary.totalDirectToCrusher)} />
           <Metric
             label="Crusher Consumption"
-            value={formatMetric(summary.totalCrusherConsumption)}
+            value={formatMetric(effectiveSummary.totalCrusherConsumption)}
           />
-          <Metric label="Finished Output" value={formatMetric(summary.totalFinishedOutput)} />
-          <Metric label="Average Yield" value={`${formatMetric(summary.averageYieldPercent)}%`} />
-          <Metric label="Process Loss" value={formatMetric(summary.totalProcessLoss)} />
+          <Metric label="Finished Output" value={formatMetric(effectiveSummary.totalFinishedOutput)} />
+          <Metric label="Average Yield" value={`${formatMetric(effectiveSummary.averageYieldPercent)}%`} />
+          <Metric label="Process Loss" value={formatMetric(effectiveSummary.totalProcessLoss)} />
           <Metric
             label="Latest"
-            value={summary.latestDate ? formatDisplayDate(summary.latestDate) : "-"}
+            value={effectiveSummary.latestDate ? formatDisplayDate(effectiveSummary.latestDate) : "-"}
           />
         </div>
       </SectionCard>
@@ -1214,7 +1504,13 @@ function BoulderReportsPage() {
           <select
             style={styles.input}
             value={filters.plantId}
-            onChange={(event) => setFilters((prev) => ({ ...prev, plantId: event.target.value }))}
+            onChange={(event) =>
+              setFilters((prev) => ({
+                ...prev,
+                plantId: event.target.value,
+                plantOther: event.target.value === OTHER_OPTION_VALUE ? prev.plantOther : "",
+              }))
+            }
           >
             <option value="">All Plants</option>
             {(plants || []).map((plant) => (
@@ -1222,12 +1518,32 @@ function BoulderReportsPage() {
                 {plant.plantName}
               </option>
             ))}
+            <option value={OTHER_OPTION_VALUE}>Other (Manual)</option>
           </select>
+          {isOtherOption(filters.plantId) ? (
+            <input
+              style={styles.input}
+              placeholder="Manual plant filter"
+              value={filters.plantOther || ""}
+              onChange={(event) =>
+                setFilters((prev) => ({
+                  ...prev,
+                  plantOther: event.target.value,
+                }))
+              }
+            />
+          ) : null}
 
           <select
             style={styles.input}
             value={filters.shiftId}
-            onChange={(event) => setFilters((prev) => ({ ...prev, shiftId: event.target.value }))}
+            onChange={(event) =>
+              setFilters((prev) => ({
+                ...prev,
+                shiftId: event.target.value,
+                shiftOther: event.target.value === OTHER_OPTION_VALUE ? prev.shiftOther : "",
+              }))
+            }
           >
             <option value="">All Shifts</option>
             {activeShifts.map((shift) => (
@@ -1235,7 +1551,21 @@ function BoulderReportsPage() {
                 {shift.shiftName}
               </option>
             ))}
+            <option value={OTHER_OPTION_VALUE}>Other (Manual)</option>
           </select>
+          {isOtherOption(filters.shiftId) ? (
+            <input
+              style={styles.input}
+              placeholder="Manual shift filter"
+              value={filters.shiftOther || ""}
+              onChange={(event) =>
+                setFilters((prev) => ({
+                  ...prev,
+                  shiftOther: event.target.value,
+                }))
+              }
+            />
+          ) : null}
 
           <select
             style={styles.input}
@@ -1244,6 +1574,8 @@ function BoulderReportsPage() {
               setFilters((prev) => ({
                 ...prev,
                 crusherUnitId: event.target.value,
+                crusherUnitOther:
+                  event.target.value === OTHER_OPTION_VALUE ? prev.crusherUnitOther : "",
               }))
             }
           >
@@ -1253,7 +1585,21 @@ function BoulderReportsPage() {
                 {unit.unitName}
               </option>
             ))}
+            <option value={OTHER_OPTION_VALUE}>Other (Manual)</option>
           </select>
+          {isOtherOption(filters.crusherUnitId) ? (
+            <input
+              style={styles.input}
+              placeholder="Manual unit filter"
+              value={filters.crusherUnitOther || ""}
+              onChange={(event) =>
+                setFilters((prev) => ({
+                  ...prev,
+                  crusherUnitOther: event.target.value,
+                }))
+              }
+            />
+          ) : null}
 
           <select
             style={styles.input}
@@ -1262,6 +1608,7 @@ function BoulderReportsPage() {
               setFilters((prev) => ({
                 ...prev,
                 vehicleId: event.target.value,
+                vehicleOther: event.target.value === OTHER_OPTION_VALUE ? prev.vehicleOther : "",
               }))
             }
           >
@@ -1271,18 +1618,52 @@ function BoulderReportsPage() {
                 {vehicle.vehicleNumber} - {vehicle.contractorName}
               </option>
             ))}
+            <option value={OTHER_OPTION_VALUE}>Other (Manual)</option>
           </select>
+          {isOtherOption(filters.vehicleId) ? (
+            <input
+              style={styles.input}
+              placeholder="Manual vehicle/contractor filter"
+              value={filters.vehicleOther || ""}
+              onChange={(event) =>
+                setFilters((prev) => ({
+                  ...prev,
+                  vehicleOther: event.target.value,
+                }))
+              }
+            />
+          ) : null}
 
           <select
             style={styles.input}
             value={filters.routeType}
-            onChange={(event) => setFilters((prev) => ({ ...prev, routeType: event.target.value }))}
+            onChange={(event) =>
+              setFilters((prev) => ({
+                ...prev,
+                routeType: event.target.value,
+                routeTypeOther: event.target.value === OTHER_OPTION_VALUE ? prev.routeTypeOther : "",
+              }))
+            }
           >
             <option value="">All Routes</option>
             <option value="to_stock_yard">To Stock Yard</option>
             <option value="direct_to_crushing_hub">Direct to Crushing Hub</option>
             <option value="mixed">Mixed (Stock + Direct)</option>
+            <option value={OTHER_OPTION_VALUE}>Other (Manual)</option>
           </select>
+          {isOtherOption(filters.routeType) ? (
+            <input
+              style={styles.input}
+              placeholder="Manual route filter"
+              value={filters.routeTypeOther || ""}
+              onChange={(event) =>
+                setFilters((prev) => ({
+                  ...prev,
+                  routeTypeOther: event.target.value,
+                }))
+              }
+            />
+          ) : null}
 
           <input
             style={styles.input}
@@ -1393,7 +1774,17 @@ function BoulderReportsPage() {
                   {plant.plantName}
                 </option>
               ))}
+              <option value={OTHER_OPTION_VALUE}>Other (Manual)</option>
             </select>
+            {isOtherOption(reportForm.plantId) ? (
+              <input
+                name="plantNameOther"
+                value={reportForm.plantNameOther || ""}
+                onChange={handleReportChange}
+                style={styles.input}
+                placeholder="Type exact existing plant name"
+              />
+            ) : null}
           </label>
 
           <label style={styles.fieldLabel}>
@@ -1412,7 +1803,17 @@ function BoulderReportsPage() {
                   {shift.shiftName}
                 </option>
               ))}
+              <option value={OTHER_OPTION_VALUE}>Other (Manual)</option>
             </select>
+            {isOtherOption(reportForm.shiftId) ? (
+              <input
+                name="shiftNameOther"
+                value={reportForm.shiftNameOther || ""}
+                onChange={handleReportChange}
+                style={styles.input}
+                placeholder="Type exact active shift name"
+              />
+            ) : null}
           </label>
 
           <label style={styles.fieldLabel}>
@@ -1423,7 +1824,6 @@ function BoulderReportsPage() {
                 value={reportForm.crusherUnitId}
                 onChange={handleReportChange}
                 style={styles.input}
-                required
                 disabled={loadingMasters}
               >
                 <option value="">Select Unit</option>
@@ -1432,6 +1832,7 @@ function BoulderReportsPage() {
                     {unit.unitName}
                   </option>
                 ))}
+                <option value={OTHER_OPTION_VALUE}>Other (Manual)</option>
               </select>
             ) : (
               <input
@@ -1441,6 +1842,15 @@ function BoulderReportsPage() {
                 readOnly
               />
             )}
+            {isOtherOption(reportForm.crusherUnitId) ? (
+              <input
+                name="crusherUnitNameOther"
+                value={reportForm.crusherUnitNameOther || ""}
+                onChange={handleReportChange}
+                style={styles.input}
+                placeholder="Manual unit name"
+              />
+            ) : null}
           </label>
 
           <label style={styles.fieldLabel}>
@@ -1467,7 +1877,18 @@ function BoulderReportsPage() {
               <option value="to_stock_yard">To Stock Yard</option>
               <option value="direct_to_crushing_hub">Direct to Crushing Hub</option>
               <option value="mixed">Mixed (Auto from vehicle trips)</option>
+              <option value={OTHER_OPTION_VALUE}>Other (Manual)</option>
             </select>
+            {isOtherOption(reportForm.routeType) ? (
+              <input
+                name="routeTypeOther"
+                value={reportForm.routeTypeOther || ""}
+                onChange={handleReportChange}
+                style={styles.input}
+                placeholder="Custom route label (saved in remarks)"
+                disabled={tripAggregates.count > 0}
+              />
+            ) : null}
           </label>
 
           <label style={styles.fieldLabel}>
@@ -1485,6 +1906,7 @@ function BoulderReportsPage() {
                   {vehicle.vehicleNumber} - {vehicle.contractorName}
                 </option>
               ))}
+              <option value={OTHER_OPTION_VALUE}>Other (Manual)</option>
             </select>
           </label>
 
@@ -1554,6 +1976,7 @@ function BoulderReportsPage() {
                       {vehicle.vehicleNumber} - {vehicle.contractorName}
                     </option>
                   ))}
+                  <option value={OTHER_OPTION_VALUE}>Other (Manual)</option>
                 </select>
                 <input
                   style={styles.input}
@@ -1578,7 +2001,16 @@ function BoulderReportsPage() {
                 >
                   <option value="to_stock_yard">To Stock Yard</option>
                   <option value="direct_to_crushing_hub">Direct to Crushing Hub</option>
+                  <option value={OTHER_OPTION_VALUE}>Other (Manual)</option>
                 </select>
+                {isOtherOption(quickTripForm.routeType) ? (
+                  <input
+                    style={styles.input}
+                    placeholder="Custom route label"
+                    value={quickTripForm.routeTypeOther || ""}
+                    onChange={(event) => handleQuickTripChange("routeTypeOther", event.target.value)}
+                  />
+                ) : null}
                 <input
                   type="number"
                   min="0"
@@ -1624,6 +2056,7 @@ function BoulderReportsPage() {
                           {vehicle.vehicleNumber} - {vehicle.contractorName}
                         </option>
                       ))}
+                      <option value={OTHER_OPTION_VALUE}>Other (Manual)</option>
                     </select>
                     <input
                       style={styles.input}
@@ -1650,7 +2083,18 @@ function BoulderReportsPage() {
                     >
                       <option value="to_stock_yard">To Stock Yard</option>
                       <option value="direct_to_crushing_hub">Direct to Crushing Hub</option>
+                      <option value={OTHER_OPTION_VALUE}>Other (Manual)</option>
                     </select>
+                    {isOtherOption(run.routeType) ? (
+                      <input
+                        style={styles.input}
+                        placeholder="Custom route label"
+                        value={run.routeTypeOther || ""}
+                        onChange={(event) =>
+                          handleVehicleRunChange(index, "routeTypeOther", event.target.value)
+                        }
+                      />
+                    ) : null}
                     <input
                       type="number"
                       min="0"
@@ -2036,8 +2480,8 @@ function BoulderReportsPage() {
               </tr>
             </thead>
             <tbody>
-              {reports.length ? (
-                reports.map((report) => (
+              {filteredReports.length ? (
+                filteredReports.map((report) => (
                   <tr key={report.id}>
                     <td style={styles.td}>{formatDisplayDate(report.reportDate)}</td>
                     <td style={styles.td}>

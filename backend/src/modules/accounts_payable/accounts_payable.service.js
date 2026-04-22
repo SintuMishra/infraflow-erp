@@ -416,14 +416,26 @@ const createPayable = async ({
       db,
     });
 
-    const postedVoucher = rule.requiresApproval
-      ? voucher
-      : await postVoucher({
+    let postedVoucher = voucher;
+    if (!rule.requiresApproval && Number(userId || 0) > 0) {
+      try {
+        postedVoucher = await postVoucher({
           voucherId: voucher.id,
           companyId: normalizedCompanyId,
           postedByUserId: userId,
           db,
         });
+      } catch (error) {
+        const message = String(error?.message || "");
+        const policyBlockedPosting =
+          Number(error?.statusCode || 0) === 403 &&
+          (message.includes("Maker cannot post") || message.includes("Approver cannot post"));
+
+        if (!policyBlockedPosting) {
+          throw error;
+        }
+      }
+    }
 
     await db.query(
       `

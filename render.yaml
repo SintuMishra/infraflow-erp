@@ -1,0 +1,55 @@
+services:
+  - type: web
+    name: construction-erp-api
+    runtime: node
+    plan: free
+    rootDir: production_ready_clone/backend
+    buildCommand: npm ci
+    startCommand: npm run migrate && npm start
+    autoDeploy: true
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ENFORCE_COMPANY_SCOPE
+        value: "true"
+      - key: EXPOSE_PASSWORD_RESET_TOKEN
+        value: "false"
+      - key: PASSWORD_RESET_DELIVERY_MODE
+        value: token_response
+      - key: PASSWORD_RESET_DELIVERY_CHANNELS
+        value: mobile
+      - key: PLATFORM_OWNER_COMPANY_ID
+        value: "1"
+      - key: CORS_ORIGIN
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ONBOARDING_BOOTSTRAP_SECRET
+        generateValue: true
+      - key: DB_HOST
+        fromDatabase:
+          name: construction-erp-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: construction-erp-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: construction-erp-db
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: construction-erp-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: construction-erp-db
+          property: password
+
+databases:
+  - name: construction-erp-db
+    plan: free
+    databaseName: construction_erp_db
+    user: construction_erp_user

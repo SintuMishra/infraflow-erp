@@ -35,6 +35,7 @@ const {
 const { getCompanyProfile } = require("../company_profile/company_profile.service");
 const { recordAuditEvent } = require("../../utils/audit.util");
 const { normalizeCompanyId } = require("../../utils/companyScope.util");
+const { normalizeRole } = require("../../utils/role.util");
 const {
   dispatchPasswordResetInstruction,
 } = require("../../utils/passwordResetDelivery.util");
@@ -42,7 +43,7 @@ const {
 const ROLE_ASSIGNMENT_RULES = {
   super_admin: ["hr", "manager", "crusher_supervisor", "site_engineer", "operator"],
   hr: ["crusher_supervisor", "site_engineer", "operator"],
-  manager: ["crusher_supervisor", "site_engineer", "operator"],
+  manager: ["hr", "manager", "crusher_supervisor", "site_engineer", "operator"],
 };
 
 const PLATFORM_OWNER_COMPANY_ID =
@@ -58,7 +59,7 @@ const buildAccessTokenPayload = ({
   userId: user.id,
   employeeId: user.employeeId,
   username: user.username,
-  role: user.role,
+  role: normalizeRole(user.role),
   companyId,
   mustChangePassword: Boolean(mustChangePassword),
   tokenType: "access",
@@ -156,8 +157,8 @@ const createUserAccount = async ({
   actorUserId = null,
   actorRole = "",
 }) => {
-  const normalizedRole = String(role || "").trim().toLowerCase();
-  const normalizedActorRole = String(actorRole || "").trim().toLowerCase();
+  const normalizedRole = normalizeRole(role);
+  const normalizedActorRole = normalizeRole(actorRole);
   const allowedRoles = ROLE_ASSIGNMENT_RULES[normalizedActorRole] || [];
 
   if (!allowedRoles.includes(normalizedRole)) {
@@ -255,7 +256,7 @@ const enforceLoginIntentRules = ({
     .toLowerCase();
 
   if (normalizedIntent === "owner") {
-    if (String(user.role || "").trim().toLowerCase() !== "super_admin") {
+    if (normalizeRole(user.role) !== "super_admin") {
       throw new Error("OWNER_LOGIN_ONLY_SUPER_ADMIN");
     }
 
@@ -347,7 +348,7 @@ const loginUser = async ({
       employeeCode: user.employeeCode,
       fullName: user.fullName,
       username: user.username,
-      role: user.role,
+      role: normalizeRole(user.role),
       department: user.department,
       designation: user.designation,
       companyId: resolvedCompanyId,
@@ -426,7 +427,7 @@ const changePassword = async ({
       employeeCode: refreshedUser.employeeCode,
       fullName: refreshedUser.fullName,
       username: refreshedUser.username,
-      role: refreshedUser.role,
+      role: normalizeRole(refreshedUser.role),
       department: refreshedUser.department,
       designation: refreshedUser.designation,
       companyId: refreshedUser.companyId || companyId || null,
@@ -697,7 +698,7 @@ const refreshAuthSession = async ({
       employeeCode: user.employeeCode,
       fullName: user.fullName,
       username: user.username,
-      role: user.role,
+      role: normalizeRole(user.role),
       department: user.department,
       designation: user.designation,
       companyId: user.companyId || companyId || null,

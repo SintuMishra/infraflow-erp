@@ -55,3 +55,47 @@ test("api router mounts party orders routes", async () => {
     "expected /api/party-orders router mount to exist"
   );
 });
+
+test("api router mounts purchase requests routes", async () => {
+  const purchaseRequestsLayer = apiRouter.stack.find(
+    (layer) => layer.name === "router" && layer.matchers?.[0]?.("/purchase-requests")
+  );
+
+  assert.ok(
+    purchaseRequestsLayer,
+    "expected /api/purchase-requests router mount to exist"
+  );
+});
+
+test("api router mounts purchase orders routes", async () => {
+  const purchaseOrdersLayer = apiRouter.stack.find(
+    (layer) => layer.name === "router" && layer.matchers?.[0]?.("/purchase-orders")
+  );
+
+  assert.ok(
+    purchaseOrdersLayer,
+    "expected /api/purchase-orders router mount to exist"
+  );
+});
+
+test("api router mounts goods receipts routes", async () => {
+  const goodsReceiptsLayer = apiRouter.stack.find(
+    (layer) => layer.name === "router" && layer.matchers?.[0]?.("/goods-receipts")
+  );
+
+  assert.ok(
+    goodsReceiptsLayer,
+    "expected /api/goods-receipts router mount to exist"
+  );
+});
+
+test("api router mounts purchase invoices routes", async () => {
+  const purchaseInvoicesLayer = apiRouter.stack.find(
+    (layer) => layer.name === "router" && layer.matchers?.[0]?.("/purchase-invoices")
+  );
+
+  assert.ok(
+    purchaseInvoicesLayer,
+    "expected /api/purchase-invoices router mount to exist"
+  );
+});

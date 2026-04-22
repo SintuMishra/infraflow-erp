@@ -51,6 +51,12 @@ test("migration files are ordered and include production hardening migrations", 
     "032_boulder_reports_and_mines_vehicle_registry.sql",
     "033_boulder_reports_shift_and_unit_master_link.sql",
     "034_boulder_vehicle_runs_shift_summary.sql",
+    "035_phase1_procurement_foundation.sql",
+    "036_phase1_procurement_grn_invoice.sql",
+    "037_procurement_employee_item_category.sql",
+    "038_purchase_requests_optional_vendor.sql",
+    "039_purchase_request_custom_items_and_supplier_quotes.sql",
+    "040_procurement_item_category_flexible_constraints.sql",
   ]);
 });
 
@@ -381,4 +387,38 @@ test("auth session and rate limit hardening migration creates refresh/session sa
   assert.match(sql, /CREATE TABLE IF NOT EXISTS rate_limit_counters/i);
   assert.match(sql, /rate_key VARCHAR\(320\) PRIMARY KEY/i);
   assert.match(sql, /idx_rate_limit_counters_expiry/i);
+});
+
+test("phase1 procurement foundation migration adds purchase request and order core tables", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/035_phase1_procurement_foundation.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS purchase_requests/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS purchase_request_lines/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS purchase_orders/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS purchase_order_lines/i);
+  assert.match(sql, /chk_purchase_requests_status/i);
+  assert.match(sql, /chk_purchase_orders_status/i);
+  assert.match(sql, /idx_purchase_requests_company_status_date/i);
+  assert.match(sql, /idx_purchase_orders_company_status_date/i);
+});
+
+test("phase1 procurement grn and invoice migration adds 3-way match tables", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/036_phase1_procurement_grn_invoice.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS goods_receipts/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS goods_receipt_lines/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS purchase_invoices/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS purchase_invoice_lines/i);
+  assert.match(sql, /chk_goods_receipts_status/i);
+  assert.match(sql, /chk_purchase_invoices_match_status/i);
+  assert.match(sql, /idx_goods_receipts_company_status_date/i);
+  assert.match(sql, /idx_purchase_invoices_company_match/i);
 });

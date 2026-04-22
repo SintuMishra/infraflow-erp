@@ -34,6 +34,8 @@ const allowedConfigTypes = [
   "material_unit",
   "vehicle_category",
   "material_hsn_rule",
+  "employee_department",
+  "procurement_item_category",
 ];
 
 const mapConfigOptions = (rows) => ({
@@ -43,6 +45,10 @@ const mapConfigOptions = (rows) => ({
   materialUnits: rows.filter((row) => row.configType === "material_unit"),
   vehicleCategories: rows.filter((row) => row.configType === "vehicle_category"),
   materialHsnRules: rows.filter((row) => row.configType === "material_hsn_rule"),
+  employeeDepartments: rows.filter((row) => row.configType === "employee_department"),
+  procurementItemCategories: rows.filter(
+    (row) => row.configType === "procurement_item_category"
+  ),
 });
 
 const createHttpError = (statusCode, message) => {
@@ -118,6 +124,15 @@ const normalizeOptionalText = (value) => {
   const normalized = String(value).trim();
   return normalized === "" ? null : normalized;
 };
+
+const normalizeProcurementCategoryValue = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_")
+    .replace(/[^a-z0-9_]/g, "")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
 
 const isUiOtherPlaceholder = (value) =>
   String(value || "")
@@ -196,7 +211,7 @@ const normalizeConfigPayload = (payload) => {
   const configType = normalizeRequiredText(payload.configType, "Config type is required");
   validateConfigType(configType);
   const optionLabel = normalizeRequiredText(payload.optionLabel, "Option label is required");
-  const optionValue = normalizeOptionalText(payload.optionValue) || optionLabel;
+  let optionValue = normalizeOptionalText(payload.optionValue) || optionLabel;
   const sortOrder = normalizeSortOrder(payload.sortOrder);
 
   if (configType === "material_hsn_rule" && !/^[0-9A-Za-z]{4,8}$/.test(optionValue)) {
@@ -204,6 +219,37 @@ const normalizeConfigPayload = (payload) => {
       400,
       "Material HSN auto-rule value must be an HSN/SAC-style code (4-8 letters/numbers)"
     );
+  }
+
+  if (configType === "employee_department") {
+    const normalizedRole = String(optionValue || "")
+      .trim()
+      .toLowerCase();
+    const allowedDepartmentRoles = [
+      "manager",
+      "hr",
+      "crusher_supervisor",
+      "site_engineer",
+      "operator",
+      "admin",
+    ];
+
+    if (!allowedDepartmentRoles.includes(normalizedRole)) {
+      throw createHttpError(
+        400,
+        "Employee department default role must be one of manager, hr, crusher_supervisor, site_engineer, operator, or admin"
+      );
+    }
+  }
+
+  if (configType === "procurement_item_category") {
+    optionValue = normalizeProcurementCategoryValue(optionValue || optionLabel);
+    if (!/^[a-z][a-z0-9_]{1,49}$/.test(optionValue)) {
+      throw createHttpError(
+        400,
+        "Procurement item category value must be 2-50 characters and use letters, numbers, and underscores only"
+      );
+    }
   }
 
   return {

@@ -37,6 +37,7 @@ This hub is the single entry point for all project documentation. It removes amb
 1. `docs/low-cost-production-deployment.md`
 2. `docs/oracle-cloud-free-tier-deployment-runbook.md`
 3. `docs/finance-concurrency-docker-runbook.md`
+4. `docs/RENDER-BACKEND-VERCEL-FRONTEND-FREE-DEMO-PLAN-2026-04-22.md`
 
 ### Go-Live and Stabilization
 1. `docs/GO-LIVE-MASTER-CHECKLIST.md`
@@ -52,6 +53,15 @@ This hub is the single entry point for all project documentation. It removes amb
 4. `docs/finance-uat-flow-2026-04-18.md`
 5. `docs/finance-production-hardening-report-2026-04-18.md`
 6. `docs/finance-rollout-evidence-2026-04-18.md`
+
+### Phase-1 Expansion Planning
+1. `docs/PHASE1-ERP-EXPANSION-ROADMAP-2026-04-22.md`
+2. `docs/PHASE1-SPRINT-BACKLOG-2026-04-22.md`
+3. `docs/PHASE1-SPRINT-BACKLOG-IMPORT-2026-04-22.csv`
+4. `docs/PHASE2-PROCUREMENT-IMPLEMENTATION-REPORT-2026-04-22.md`
+5. `docs/ERP-COMPLETE-GAP-AUDIT-2026-04-22.md`
+6. `docs/PROCUREMENT-UAT-GO-LIVE-CHECKLIST-2026-04-22.md`
+7. `docs/PROCUREMENT-TRAINING-MODE-QUICKSTART-2026-04-22.md`
 
 ## Legacy / Archive (Not Primary)
 These are retained for reference continuity and backward links:

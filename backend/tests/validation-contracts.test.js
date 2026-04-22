@@ -268,6 +268,26 @@ test("project report validation requires plantId for plant-linked reporting", as
   assert.match(res.body.message, /plantId/i);
 });
 
+test("project report validation accepts master-style shift names and normalizes them", async () => {
+  const payload = {
+    reportDate: "2026-04-22",
+    plantId: 2,
+    projectName: "Riverfront Bridge",
+    siteName: "Pier Zone 2",
+    workDone: "Foundation casting completed",
+    labourCount: 18,
+    machineCount: 3,
+    shift: "Day Shift",
+    reportStatus: "On_Track",
+  };
+  const { req, res, nextCalled } = runMiddleware(validateProjectReportInput, payload);
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
+  assert.equal(req.body.shift, "day_shift");
+  assert.equal(req.body.reportStatus, "on_track");
+});
+
 test("crusher report validation requires plantId for plant-linked reporting", async () => {
   const { res, nextCalled } = runMiddleware(validateCrusherReportInput, {
     reportDate: "2026-04-17",

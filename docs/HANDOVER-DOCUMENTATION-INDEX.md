@@ -49,6 +49,14 @@ This index defines the approved handover packet and exact reading order for busi
 7. `docs/masters-role-uat-checklist.md`
 8. `docs/masters-uat-evidence-2026-04-17.md`
 
+### Step 7: Post-Go-Live Product Expansion Planning
+1. `docs/PHASE1-ERP-EXPANSION-ROADMAP-2026-04-22.md`
+2. `docs/PHASE1-SPRINT-BACKLOG-2026-04-22.md`
+3. `docs/PHASE1-SPRINT-BACKLOG-IMPORT-2026-04-22.csv`
+4. `docs/PHASE2-PROCUREMENT-IMPLEMENTATION-REPORT-2026-04-22.md`
+5. `docs/ERP-COMPLETE-GAP-AUDIT-2026-04-22.md`
+6. `docs/PROCUREMENT-UAT-GO-LIVE-CHECKLIST-2026-04-22.md`
+
 ## Canonical vs Legacy Rules
 Canonical guides for current operations:
 - `docs/company-operations-guide-professional.md`
