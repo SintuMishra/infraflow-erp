@@ -249,6 +249,11 @@ const env = {
   dbName: requireEnv("DB_NAME"),
   dbUser: requireEnv("DB_USER"),
   dbPassword: requireEnv("DB_PASSWORD"),
+  dbSsl: parseBooleanEnv("DB_SSL", process.env.NODE_ENV === "production" ? "true" : "false"),
+  dbSslRejectUnauthorized: parseBooleanEnv(
+    "DB_SSL_REJECT_UNAUTHORIZED",
+    process.env.NODE_ENV === "production" ? "false" : "true"
+  ),
   dbPoolMax: parseIntegerEnv("DB_POOL_MAX", 20, { min: 1, max: 200 }),
   dbPoolMin: parseIntegerEnv("DB_POOL_MIN", 2, { min: 0, max: 100 }),
   dbPoolIdleTimeoutMs: parseIntegerEnv("DB_POOL_IDLE_TIMEOUT_MS", 30000, { min: 1000 }),

@@ -8,6 +8,11 @@ const pool = new Pool({
   database: env.dbName,
   user: env.dbUser,
   password: env.dbPassword,
+  ssl: env.dbSsl
+    ? {
+        rejectUnauthorized: env.dbSslRejectUnauthorized,
+      }
+    : false,
   max: env.dbPoolMax,
   min: env.dbPoolMin,
   idleTimeoutMillis: env.dbPoolIdleTimeoutMs,
