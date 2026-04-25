@@ -1,5 +1,6 @@
 const allowedOwnershipTypes = ["company", "attached_private", "transporter"];
 const allowedStatuses = ["active", "in_use", "inactive", "maintenance"];
+const allowedMeterUnits = ["hours", "km"];
 
 const isBlank = (value) =>
   value === undefined || value === null || String(value).trim() === "";
@@ -135,6 +136,7 @@ const validateCreateEquipmentLogInput = (req, res, next) => {
     openingMeterReading,
     closingMeterReading,
     fuelUsed,
+    meterUnit,
     plantId,
   } = req.body;
 
@@ -182,6 +184,26 @@ const validateCreateEquipmentLogInput = (req, res, next) => {
     });
   }
 
+  if (meterUnit && !allowedMeterUnits.includes(String(meterUnit).trim().toLowerCase())) {
+    return res.status(400).json({
+      success: false,
+      message: "meterUnit must be either hours or km",
+    });
+  }
+
+  next();
+};
+
+const validateEquipmentLogIdParam = (req, res, next) => {
+  const logId = Number(req.params?.id || 0);
+
+  if (!Number.isInteger(logId) || logId <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Equipment log id must be a valid positive number",
+    });
+  }
+
   next();
 };
 
@@ -191,4 +213,5 @@ module.exports = {
   validateVehicleStatusUpdate,
   validateEquipmentLogContextInput,
   validateCreateEquipmentLogInput,
+  validateEquipmentLogIdParam,
 };

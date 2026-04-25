@@ -6,6 +6,8 @@ const {
   getEquipmentLogsList,
   getEquipmentLogContext,
   createEquipmentLogRecord,
+  updateEquipmentLogRecord,
+  deleteEquipmentLogRecord,
 } = require("./vehicles.service");
 const { sendControllerError } = require("../../utils/http.util");
 
@@ -141,6 +143,45 @@ const createEquipmentLog = async (req, res) => {
   }
 };
 
+const updateEquipmentLog = async (req, res) => {
+  try {
+    const log = await updateEquipmentLogRecord({
+      logId: req.params.id,
+      ...req.body,
+      companyId: req.companyId || null,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Equipment log updated successfully",
+      data: log,
+    });
+  } catch (error) {
+    console.error("PATCH /vehicles/equipment-logs/:id error:", error);
+
+    return sendControllerError(req, res, error, "Failed to update equipment log");
+  }
+};
+
+const deleteEquipmentLog = async (req, res) => {
+  try {
+    const result = await deleteEquipmentLogRecord({
+      logId: req.params.id,
+      companyId: req.companyId || null,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Equipment log deleted successfully",
+      data: result,
+    });
+  } catch (error) {
+    console.error("DELETE /vehicles/equipment-logs/:id error:", error);
+
+    return sendControllerError(req, res, error, "Failed to delete equipment log");
+  }
+};
+
 module.exports = {
   getVehicles,
   createVehicle,
@@ -149,4 +190,6 @@ module.exports = {
   getEquipmentLogs,
   getEquipmentLogReadingContext,
   createEquipmentLog,
+  updateEquipmentLog,
+  deleteEquipmentLog,
 };

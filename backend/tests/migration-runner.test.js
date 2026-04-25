@@ -64,6 +64,8 @@ test("migration files are ordered and include production hardening migrations", 
     "045_company_enabled_modules.sql",
     "046_party_material_rate_loading_basis.sql",
     "047_equipment_log_meter_readings.sql",
+    "048_equipment_log_manual_vehicle_and_operator.sql",
+    "049_equipment_log_meter_unit.sql",
   ]);
 });
 
@@ -481,4 +483,30 @@ test("party material rate effective date migration adds effective-from date sele
   assert.match(sql, /SET effective_from = COALESCE/i);
   assert.match(sql, /CURRENT_DATE/i);
   assert.match(sql, /CREATE INDEX IF NOT EXISTS idx_party_material_rates_effective_lookup/i);
+});
+
+test("equipment log manual vehicle migration adds optional correction-friendly reference fields", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/048_equipment_log_manual_vehicle_and_operator.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /ALTER TABLE equipment_logs/i);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS manual_vehicle_number VARCHAR\(40\)/i);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS driver_operator_name VARCHAR\(120\)/i);
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS idx_equipment_logs_manual_vehicle/i);
+});
+
+test("equipment log meter unit migration supports hours and km tracking", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/049_equipment_log_meter_unit.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /ALTER TABLE equipment_logs/i);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS meter_unit VARCHAR\(20\)/i);
+  assert.match(sql, /CHECK \(meter_unit IN \('hours', 'km'\)\)/i);
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS idx_equipment_logs_meter_unit/i);
 });

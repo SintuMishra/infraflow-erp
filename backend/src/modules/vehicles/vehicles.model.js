@@ -49,9 +49,12 @@ const normalizeEquipmentLogRow = (row) => ({
     row.closingMeterReading !== null && row.closingMeterReading !== undefined
       ? Number(row.closingMeterReading)
       : null,
+  meterUnit: row.meterUnit || "hours",
+  manualVehicleNumber: row.manualVehicleNumber || null,
+  driverOperatorName: row.driverOperatorName || null,
 });
 
-const getEquipmentMeterColumns = async () => {
+const getEquipmentSchemaColumns = async () => {
   const openingMeterReadingColumn = (await hasColumn(
     "equipment_logs",
     "opening_meter_reading"
@@ -68,10 +71,14 @@ const getEquipmentMeterColumns = async () => {
     : (await hasColumn("equipment_logs", "closing_meter"))
       ? "closing_meter"
       : null;
+  const meterUnitColumn = (await hasColumn("equipment_logs", "meter_unit"))
+    ? "meter_unit"
+    : null;
 
   return {
     openingMeterReadingColumn,
     closingMeterReadingColumn,
+    meterUnitColumn,
   };
 };
 
@@ -81,6 +88,7 @@ const formatEquipmentLogRows = (rows) =>
 const buildEquipmentLogsSelect = ({
   openingMeterReadingColumn,
   closingMeterReadingColumn,
+  meterUnitColumn,
 }) => `
   SELECT
     el.id,
@@ -100,7 +108,14 @@ const buildEquipmentLogsSelect = ({
         ? `el.${closingMeterReadingColumn} AS "closingMeterReading",`
         : `NULL::numeric AS "closingMeterReading",`
     }
+    ${
+      meterUnitColumn
+        ? `COALESCE(el.${meterUnitColumn}, 'hours') AS "meterUnit",`
+        : `'hours'::text AS "meterUnit",`
+    }
     el.remarks,
+    el.manual_vehicle_number AS "manualVehicleNumber",
+    el.driver_operator_name AS "driverOperatorName",
     el.created_by AS "createdBy",
     el.plant_id AS "plantId",
     p.plant_name AS "plantName",
@@ -284,7 +299,7 @@ const setVehicleStatus = async ({ vehicleId, status, companyId }) => {
 
 const findAllEquipmentLogs = async (companyId = null) => {
   const equipmentLogsHasCompany = await hasColumn("equipment_logs", "company_id");
-  const meterColumns = await getEquipmentMeterColumns();
+  const meterColumns = await getEquipmentSchemaColumns();
   const query = `
     ${buildEquipmentLogsSelect(meterColumns)}
     ${equipmentLogsHasCompany && companyId !== null ? `WHERE el.company_id = $1` : ""}
@@ -300,9 +315,10 @@ const findLatestEquipmentLog = async ({
   equipmentType,
   plantId,
   companyId = null,
+  db = pool,
 }) => {
   const equipmentLogsHasCompany = await hasColumn("equipment_logs", "company_id");
-  const meterColumns = await getEquipmentMeterColumns();
+  const meterColumns = await getEquipmentSchemaColumns();
   const values = [equipmentName.trim(), equipmentType.trim()];
   const conditions = [
     `LOWER(TRIM(el.equipment_name)) = LOWER(TRIM($1))`,
@@ -329,7 +345,67 @@ const findLatestEquipmentLog = async ({
     LIMIT 1
   `;
 
-  const result = await pool.query(query, values);
+  const result = await db.query(query, values);
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  return formatEquipmentLogRows(result.rows)[0];
+};
+
+const findEquipmentLogChain = async ({
+  equipmentName,
+  equipmentType,
+  plantId,
+  companyId = null,
+  db = pool,
+}) => {
+  const equipmentLogsHasCompany = await hasColumn("equipment_logs", "company_id");
+  const meterColumns = await getEquipmentSchemaColumns();
+  const values = [equipmentName.trim(), equipmentType.trim()];
+  const conditions = [
+    `LOWER(TRIM(el.equipment_name)) = LOWER(TRIM($1))`,
+    `LOWER(TRIM(el.equipment_type)) = LOWER(TRIM($2))`,
+  ];
+  let parameterIndex = values.length;
+
+  if (plantId) {
+    parameterIndex += 1;
+    values.push(plantId);
+    conditions.push(`el.plant_id = $${parameterIndex}`);
+  }
+
+  if (equipmentLogsHasCompany && companyId !== null) {
+    parameterIndex += 1;
+    values.push(companyId);
+    conditions.push(`el.company_id = $${parameterIndex}`);
+  }
+
+  const query = `
+    ${buildEquipmentLogsSelect(meterColumns)}
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY el.usage_date ASC, el.id ASC
+  `;
+
+  const result = await db.query(query, values);
+  return formatEquipmentLogRows(result.rows);
+};
+
+const findEquipmentLogById = async ({ logId, companyId = null, db = pool }) => {
+  const equipmentLogsHasCompany = await hasColumn("equipment_logs", "company_id");
+  const meterColumns = await getEquipmentSchemaColumns();
+  const query = `
+    ${buildEquipmentLogsSelect(meterColumns)}
+    WHERE el.id = $1
+    ${equipmentLogsHasCompany && companyId !== null ? `AND el.company_id = $2` : ""}
+    LIMIT 1
+  `;
+
+  const result = await db.query(
+    query,
+    equipmentLogsHasCompany && companyId !== null ? [logId, companyId] : [logId]
+  );
 
   if (result.rows.length === 0) {
     return null;
@@ -347,14 +423,18 @@ const insertEquipmentLog = async ({
   fuelUsed,
   openingMeterReading,
   closingMeterReading,
+  meterUnit,
+  manualVehicleNumber,
+  driverOperatorName,
   remarks,
   createdBy,
   plantId,
   companyId,
+  db = pool,
 }) => {
   const equipmentLogsHasCompany = await hasColumn("equipment_logs", "company_id");
-  const { openingMeterReadingColumn, closingMeterReadingColumn } =
-    await getEquipmentMeterColumns();
+  const { openingMeterReadingColumn, closingMeterReadingColumn, meterUnitColumn } =
+    await getEquipmentSchemaColumns();
 
   const insertColumns = [
     "usage_date",
@@ -364,6 +444,8 @@ const insertEquipmentLog = async ({
     "usage_hours",
     "fuel_used",
     "remarks",
+    "manual_vehicle_number",
+    "driver_operator_name",
     "created_by",
     "plant_id",
   ];
@@ -376,6 +458,8 @@ const insertEquipmentLog = async ({
     usageHours,
     fuelUsed,
     remarks || null,
+    manualVehicleNumber || null,
+    driverOperatorName || null,
     createdBy,
     plantId || null,
   ];
@@ -390,6 +474,11 @@ const insertEquipmentLog = async ({
     values.push(closingMeterReading);
   }
 
+  if (meterUnitColumn) {
+    insertColumns.push(meterUnitColumn);
+    values.push(meterUnit || "hours");
+  }
+
   if (equipmentLogsHasCompany) {
     insertColumns.push("company_id");
     values.push(companyId || null);
@@ -401,23 +490,125 @@ const insertEquipmentLog = async ({
     RETURNING id
   `;
 
-  const result = await pool.query(query, values);
+  const result = await db.query(query, values);
   const logId = result.rows[0].id;
   const fetchQuery = `
     ${buildEquipmentLogsSelect({
       openingMeterReadingColumn,
       closingMeterReadingColumn,
+      meterUnitColumn,
     })}
     WHERE el.id = $1
     ${equipmentLogsHasCompany && companyId !== null ? `AND el.company_id = $2` : ""}
   `;
 
-  const fetchResult = await pool.query(
+  const fetchResult = await db.query(
     fetchQuery,
     equipmentLogsHasCompany && companyId !== null ? [logId, companyId] : [logId]
   );
 
   return formatEquipmentLogRows(fetchResult.rows)[0];
+};
+
+const updateEquipmentLog = async ({
+  logId,
+  usageDate,
+  siteName,
+  usageHours,
+  fuelUsed,
+  openingMeterReading,
+  closingMeterReading,
+  meterUnit,
+  manualVehicleNumber,
+  driverOperatorName,
+  remarks,
+  plantId,
+  companyId,
+  db = pool,
+}) => {
+  const equipmentLogsHasCompany = await hasColumn("equipment_logs", "company_id");
+  const { openingMeterReadingColumn, closingMeterReadingColumn, meterUnitColumn } =
+    await getEquipmentSchemaColumns();
+
+  const updateAssignments = [
+    `usage_date = $1`,
+    `site_name = $2`,
+    `usage_hours = $3`,
+    `fuel_used = $4`,
+    `remarks = $5`,
+    `plant_id = $6`,
+    `manual_vehicle_number = $7`,
+    `driver_operator_name = $8`,
+    `updated_at = NOW()`,
+  ];
+  const values = [
+    usageDate,
+    siteName || null,
+    usageHours,
+    fuelUsed,
+    remarks || null,
+    plantId || null,
+    manualVehicleNumber || null,
+    driverOperatorName || null,
+  ];
+
+  if (openingMeterReadingColumn) {
+    updateAssignments.push(
+      `${openingMeterReadingColumn} = $${values.length + 1}`
+    );
+    values.push(openingMeterReading);
+  }
+
+  if (closingMeterReadingColumn) {
+    updateAssignments.push(
+      `${closingMeterReadingColumn} = $${values.length + 1}`
+    );
+    values.push(closingMeterReading);
+  }
+
+  if (meterUnitColumn) {
+    updateAssignments.push(`${meterUnitColumn} = $${values.length + 1}`);
+    values.push(meterUnit || "hours");
+  }
+
+  values.push(logId);
+
+  if (equipmentLogsHasCompany && companyId !== null) {
+    values.push(companyId);
+  }
+
+  const query = `
+    UPDATE equipment_logs
+    SET ${updateAssignments.join(", ")}
+    WHERE id = $${values.length - (equipmentLogsHasCompany && companyId !== null ? 1 : 0)}
+    ${equipmentLogsHasCompany && companyId !== null ? `AND company_id = $${values.length}` : ""}
+    RETURNING id
+  `;
+
+  const result = await db.query(query, values);
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  return await findEquipmentLogById({ logId, companyId, db });
+};
+
+const removeEquipmentLog = async ({ logId, companyId = null, db = pool }) => {
+  const equipmentLogsHasCompany = await hasColumn("equipment_logs", "company_id");
+  const query = `
+    DELETE FROM equipment_logs
+    WHERE id = $1
+    ${equipmentLogsHasCompany && companyId !== null ? `AND company_id = $2` : ""}
+    RETURNING id
+  `;
+
+  const result = await db.query(
+    query,
+    equipmentLogsHasCompany && companyId !== null ? [logId, companyId] : [logId]
+  );
+
+  return result.rows.length > 0;
 };
 
 const plantExists = async (plantId, companyId = null) => {
@@ -448,7 +639,11 @@ module.exports = {
   editVehicle,
   setVehicleStatus,
   findAllEquipmentLogs,
+  findEquipmentLogById,
+  findEquipmentLogChain,
   findLatestEquipmentLog,
   insertEquipmentLog,
+  removeEquipmentLog,
+  updateEquipmentLog,
   plantExists,
 };

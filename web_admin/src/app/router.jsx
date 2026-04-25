@@ -209,7 +209,20 @@ export function AppRouter() {
               allowWhen={canAccessOperationalWorkspace}
               requiredModule="operations"
             >
-              <VehiclesPage />
+              <VehiclesPage workspaceMode="fleet" />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/equipment"
+          element={
+            <ProtectedRoute
+              allowedRoles={ROUTE_ACCESS.equipment}
+              allowWhen={canAccessOperationalWorkspace}
+              requiredModule="operations"
+            >
+              <VehiclesPage workspaceMode="equipment" />
             </ProtectedRoute>
           }
         />

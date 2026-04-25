@@ -240,6 +240,285 @@ test("project service preserves company scope on create", async () => {
   assert.equal(capturedPayload.companyId, 88);
 });
 
+test("vehicle service updates an equipment log and rebalances later continuity", async () => {
+  const servicePath = require.resolve("../src/modules/vehicles/vehicles.service.js");
+  const modelPath = require.resolve("../src/modules/vehicles/vehicles.model.js");
+  const dbPath = require.resolve("../src/config/db.js");
+
+  const originalService = require.cache[servicePath];
+  const originalModel = require.cache[modelPath];
+  const originalDb = require.cache[dbPath];
+
+  const capturedPayloads = [];
+
+  require.cache[modelPath] = {
+    id: modelPath,
+    filename: modelPath,
+    loaded: true,
+    exports: {
+      findAllVehicles: async () => [],
+      insertVehicle: async () => null,
+      editVehicle: async () => null,
+      setVehicleStatus: async () => null,
+      findAllEquipmentLogs: async () => [],
+      findEquipmentLogById: async () => ({
+        id: 55,
+        usageDate: "2026-04-23",
+        equipmentName: "Excavator 320",
+        equipmentType: "Excavator",
+        siteName: "Pit A",
+        plantId: 7,
+        openingMeterReading: 100,
+        closingMeterReading: 112,
+        fuelUsed: 11,
+        meterUnit: "hours",
+        manualVehicleNumber: null,
+        driverOperatorName: null,
+        remarks: null,
+      }),
+      findEquipmentLogChain: async () => ([
+        {
+          id: 55,
+          usageDate: "2026-04-23",
+          equipmentName: "Excavator 320",
+          equipmentType: "Excavator",
+          siteName: "Pit A",
+          plantId: 7,
+          openingMeterReading: 100,
+          closingMeterReading: 112,
+          fuelUsed: 11,
+          meterUnit: "hours",
+          manualVehicleNumber: null,
+          driverOperatorName: null,
+          remarks: null,
+        },
+        {
+          id: 56,
+          usageDate: "2026-04-24",
+          equipmentName: "Excavator 320",
+          equipmentType: "Excavator",
+          siteName: "Pit B",
+          plantId: 7,
+          openingMeterReading: 112,
+          closingMeterReading: 118,
+          fuelUsed: 8,
+          meterUnit: "hours",
+          manualVehicleNumber: "MH12AB1234",
+          driverOperatorName: "Ramesh",
+          remarks: "ready",
+        },
+      ]),
+      findLatestEquipmentLog: async () => ({
+        id: 56,
+        usageDate: "2026-04-24",
+        equipmentName: "Excavator 320",
+        equipmentType: "Excavator",
+        plantId: 7,
+        closingMeterReading: 118,
+        meterUnit: "hours",
+      }),
+      insertEquipmentLog: async () => null,
+      updateEquipmentLog: async (payload) => {
+        capturedPayloads.push(payload);
+        return {
+          id: payload.logId,
+          usageDate: payload.usageDate,
+          equipmentName: "Excavator 320",
+          equipmentType: "Excavator",
+          siteName: payload.siteName,
+          plantId: payload.plantId,
+          openingMeterReading: payload.openingMeterReading,
+          closingMeterReading: payload.closingMeterReading,
+          usageHours: payload.usageHours,
+          fuelUsed: payload.fuelUsed,
+          meterUnit: payload.meterUnit,
+          manualVehicleNumber: payload.manualVehicleNumber,
+          driverOperatorName: payload.driverOperatorName,
+          remarks: payload.remarks,
+        };
+      },
+      removeEquipmentLog: async () => true,
+      plantExists: async () => true,
+    },
+  };
+  require.cache[dbPath] = {
+    id: dbPath,
+    filename: dbPath,
+    loaded: true,
+    exports: {
+      withTransaction: async (work) => work({}),
+    },
+  };
+
+  delete require.cache[servicePath];
+
+  try {
+    const { updateEquipmentLogRecord } = require(servicePath);
+    await updateEquipmentLogRecord({
+      logId: 55,
+      usageDate: "2026-04-23",
+      equipmentName: "Excavator 320",
+      equipmentType: "Excavator",
+      siteName: "  Pit B  ",
+      openingMeterReading: 100,
+      closingMeterReading: 114,
+      fuelUsed: 18.257,
+      meterUnit: "km",
+      remarks: "  corrected closing meter  ",
+      plantId: 7,
+      companyId: 4,
+    });
+  } finally {
+    delete require.cache[servicePath];
+    if (originalService) require.cache[servicePath] = originalService;
+    if (originalModel) require.cache[modelPath] = originalModel;
+    else delete require.cache[modelPath];
+    if (originalDb) require.cache[dbPath] = originalDb;
+    else delete require.cache[dbPath];
+  }
+
+  assert.equal(capturedPayloads.length, 2);
+  assert.equal(capturedPayloads[0].logId, 55);
+  assert.equal(capturedPayloads[0].siteName, "Pit B");
+  assert.equal(capturedPayloads[0].usageHours, 14);
+  assert.equal(capturedPayloads[0].fuelUsed, 18.26);
+  assert.equal(capturedPayloads[0].openingMeterReading, 100);
+  assert.equal(capturedPayloads[0].closingMeterReading, 114);
+  assert.equal(capturedPayloads[0].meterUnit, "km");
+  assert.equal(capturedPayloads[0].companyId, 4);
+  assert.equal(capturedPayloads[1].logId, 56);
+  assert.equal(capturedPayloads[1].openingMeterReading, 114);
+  assert.equal(capturedPayloads[1].closingMeterReading, 118);
+  assert.equal(capturedPayloads[1].usageHours, 4);
+  assert.equal(capturedPayloads[1].meterUnit, "km");
+});
+
+test("vehicle service allows deleting the first equipment log and preserves the next starting reading", async () => {
+  const servicePath = require.resolve("../src/modules/vehicles/vehicles.service.js");
+  const modelPath = require.resolve("../src/modules/vehicles/vehicles.model.js");
+  const dbPath = require.resolve("../src/config/db.js");
+
+  const originalService = require.cache[servicePath];
+  const originalModel = require.cache[modelPath];
+  const originalDb = require.cache[dbPath];
+  const capturedPayloads = [];
+
+  require.cache[modelPath] = {
+    id: modelPath,
+    filename: modelPath,
+    loaded: true,
+    exports: {
+      findAllVehicles: async () => [],
+      insertVehicle: async () => null,
+      editVehicle: async () => null,
+      setVehicleStatus: async () => null,
+      findAllEquipmentLogs: async () => [],
+      findEquipmentLogById: async () => ({
+        id: 55,
+        usageDate: "2026-04-23",
+        equipmentName: "Excavator 320",
+        equipmentType: "Excavator",
+        plantId: 7,
+        openingMeterReading: 100,
+        closingMeterReading: 112,
+        fuelUsed: 11,
+        meterUnit: "hours",
+      }),
+      findEquipmentLogChain: async () => ([
+        {
+          id: 55,
+          usageDate: "2026-04-23",
+          equipmentName: "Excavator 320",
+          equipmentType: "Excavator",
+          siteName: "Pit A",
+          plantId: 7,
+          openingMeterReading: 100,
+          closingMeterReading: 112,
+          fuelUsed: 11,
+          meterUnit: "hours",
+          manualVehicleNumber: null,
+          driverOperatorName: null,
+          remarks: null,
+        },
+        {
+          id: 56,
+          usageDate: "2026-04-24",
+          equipmentName: "Excavator 320",
+          equipmentType: "Excavator",
+          siteName: "Pit B",
+          plantId: 7,
+          openingMeterReading: 112,
+          closingMeterReading: 130,
+          fuelUsed: 9,
+          meterUnit: "hours",
+          manualVehicleNumber: null,
+          driverOperatorName: null,
+          remarks: null,
+        },
+      ]),
+      findLatestEquipmentLog: async () => ({
+        id: 56,
+        usageDate: "2026-04-24",
+        equipmentName: "Excavator 320",
+        equipmentType: "Excavator",
+        plantId: 7,
+        closingMeterReading: 118,
+      }),
+      insertEquipmentLog: async () => null,
+      updateEquipmentLog: async (payload) => {
+        capturedPayloads.push(payload);
+        return {
+          id: payload.logId,
+          usageDate: payload.usageDate,
+          equipmentName: "Excavator 320",
+          equipmentType: "Excavator",
+          siteName: payload.siteName,
+          plantId: payload.plantId,
+          openingMeterReading: payload.openingMeterReading,
+          closingMeterReading: payload.closingMeterReading,
+          usageHours: payload.usageHours,
+          fuelUsed: payload.fuelUsed,
+          meterUnit: payload.meterUnit,
+          manualVehicleNumber: payload.manualVehicleNumber,
+          driverOperatorName: payload.driverOperatorName,
+          remarks: payload.remarks,
+        };
+      },
+      removeEquipmentLog: async () => true,
+      plantExists: async () => true,
+    },
+  };
+  require.cache[dbPath] = {
+    id: dbPath,
+    filename: dbPath,
+    loaded: true,
+    exports: {
+      withTransaction: async (work) => work({}),
+    },
+  };
+
+  delete require.cache[servicePath];
+
+  try {
+    const { deleteEquipmentLogRecord } = require(servicePath);
+    const result = await deleteEquipmentLogRecord({ logId: 55, companyId: 4 });
+    assert.equal(result.id, 55);
+  } finally {
+    delete require.cache[servicePath];
+    if (originalService) require.cache[servicePath] = originalService;
+    if (originalModel) require.cache[modelPath] = originalModel;
+    else delete require.cache[modelPath];
+    if (originalDb) require.cache[dbPath] = originalDb;
+    else delete require.cache[dbPath];
+  }
+
+  assert.equal(capturedPayloads.length, 1);
+  assert.equal(capturedPayloads[0].logId, 56);
+  assert.equal(capturedPayloads[0].openingMeterReading, 112);
+  assert.equal(capturedPayloads[0].closingMeterReading, 130);
+  assert.equal(capturedPayloads[0].usageHours, 18);
+});
+
 test("project service rejects create when shift is not an active master shift", async () => {
   const servicePath = require.resolve("../src/modules/projects/projects.service.js");
   const modelPath = require.resolve("../src/modules/projects/projects.model.js");

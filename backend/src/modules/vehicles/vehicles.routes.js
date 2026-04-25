@@ -7,6 +7,8 @@ const {
   getEquipmentLogs,
   getEquipmentLogReadingContext,
   createEquipmentLog,
+  updateEquipmentLog,
+  deleteEquipmentLog,
 } = require("./vehicles.controller");
 const {
   validateCreateVehicleInput,
@@ -14,6 +16,7 @@ const {
   validateVehicleStatusUpdate,
   validateEquipmentLogContextInput,
   validateCreateEquipmentLogInput,
+  validateEquipmentLogIdParam,
 } = require("./vehicles.validation");
 const { authenticate } = require("../../middlewares/auth.middleware");
 const { authorizeRoles } = require("../../middlewares/role.middleware");
@@ -72,6 +75,23 @@ router.post(
   authorizeRoles("super_admin", "manager", "crusher_supervisor", "site_engineer"),
   validateCreateEquipmentLogInput,
   createEquipmentLog
+);
+
+router.patch(
+  "/equipment-logs/:id",
+  authenticate,
+  authorizeRoles("super_admin", "manager", "crusher_supervisor", "site_engineer"),
+  validateEquipmentLogIdParam,
+  validateCreateEquipmentLogInput,
+  updateEquipmentLog
+);
+
+router.delete(
+  "/equipment-logs/:id",
+  authenticate,
+  authorizeRoles("super_admin", "manager", "crusher_supervisor", "site_engineer"),
+  validateEquipmentLogIdParam,
+  deleteEquipmentLog
 );
 
 module.exports = router;

@@ -18,6 +18,20 @@ const formatMetric = (value) =>
     maximumFractionDigits: 2,
   }).format(Number(value || 0));
 
+const normalizeMeterUnit = (value) => (String(value || "").toLowerCase() === "km" ? "km" : "hours");
+const getMeterUnitShortLabel = (meterUnit) =>
+  normalizeMeterUnit(meterUnit) === "km" ? "km" : "hr";
+const getMeterUnitLabel = (meterUnit) =>
+  normalizeMeterUnit(meterUnit) === "km" ? "KM" : "Hours";
+const formatUsageMetric = (value, meterUnit) =>
+  `${formatMetric(value)} ${getMeterUnitShortLabel(meterUnit)}`;
+const buildEquipmentChainKey = (log) =>
+  [
+    String(log?.equipmentName || "").trim().toLowerCase(),
+    String(log?.equipmentType || "").trim().toLowerCase(),
+    String(log?.plantId || ""),
+  ].join("::");
+
 const createVehicleFormState = () => ({
   vehicleNumber: "",
   vehicleType: "",
@@ -33,9 +47,12 @@ const createEquipmentFormState = () => ({
   usageDate: getTodayDateValue(),
   equipmentName: "",
   equipmentType: "",
+  manualVehicleNumber: "",
+  driverOperatorName: "",
   siteName: "",
   openingMeterReading: "",
   closingMeterReading: "",
+  meterUnit: "hours",
   usageHours: "",
   fuelUsed: "",
   remarks: "",
@@ -64,7 +81,7 @@ const buildCsv = (rows) => {
   ].join("\n");
 };
 
-function VehiclesPage() {
+function VehiclesPage({ workspaceMode = "fleet" }) {
   const { currentUser } = useAuth();
   const {
     masters,
@@ -84,7 +101,9 @@ function VehiclesPage() {
   const [isSubmittingVehicle, setIsSubmittingVehicle] = useState(false);
   const [isSubmittingEquipment, setIsSubmittingEquipment] = useState(false);
   const [isUpdatingVehicle, setIsUpdatingVehicle] = useState(false);
+  const [isUpdatingEquipment, setIsUpdatingEquipment] = useState(false);
   const [statusUpdatingId, setStatusUpdatingId] = useState(null);
+  const [deletingEquipmentLogId, setDeletingEquipmentLogId] = useState(null);
   const [lastWorkspaceSyncAt, setLastWorkspaceSyncAt] = useState(null);
 
   const [showVehicleList, setShowVehicleList] = useState(true);
@@ -111,6 +130,7 @@ function VehiclesPage() {
 
   const [editVehicle, setEditVehicle] = useState(null);
   const [editVehicleForm, setEditVehicleForm] = useState(createVehicleFormState);
+  const [editEquipmentLog, setEditEquipmentLog] = useState(null);
   const canManageVehicles = ["super_admin", "manager", "hr"].includes(
     String(currentUser?.role || "")
   );
@@ -120,6 +140,42 @@ function VehiclesPage() {
     "crusher_supervisor",
     "site_engineer",
   ].includes(String(currentUser?.role || ""));
+  const isFleetWorkspace = workspaceMode !== "equipment";
+  const isEquipmentWorkspace = workspaceMode === "equipment";
+  const workspaceTitle = isEquipmentWorkspace ? "Equipment Management" : "Fleet Management";
+  const workspaceSubtitle = isEquipmentWorkspace
+    ? "Manage machinery logs, meter continuity, operators, and fuel-linked usage"
+    : "Manage fleet records, plant assignment, transporters, and live vehicle status";
+  const heroEyebrow = isEquipmentWorkspace ? "Machinery Operations Layer" : "Fleet Operations Layer";
+  const heroTitle = isEquipmentWorkspace
+    ? "Equipment Control Center"
+    : "Fleet Control Center";
+  const heroText = isEquipmentWorkspace
+    ? "Manage equipment register discipline, hour-meter and km-meter logs, operator references, and practical site-level usage corrections."
+    : "Manage company-owned, attached, and transporter-linked vehicles with plant-aware ERP workflows, live fleet status, and practical vehicle capacity controls.";
+  const workspaceScopeLabel = isEquipmentWorkspace
+    ? "Equipment + meter + fuel control"
+    : "Fleet + edit + status control";
+  const workspaceBenefitLabel = isEquipmentWorkspace
+    ? "Utilization and meter continuity ready"
+    : "Dispatch capacity validation ready";
+  const syncBannerLabel = isEquipmentWorkspace ? "Equipment Source Of Truth" : "Fleet Source Of Truth";
+  const syncBannerNote = isEquipmentWorkspace
+    ? "Equipment logs now stay aligned with scoped plants, meter units, operator references, and practical site correction workflows."
+    : "Vehicle assignment now stays aligned with scoped plants, transporter links, capacity checks, and dispatch usage expectations.";
+  const workspaceControlValue = isEquipmentWorkspace
+    ? "Equipment workspace"
+    : "Fleet workspace";
+  const workspaceControlMeta = isEquipmentWorkspace
+    ? `Equipment search: ${equipmentSearch.trim() || "none"}`
+    : `Vehicle search: ${vehicleSearch.trim() || "none"}`;
+  const logisticsTitle = isEquipmentWorkspace
+    ? "Connected Equipment Flow"
+    : "Connected Logistics Flow";
+  const logisticsSubtitle = isEquipmentWorkspace
+    ? "Equipment usage depends on clean plant setup, supplier linkage, and operational reporting. These linked workspaces help operations stay aligned without duplicate entry."
+    : "Vehicles are only one part of dispatch readiness. These linked workspaces help operations complete transporter setup without jumping blindly between modules.";
+  const overviewTitle = isEquipmentWorkspace ? "Equipment Overview" : "Fleet Overview";
 
   useEffect(() => {
     const hasVehicleSearch =
@@ -235,6 +291,12 @@ function VehiclesPage() {
       equipmentFormData.equipmentType.trim() &&
       equipmentFormData.plantId;
 
+    if (editEquipmentLog) {
+      setEquipmentReadingContext(null);
+      setLoadingEquipmentContext(false);
+      return;
+    }
+
     if (!shouldLoadContext) {
       setEquipmentReadingContext(null);
       setLoadingEquipmentContext(false);
@@ -272,6 +334,7 @@ function VehiclesPage() {
               : prev.closingMeterReading === "" && prev.openingMeterReading
                 ? prev.openingMeterReading
                 : "",
+          meterUnit: context?.suggestedMeterUnit || prev.meterUnit || "hours",
         }));
       } catch {
         if (isActive) {
@@ -292,6 +355,7 @@ function VehiclesPage() {
     equipmentFormData.equipmentName,
     equipmentFormData.equipmentType,
     equipmentFormData.plantId,
+    editEquipmentLog,
   ]);
 
   const equipmentUsageHoursPreview = useMemo(() => {
@@ -313,6 +377,11 @@ function VehiclesPage() {
     equipmentFormData.openingMeterReading,
     equipmentFormData.closingMeterReading,
   ]);
+
+  const equipmentUsageLabel = useMemo(
+    () => `Usage (${getMeterUnitLabel(equipmentFormData.meterUnit)})`,
+    [equipmentFormData.meterUnit]
+  );
 
   async function refreshWorkspace() {
     setIsLoadingData(true);
@@ -385,6 +454,48 @@ function VehiclesPage() {
 
       return next;
     });
+  };
+
+  const openEditEquipmentPanel = (log) => {
+    setEditEquipmentLog(log);
+    setEquipmentReadingContext(null);
+    setEquipmentFormData({
+      usageDate: toDateOnlyValue(log.usageDate) || getTodayDateValue(),
+      equipmentName: log.equipmentName || "",
+      equipmentType: log.equipmentType || "",
+      manualVehicleNumber: log.manualVehicleNumber || "",
+      driverOperatorName: log.driverOperatorName || "",
+      siteName: log.siteName || "",
+      openingMeterReading:
+        log.openingMeterReading !== null && log.openingMeterReading !== undefined
+          ? String(log.openingMeterReading)
+          : "",
+      closingMeterReading:
+        log.closingMeterReading !== null && log.closingMeterReading !== undefined
+          ? String(log.closingMeterReading)
+          : "",
+      meterUnit: normalizeMeterUnit(log.meterUnit),
+      usageHours:
+        log.usageHours !== null && log.usageHours !== undefined
+          ? String(log.usageHours)
+          : "",
+      fuelUsed:
+        log.fuelUsed !== null && log.fuelUsed !== undefined
+          ? String(log.fuelUsed)
+          : "",
+      remarks: log.remarks || "",
+      plantId: log.plantId ? String(log.plantId) : "",
+    });
+    setShowEquipmentForm(true);
+    setShowEquipmentList(true);
+    setError("");
+    setSuccess("");
+  };
+
+  const closeEditEquipmentPanel = () => {
+    setEditEquipmentLog(null);
+    setEquipmentFormData(createEquipmentFormState());
+    setEquipmentReadingContext(null);
   };
 
   const handleVehicleSubmit = async (e) => {
@@ -467,7 +578,10 @@ function VehiclesPage() {
       return;
     }
 
-    if (equipmentFormData.openingMeterReading === "") {
+    if (
+      equipmentFormData.openingMeterReading === "" &&
+      (!editEquipmentLog || editEquipmentContext.isFirstEntry)
+    ) {
       setError("Opening meter reading is required");
       return;
     }
@@ -485,19 +599,34 @@ function VehiclesPage() {
     }
 
     try {
-      setIsSubmittingEquipment(true);
-      await api.post("/vehicles/equipment-logs", {
+      setIsSubmittingEquipment(!editEquipmentLog);
+      setIsUpdatingEquipment(Boolean(editEquipmentLog));
+      const payload = {
         ...equipmentFormData,
         openingMeterReading: Number(equipmentFormData.openingMeterReading || 0),
         closingMeterReading: Number(equipmentFormData.closingMeterReading || 0),
         usageHours: Number(equipmentUsageHoursPreview || 0),
         fuelUsed: Number(equipmentFormData.fuelUsed || 0),
+        meterUnit: normalizeMeterUnit(equipmentFormData.meterUnit),
+        manualVehicleNumber: equipmentFormData.manualVehicleNumber || null,
+        driverOperatorName: equipmentFormData.driverOperatorName || null,
         plantId: equipmentFormData.plantId || null,
-      });
+      };
 
-      setSuccess("Equipment usage log added successfully");
+      if (editEquipmentLog) {
+        await api.patch(`/vehicles/equipment-logs/${editEquipmentLog.id}`, payload);
+      } else {
+        await api.post("/vehicles/equipment-logs", payload);
+      }
+
+      setSuccess(
+        editEquipmentLog
+          ? "Equipment usage log updated successfully"
+          : "Equipment usage log added successfully"
+      );
       setEquipmentFormData(createEquipmentFormState());
       setEquipmentReadingContext(null);
+      setEditEquipmentLog(null);
       setShowEquipmentForm(false);
       setShowEquipmentList(true);
 
@@ -508,6 +637,38 @@ function VehiclesPage() {
       );
     } finally {
       setIsSubmittingEquipment(false);
+      setIsUpdatingEquipment(false);
+    }
+  };
+
+  const handleDeleteEquipmentLog = async (log) => {
+    if (
+      !window.confirm(
+        `Delete the equipment log for ${log.equipmentName} on ${formatDisplayDate(
+          log.usageDate
+        )}? Later entries will be rebalanced automatically where possible.`
+      )
+    ) {
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+
+    try {
+      setDeletingEquipmentLogId(log.id);
+      await api.delete(`/vehicles/equipment-logs/${log.id}`);
+
+      if (editEquipmentLog?.id === log.id) {
+        closeEditEquipmentPanel();
+      }
+
+      setSuccess("Equipment log deleted successfully");
+      await loadEquipmentLogs();
+    } catch (err) {
+      setError(err?.response?.data?.message || "Failed to delete equipment log");
+    } finally {
+      setDeletingEquipmentLogId(null);
     }
   };
 
@@ -681,6 +842,9 @@ function VehiclesPage() {
       const matchesSearch =
         log.equipmentName?.toLowerCase().includes(q) ||
         log.equipmentType?.toLowerCase().includes(q) ||
+        log.manualVehicleNumber?.toLowerCase().includes(q) ||
+        log.driverOperatorName?.toLowerCase().includes(q) ||
+        getMeterUnitLabel(log.meterUnit).toLowerCase().includes(q) ||
         log.siteName?.toLowerCase().includes(q) ||
         log.remarks?.toLowerCase().includes(q) ||
         log.plantName?.toLowerCase().includes(q) ||
@@ -729,14 +893,20 @@ function VehiclesPage() {
   }, [vehicles, equipmentLogs]);
 
   const filteredSummary = useMemo(() => {
+    const equipmentUsageByUnit = filteredEquipmentLogs.reduce(
+      (totals, log) => {
+        const meterUnit = normalizeMeterUnit(log.meterUnit);
+        totals[meterUnit] += Number(log.usageHours || 0);
+        return totals;
+      },
+      { hours: 0, km: 0 }
+    );
+
     return {
       vehicles: filteredVehicles.length,
       activeVehicles: filteredVehicles.filter((v) => v.status === "active").length,
       equipmentLogs: filteredEquipmentLogs.length,
-      equipmentHours: filteredEquipmentLogs.reduce(
-        (sum, log) => sum + Number(log.usageHours || 0),
-        0
-      ),
+      equipmentUsageByUnit,
       equipmentFuel: filteredEquipmentLogs.reduce(
         (sum, log) => sum + Number(log.fuelUsed || 0),
         0
@@ -747,6 +917,30 @@ function VehiclesPage() {
       ),
     };
   }, [filteredVehicles, filteredEquipmentLogs]);
+
+  const equipmentUsageSummaryLabel = useMemo(() => {
+    const hasHours = filteredSummary.equipmentUsageByUnit.hours > 0;
+    const hasKm = filteredSummary.equipmentUsageByUnit.km > 0;
+
+    if (hasHours && hasKm) {
+      return "Usage Quantity";
+    }
+
+    return hasKm ? "Usage KM" : "Usage Hours";
+  }, [filteredSummary]);
+
+  const equipmentUsageSummaryValue = useMemo(() => {
+    const hoursValue = filteredSummary.equipmentUsageByUnit.hours;
+    const kmValue = filteredSummary.equipmentUsageByUnit.km;
+    const hasHours = hoursValue > 0;
+    const hasKm = kmValue > 0;
+
+    if (hasHours && hasKm) {
+      return `${formatMetric(hoursValue)} hr / ${formatMetric(kmValue)} km`;
+    }
+
+    return hasKm ? formatMetric(kmValue) : formatMetric(hoursValue);
+  }, [filteredSummary]);
 
   const workspaceHealth = useMemo(
     () => ({
@@ -784,6 +978,50 @@ function VehiclesPage() {
   );
 
   const latestEquipmentLog = filteredEquipmentLogs[0] || null;
+  const equipmentChainMap = useMemo(() => {
+    const map = new Map();
+
+    for (const log of equipmentLogs) {
+      const key = buildEquipmentChainKey(log);
+      const chain = map.get(key) || [];
+      chain.push(log);
+      map.set(key, chain);
+    }
+
+    for (const chain of map.values()) {
+      chain.sort((left, right) => {
+        const leftDate = toDateOnlyValue(left.usageDate);
+        const rightDate = toDateOnlyValue(right.usageDate);
+
+        if (leftDate === rightDate) {
+          return Number(left.id) - Number(right.id);
+        }
+
+        return leftDate.localeCompare(rightDate);
+      });
+    }
+
+    return map;
+  }, [equipmentLogs]);
+
+  const editEquipmentContext = useMemo(() => {
+    if (!editEquipmentLog) {
+      return {
+        previousLog: null,
+        nextLog: null,
+        isFirstEntry: Boolean(equipmentReadingContext?.isFirstLog),
+      };
+    }
+
+    const chain = equipmentChainMap.get(buildEquipmentChainKey(editEquipmentLog)) || [];
+    const index = chain.findIndex((log) => Number(log.id) === Number(editEquipmentLog.id));
+
+    return {
+      previousLog: index > 0 ? chain[index - 1] : null,
+      nextLog: index >= 0 && index < chain.length - 1 ? chain[index + 1] : null,
+      isFirstEntry: index === 0,
+    };
+  }, [editEquipmentLog, equipmentChainMap, equipmentReadingContext]);
 
   const syncLabel = (lastWorkspaceSyncAt || mastersLoadedAt)
     ? formatDateTimeLabel(lastWorkspaceSyncAt || mastersLoadedAt, {
@@ -791,6 +1029,11 @@ function VehiclesPage() {
         month: "short",
       })
     : "Waiting for first sync";
+  const syncBannerValue = isLoadingData || refreshingMasters
+    ? isEquipmentWorkspace
+      ? "Refreshing equipment and reference data..."
+      : "Refreshing fleet and reference data..."
+    : `Last sync: ${syncLabel}`;
 
   const getStatusBadgeStyle = (status) => {
     if (status === "active") {
@@ -823,13 +1066,16 @@ function VehiclesPage() {
       usage_date: toDateOnlyValue(log.usageDate),
       equipment_name: log.equipmentName || "",
       equipment_type: log.equipmentType || "",
+      manual_vehicle_number: log.manualVehicleNumber || "",
+      driver_operator_name: log.driverOperatorName || "",
       plant: log.plantName || "",
       site: log.siteName || "",
       opening_meter_reading: Number(log.openingMeterReading || 0),
       closing_meter_reading: Number(log.closingMeterReading || 0),
-      usage_hours: Number(log.usageHours || 0),
+      meter_unit: normalizeMeterUnit(log.meterUnit),
+      usage_quantity: Number(log.usageHours || 0),
       fuel_used: Number(log.fuelUsed || 0),
-      fuel_per_hour:
+      fuel_per_unit:
         Number(log.usageHours || 0) > 0
           ? (Number(log.fuelUsed || 0) / Number(log.usageHours || 0)).toFixed(2)
           : "",
@@ -874,10 +1120,13 @@ function VehiclesPage() {
             <td>${formatDisplayDate(log.usageDate)}</td>
             <td>${log.equipmentName || "-"}</td>
             <td>${log.equipmentType || "-"}</td>
+            <td>${log.manualVehicleNumber || "-"}</td>
+            <td>${log.driverOperatorName || "-"}</td>
             <td>${log.plantName || "-"}</td>
             <td>${log.siteName || "-"}</td>
             <td>${formatMetric(log.openingMeterReading)}</td>
             <td>${formatMetric(log.closingMeterReading)}</td>
+            <td>${normalizeMeterUnit(log.meterUnit) === "km" ? "KM" : "Hours"}</td>
             <td>${formatMetric(log.usageHours)}</td>
             <td>${formatMetric(log.fuelUsed)}</td>
             <td>${
@@ -912,7 +1161,7 @@ function VehiclesPage() {
           <p>Generated on ${new Date().toLocaleString("en-IN")}</p>
           <div class="meta">
             <div class="card"><strong>Total Logs</strong><br />${filteredEquipmentLogs.length}</div>
-            <div class="card"><strong>Total Usage Hours</strong><br />${formatMetric(filteredSummary.equipmentHours)}</div>
+            <div class="card"><strong>${equipmentUsageSummaryLabel}</strong><br />${equipmentUsageSummaryValue}</div>
             <div class="card"><strong>Total Fuel Used</strong><br />${formatMetric(filteredSummary.equipmentFuel)} L</div>
           </div>
           <table>
@@ -921,13 +1170,16 @@ function VehiclesPage() {
                 <th>Date</th>
                 <th>Equipment</th>
                 <th>Type</th>
+                <th>Manual Vehicle No.</th>
+                <th>Driver / Operator</th>
                 <th>Plant</th>
                 <th>Site</th>
                 <th>Opening Meter</th>
                 <th>Closing Meter</th>
-                <th>Usage Hours</th>
+                <th>Meter Unit</th>
+                <th>Usage</th>
                 <th>Fuel Used</th>
-                <th>Fuel / Hour</th>
+                <th>Fuel / Unit</th>
                 <th>Remarks</th>
               </tr>
             </thead>
@@ -969,8 +1221,8 @@ function VehiclesPage() {
 
   return (
     <AppShell
-      title="Vehicles & Equipment"
-      subtitle="Manage fleet records, plant assignment, vendors, equipment usage, and live vehicle status"
+      title={workspaceTitle}
+      subtitle={workspaceSubtitle}
     >
       <div style={styles.pageStack}>
         <div style={styles.heroCard}>
@@ -979,27 +1231,19 @@ function VehiclesPage() {
 
           <div style={styles.heroContent}>
             <div>
-              <p style={styles.heroEyebrow}>Fleet Operations Layer</p>
-              <h1 style={styles.heroTitle}>Vehicles & Equipment Control Center</h1>
-              <p style={styles.heroText}>
-                Manage company-owned, attached, and transporter-linked vehicles
-                with plant-aware ERP workflows, operational equipment logs, and
-                practical vehicle capacity controls.
-              </p>
+              <p style={styles.heroEyebrow}>{heroEyebrow}</p>
+              <h1 style={styles.heroTitle}>{heroTitle}</h1>
+              <p style={styles.heroText}>{heroText}</p>
             </div>
 
             <div style={styles.heroPills}>
               <div style={styles.heroPill}>
                 <span style={styles.heroPillLabel}>Current Scope</span>
-                <strong style={styles.heroPillValue}>
-                  Fleet + edit + status control
-                </strong>
+                <strong style={styles.heroPillValue}>{workspaceScopeLabel}</strong>
               </div>
               <div style={styles.heroPill}>
                 <span style={styles.heroPillLabel}>ERP Benefit</span>
-                <strong style={styles.heroPillValue}>
-                  Dispatch capacity validation ready
-                </strong>
+                <strong style={styles.heroPillValue}>{workspaceBenefitLabel}</strong>
               </div>
             </div>
           </div>
@@ -1011,53 +1255,67 @@ function VehiclesPage() {
         {success && <div style={styles.messageSuccess}>{success}</div>}
         {isLoadingData && (
           <div style={styles.loadingBanner}>
-            Refreshing vehicles, plants, vendors, and equipment logs...
+            {isEquipmentWorkspace
+              ? "Refreshing equipment logs, plants, vendors, and reference data..."
+              : "Refreshing vehicles, plants, vendors, and equipment logs..."}
           </div>
         )}
 
         <SectionCard title="Workspace Health">
           <div style={styles.syncBanner}>
             <div>
-              <p style={styles.syncLabel}>Fleet Source Of Truth</p>
-              <strong style={styles.syncValue}>
-                {isLoadingData || refreshingMasters
-                  ? "Refreshing fleet and reference data..."
-                  : `Last sync: ${syncLabel}`}
-              </strong>
+              <p style={styles.syncLabel}>{syncBannerLabel}</p>
+              <strong style={styles.syncValue}>{syncBannerValue}</strong>
             </div>
-            <span style={styles.syncNote}>
-              Vehicle assignment now stays aligned with scoped plants, transporter links, capacity checks, and dispatch usage expectations.
-            </span>
+            <span style={styles.syncNote}>{syncBannerNote}</span>
           </div>
 
           <div style={styles.healthGrid}>
             <div style={styles.healthCard}>
               <span style={styles.healthLabel}>Active Plants</span>
               <strong style={styles.healthValue}>{formatMetric(workspaceHealth.activePlants)}</strong>
-              <p style={styles.healthNote}>Fleet operating points currently available</p>
+              <p style={styles.healthNote}>
+                {isEquipmentWorkspace
+                  ? "Operational plants available for equipment logging"
+                  : "Fleet operating points currently available"}
+              </p>
             </div>
             <div style={styles.healthCard}>
-              <span style={styles.healthLabel}>Vendor-linked Fleet</span>
+              <span style={styles.healthLabel}>
+                {isEquipmentWorkspace ? "Vendor-linked Assets" : "Vendor-linked Fleet"}
+              </span>
               <strong style={styles.healthValue}>{formatMetric(workspaceHealth.transporterLinks)}</strong>
-              <p style={styles.healthNote}>Vehicles attached to transporters or suppliers</p>
+              <p style={styles.healthNote}>
+                {isEquipmentWorkspace
+                  ? "Available supplier or transporter references across operations"
+                  : "Vehicles attached to transporters or suppliers"}
+              </p>
             </div>
             <div style={styles.healthCard}>
-              <span style={styles.healthLabel}>Vehicles In Use</span>
+              <span style={styles.healthLabel}>
+                {isEquipmentWorkspace ? "Fleet In Use" : "Vehicles In Use"}
+              </span>
               <strong style={styles.healthValue}>{formatMetric(workspaceHealth.inUseVehicles)}</strong>
-              <p style={styles.healthNote}>Fleet units currently occupied by live dispatch activity</p>
+              <p style={styles.healthNote}>
+                {isEquipmentWorkspace
+                  ? "Useful cross-check for linked mobile equipment and support vehicles"
+                  : "Fleet units currently occupied by live dispatch activity"}
+              </p>
             </div>
             <div style={styles.healthCard}>
               <span style={styles.healthLabel}>Under Maintenance</span>
               <strong style={styles.healthValue}>{formatMetric(workspaceHealth.maintenanceVehicles)}</strong>
-              <p style={styles.healthNote}>Units needing attention before becoming operational again</p>
+              <p style={styles.healthNote}>
+                {isEquipmentWorkspace
+                  ? "Fleet maintenance visibility that may affect equipment support movement"
+                  : "Units needing attention before becoming operational again"}
+              </p>
             </div>
           </div>
         </SectionCard>
 
-        <SectionCard title="Connected Logistics Flow">
-          <p style={styles.sectionSubtitle}>
-            Vehicles are only one part of dispatch readiness. These linked workspaces help operations complete transporter setup without jumping blindly between modules.
-          </p>
+        <SectionCard title={logisticsTitle}>
+          <p style={styles.sectionSubtitle}>{logisticsSubtitle}</p>
 
           <div style={styles.workflowGrid}>
             {logisticsWorkflow.map((step) => (
@@ -1073,54 +1331,85 @@ function VehiclesPage() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Fleet Overview">
+        <SectionCard title={overviewTitle}>
           <div style={styles.summaryGrid}>
-            <div style={{ ...styles.summaryCard, ...styles.summaryBlue }}>
-              <span style={styles.summaryTag}>Fleet</span>
-              <p style={styles.summaryLabel}>Total Vehicles</p>
-              <h3 style={styles.summaryValue}>{summary.totalVehicles}</h3>
-              <p style={styles.summaryHint}>
-                All vehicle records currently available.
-              </p>
-            </div>
+            {isFleetWorkspace ? (
+              <>
+                <div style={{ ...styles.summaryCard, ...styles.summaryBlue }}>
+                  <span style={styles.summaryTag}>Fleet</span>
+                  <p style={styles.summaryLabel}>Total Vehicles</p>
+                  <h3 style={styles.summaryValue}>{summary.totalVehicles}</h3>
+                  <p style={styles.summaryHint}>
+                    All vehicle records currently available.
+                  </p>
+                </div>
 
-            <div style={{ ...styles.summaryCard, ...styles.summaryGreen }}>
-              <span style={styles.summaryTag}>Operational</span>
-              <p style={styles.summaryLabel}>Active Vehicles</p>
-              <h3 style={styles.summaryValue}>{summary.activeVehicles}</h3>
-              <p style={styles.summaryHint}>
-                Vehicles ready for daily operations.
-              </p>
-            </div>
+                <div style={{ ...styles.summaryCard, ...styles.summaryGreen }}>
+                  <span style={styles.summaryTag}>Operational</span>
+                  <p style={styles.summaryLabel}>Active Vehicles</p>
+                  <h3 style={styles.summaryValue}>{summary.activeVehicles}</h3>
+                  <p style={styles.summaryHint}>
+                    Vehicles ready for daily operations.
+                  </p>
+                </div>
 
-            <div style={{ ...styles.summaryCard, ...styles.summaryAmber }}>
-              <span style={styles.summaryTag}>Attention</span>
-              <p style={styles.summaryLabel}>Maintenance</p>
-              <h3 style={styles.summaryValue}>
-                {summary.maintenanceVehicles}
-              </h3>
-              <p style={styles.summaryHint}>
-                Vehicles currently under maintenance.
-              </p>
-            </div>
+                <div style={{ ...styles.summaryCard, ...styles.summaryAmber }}>
+                  <span style={styles.summaryTag}>Attention</span>
+                  <p style={styles.summaryLabel}>Maintenance</p>
+                  <h3 style={styles.summaryValue}>
+                    {summary.maintenanceVehicles}
+                  </h3>
+                  <p style={styles.summaryHint}>
+                    Vehicles currently under maintenance.
+                  </p>
+                </div>
 
-            <div style={{ ...styles.summaryCard, ...styles.summaryRose }}>
-              <span style={styles.summaryTag}>Inactive</span>
-              <p style={styles.summaryLabel}>Inactive Vehicles</p>
-              <h3 style={styles.summaryValue}>{summary.inactiveVehicles}</h3>
-              <p style={styles.summaryHint}>
-                Vehicles currently not in use.
-              </p>
-            </div>
+                <div style={{ ...styles.summaryCard, ...styles.summaryRose }}>
+                  <span style={styles.summaryTag}>Inactive</span>
+                  <p style={styles.summaryLabel}>Inactive Vehicles</p>
+                  <h3 style={styles.summaryValue}>{summary.inactiveVehicles}</h3>
+                  <p style={styles.summaryHint}>
+                    Vehicles currently not in use.
+                  </p>
+                </div>
 
-            <div style={{ ...styles.summaryCard, ...styles.summaryPurple }}>
-              <span style={styles.summaryTag}>Logs</span>
-              <p style={styles.summaryLabel}>Equipment Logs</p>
-              <h3 style={styles.summaryValue}>{summary.equipmentLogs}</h3>
-              <p style={styles.summaryHint}>
-                Usage entries recorded in the ERP.
-              </p>
-            </div>
+                <div style={{ ...styles.summaryCard, ...styles.summaryPurple }}>
+                  <span style={styles.summaryTag}>Equipment</span>
+                  <p style={styles.summaryLabel}>Equipment Logs</p>
+                  <h3 style={styles.summaryValue}>{summary.equipmentLogs}</h3>
+                  <p style={styles.summaryHint}>
+                    Equipment tracking now lives in the dedicated sidebar workspace.
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ ...styles.summaryCard, ...styles.summaryBlue }}>
+                  <span style={styles.summaryTag}>Logs</span>
+                  <p style={styles.summaryLabel}>Equipment Logs</p>
+                  <h3 style={styles.summaryValue}>{summary.equipmentLogs}</h3>
+                  <p style={styles.summaryHint}>
+                    Usage entries recorded in the ERP.
+                  </p>
+                </div>
+                <div style={{ ...styles.summaryCard, ...styles.summaryGreen }}>
+                  <span style={styles.summaryTag}>Usage</span>
+                  <p style={styles.summaryLabel}>{equipmentUsageSummaryLabel}</p>
+                  <h3 style={styles.summaryValue}>{equipmentUsageSummaryValue}</h3>
+                  <p style={styles.summaryHint}>
+                    Filter-aware usage split by meter unit.
+                  </p>
+                </div>
+                <div style={{ ...styles.summaryCard, ...styles.summaryAmber }}>
+                  <span style={styles.summaryTag}>Fuel</span>
+                  <p style={styles.summaryLabel}>Fuel Used</p>
+                  <h3 style={styles.summaryValue}>{formatMetric(filteredSummary.equipmentFuel)}</h3>
+                  <p style={styles.summaryHint}>
+                    Litres recorded across the current filtered period.
+                  </p>
+                </div>
+              </>
+            )}
           </div>
         </SectionCard>
 
@@ -1128,12 +1417,8 @@ function VehiclesPage() {
           <div style={styles.workspaceControlBar}>
             <div style={styles.workspaceControlCopy}>
               <span style={styles.workspaceControlLabel}>Current View</span>
-              <strong style={styles.workspaceControlValue}>
-                Fleet and equipment workspace
-              </strong>
-              <span style={styles.workspaceControlMeta}>
-                Vehicle search: {vehicleSearch.trim() || "none"} | Equipment search: {equipmentSearch.trim() || "none"}
-              </span>
+              <strong style={styles.workspaceControlValue}>{workspaceControlValue}</strong>
+              <span style={styles.workspaceControlMeta}>{workspaceControlMeta}</span>
             </div>
 
             <div style={styles.workspaceControlActions}>
@@ -1167,6 +1452,7 @@ function VehiclesPage() {
           </div>
         </SectionCard>
 
+        {isFleetWorkspace && (
         <SectionCard title="Vehicle Search & Filters">
           <p style={styles.sectionSubtitle}>
             Search vehicles by number, type, driver, vendor, or plant. Filter by
@@ -1239,7 +1525,9 @@ function VehiclesPage() {
             )}
           </div>
         </SectionCard>
+        )}
 
+        {isFleetWorkspace && (
         <SectionCard title="Fleet Workspace">
           {!canManageVehicles && (
             <div style={styles.readOnlyBanner}>
@@ -1550,8 +1838,9 @@ function VehiclesPage() {
             </div>
           )}
         </SectionCard>
+        )}
 
-        {editVehicle && canManageVehicles && (
+        {isFleetWorkspace && editVehicle && canManageVehicles && (
           <SectionCard title={`Edit Vehicle — ${editVehicle.vehicleNumber}`}>
             <p style={styles.sectionSubtitle}>
               Update fleet assignment, plant linkage, ownership details, current
@@ -1669,6 +1958,27 @@ function VehiclesPage() {
           </SectionCard>
         )}
 
+        {isFleetWorkspace && (
+          <SectionCard title="Equipment Workspace Shifted Out">
+            <p style={styles.sectionSubtitle}>
+              Equipment logs now have their own sidebar workspace so machinery usage, meter continuity, and corrections stay separate from fleet administration.
+            </p>
+            <div style={styles.workflowGrid}>
+              <div style={styles.workflowCard}>
+                <span style={styles.workflowLabel}>Recommended Flow</span>
+                <strong style={styles.workflowTitle}>Open Equipment Workspace</strong>
+                <p style={styles.workflowText}>
+                  Use the dedicated equipment page for machinery logs, fuel tracking, operator references, and meter-based corrections.
+                </p>
+                <Link to="/equipment" style={styles.workflowLink}>
+                  Open Equipment
+                </Link>
+              </div>
+            </div>
+          </SectionCard>
+        )}
+
+        {isEquipmentWorkspace && (
         <SectionCard title="Equipment Log Search & Filters">
           <p style={styles.sectionSubtitle}>
             Search equipment logs by date, equipment, site, remarks, or plant.
@@ -1747,7 +2057,9 @@ function VehiclesPage() {
             )}
           </div>
         </SectionCard>
+        )}
 
+        {isEquipmentWorkspace && (
         <SectionCard title="Equipment Workspace">
           {!canManageEquipmentLogs && (
             <div style={styles.readOnlyBanner}>
@@ -1762,7 +2074,7 @@ function VehiclesPage() {
                 {renderCountBadge(filteredEquipmentLogs.length)}
               </div>
               <p style={styles.blockSubtitle}>
-                Track meter continuity, auto-calculated usage hours, fuel
+                Track meter continuity, auto-calculated usage quantity, fuel
                 consumption, and site-level execution notes in one industrial
                 register.
               </p>
@@ -1823,10 +2135,10 @@ function VehiclesPage() {
           <div style={styles.summaryGrid}>
             <div style={{ ...styles.summaryCard, ...styles.summaryBlue }}>
               <span style={styles.summaryTag}>Filtered Register</span>
-              <p style={styles.summaryLabel}>Usage Hours</p>
-              <h3 style={styles.summaryValue}>{formatMetric(filteredSummary.equipmentHours)}</h3>
+              <p style={styles.summaryLabel}>{equipmentUsageSummaryLabel}</p>
+              <h3 style={styles.summaryValue}>{equipmentUsageSummaryValue}</h3>
               <p style={styles.summaryHint}>
-                Auto-summed from the visible equipment log set.
+                Split cleanly by hours and km so different meter types do not mix.
               </p>
             </div>
 
@@ -1844,7 +2156,10 @@ function VehiclesPage() {
               <p style={styles.summaryLabel}>Last Closing Reading</p>
               <h3 style={styles.summaryValue}>
                 {latestEquipmentLog
-                  ? formatMetric(latestEquipmentLog.closingMeterReading)
+                  ? formatUsageMetric(
+                      latestEquipmentLog.closingMeterReading,
+                      latestEquipmentLog.meterUnit
+                    )
                   : "-"}
               </h3>
               <p style={styles.summaryHint}>
@@ -1878,22 +2193,29 @@ function VehiclesPage() {
                         <th style={styles.th}>Date</th>
                         <th style={styles.th}>Equipment</th>
                         <th style={styles.th}>Type</th>
+                        <th style={styles.th}>Manual Vehicle No.</th>
+                        <th style={styles.th}>Driver / Operator</th>
                         <th style={styles.th}>Plant</th>
                         <th style={styles.th}>Area / Site</th>
                         <th style={styles.th}>Opening Meter</th>
                         <th style={styles.th}>Closing Meter</th>
-                        <th style={styles.th}>Usage Hours</th>
+                        <th style={styles.th}>Meter Unit</th>
+                        <th style={styles.th}>Usage</th>
                         <th style={styles.th}>Fuel Used</th>
-                        <th style={styles.th}>Fuel / Hour</th>
+                        <th style={styles.th}>Fuel / Unit</th>
                         <th style={styles.th}>Remarks</th>
+                        <th style={styles.th}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredEquipmentLogs.map((log) => (
+                      {filteredEquipmentLogs.map((log) => {
+                        return (
                         <tr key={log.id}>
                           <td style={styles.td}>{formatDisplayDate(log.usageDate)}</td>
                           <td style={styles.td}>{log.equipmentName}</td>
                           <td style={styles.td}>{log.equipmentType}</td>
+                          <td style={styles.td}>{log.manualVehicleNumber || "-"}</td>
+                          <td style={styles.td}>{log.driverOperatorName || "-"}</td>
                           <td style={styles.td}>{log.plantName || "-"}</td>
                           <td style={styles.td}>{log.siteName || "-"}</td>
                           <td style={styles.td}>
@@ -1908,19 +2230,58 @@ function VehiclesPage() {
                               ? formatMetric(log.closingMeterReading)
                               : "-"}
                           </td>
-                          <td style={styles.td}>{formatMetric(log.usageHours)}</td>
+                          <td style={styles.td}>{getMeterUnitLabel(log.meterUnit)}</td>
+                          <td style={styles.td}>
+                            {formatUsageMetric(log.usageHours, log.meterUnit)}
+                          </td>
                           <td style={styles.td}>{formatMetric(log.fuelUsed)}</td>
                           <td style={styles.td}>
                             {Number(log.usageHours || 0) > 0
-                              ? formatMetric(
+                              ? `${formatMetric(
                                   Number(log.fuelUsed || 0) /
                                     Number(log.usageHours || 0)
-                                )
+                                )} L/${getMeterUnitShortLabel(log.meterUnit)}`
                               : "-"}
                           </td>
                           <td style={styles.td}>{log.remarks || "-"}</td>
+                          <td style={styles.td}>
+                            {canManageEquipmentLogs ? (
+                              <>
+                                <div style={styles.inlineActions}>
+                                  <button
+                                    type="button"
+                                    style={styles.smallButton}
+                                    onClick={() => openEditEquipmentPanel(log)}
+                                    disabled={
+                                      isSubmittingEquipment ||
+                                      isUpdatingEquipment ||
+                                      deletingEquipmentLogId === log.id
+                                    }
+                                    title="Edit this equipment log"
+                                  >
+                                    {editEquipmentLog?.id === log.id ? "Editing" : "Edit"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    style={{ ...styles.smallButton, ...styles.dangerButton }}
+                                    onClick={() => handleDeleteEquipmentLog(log)}
+                                    disabled={
+                                      isSubmittingEquipment ||
+                                      isUpdatingEquipment ||
+                                      deletingEquipmentLogId === log.id
+                                    }
+                                    title="Delete this equipment log"
+                                  >
+                                    {deletingEquipmentLogId === log.id ? "Deleting..." : "Delete"}
+                                  </button>
+                                </div>
+                              </>
+                            ) : (
+                              <span style={styles.mutedInlineNote}>View only</span>
+                            )}
+                          </td>
                         </tr>
-                      ))}
+                      )})}
                     </tbody>
                   </table>
                 </div>
@@ -1930,18 +2291,24 @@ function VehiclesPage() {
 
           {showEquipmentForm && canManageEquipmentLogs && (
             <div style={styles.compactFormShell}>
-              <h3 style={styles.blockTitle}>Add Equipment Usage Log</h3>
+              <h3 style={styles.blockTitle}>
+                {editEquipmentLog ? "Edit Equipment Usage Log" : "Add Equipment Usage Log"}
+              </h3>
               <p style={styles.blockSubtitle}>
-                Record equipment meter movement with auto-carried opening
-                reading, calculated usage hours, fuel consumption, and site
-                remarks.
+                {editEquipmentLog
+                  ? "Correct any equipment log safely. The workspace now rebalances later meter continuity automatically when possible."
+                  : "Record equipment meter movement with auto-carried opening reading, calculated usage quantity, fuel consumption, and site remarks. Manual vehicle number and driver/operator are optional for practical site tracking."}
               </p>
 
               <div style={styles.contextPanel}>
                 <div style={styles.contextStat}>
                   <span style={styles.contextLabel}>Meter Continuity</span>
                   <strong style={styles.contextValue}>
-                    {loadingEquipmentContext
+                    {editEquipmentLog
+                      ? editEquipmentContext.isFirstEntry
+                        ? "First entry correction"
+                        : "Chain correction"
+                      : loadingEquipmentContext
                       ? "Checking..."
                       : equipmentReadingContext?.isFirstLog
                         ? "First log"
@@ -1959,21 +2326,48 @@ function VehiclesPage() {
                   </strong>
                 </div>
                 <div style={styles.contextStat}>
-                  <span style={styles.contextLabel}>Calculated Usage Hours</span>
+                  <span style={styles.contextLabel}>{equipmentUsageLabel}</span>
                   <strong style={styles.contextValue}>
-                    {equipmentUsageHoursPreview || "-"}
+                    {equipmentUsageHoursPreview
+                      ? formatUsageMetric(
+                          equipmentUsageHoursPreview,
+                          equipmentFormData.meterUnit
+                        )
+                      : "-"}
                   </strong>
                 </div>
               </div>
 
-              {equipmentReadingContext?.latestLog && (
+              {(
+                equipmentReadingContext?.latestLog ||
+                editEquipmentContext.previousLog ||
+                editEquipmentContext.nextLog
+              ) && (
                 <p style={styles.helperText}>
-                  Last log found for this equipment: closing meter{" "}
-                  {formatMetric(
-                    equipmentReadingContext.latestLog.closingMeterReading
-                  )}{" "}
-                  on {formatDisplayDate(equipmentReadingContext.latestLog.usageDate)} at{" "}
-                  {equipmentReadingContext.latestLog.siteName || "-"}.
+                  {(editEquipmentLog
+                    ? editEquipmentContext.previousLog
+                    : equipmentReadingContext?.latestLog) && (
+                    <>
+                      Previous linked entry closes at{" "}
+                      {formatMetric(
+                        (editEquipmentLog
+                          ? editEquipmentContext.previousLog
+                          : equipmentReadingContext?.latestLog
+                        )?.closingMeterReading
+                      )}{" "}
+                      on{" "}
+                      {formatDisplayDate(
+                        (editEquipmentLog
+                          ? editEquipmentContext.previousLog
+                          : equipmentReadingContext?.latestLog
+                        )?.usageDate
+                      )}
+                      .
+                    </>
+                  )}
+                  {editEquipmentContext.nextLog && (
+                    <> The next entry will be auto-adjusted from this reading if required.</>
+                  )}
                 </p>
               )}
 
@@ -1991,7 +2385,11 @@ function VehiclesPage() {
                   placeholder="Equipment Name"
                   value={equipmentFormData.equipmentName}
                   onChange={handleEquipmentChange}
-                  style={styles.input}
+                  style={{
+                    ...styles.input,
+                    ...(editEquipmentLog ? styles.readOnlyInput : {}),
+                  }}
+                  readOnly={Boolean(editEquipmentLog)}
                 />
 
                 <select
@@ -1999,7 +2397,7 @@ function VehiclesPage() {
                   value={equipmentFormData.equipmentType}
                   onChange={handleEquipmentChange}
                   style={styles.input}
-                  disabled={loadingMasters}
+                  disabled={loadingMasters || Boolean(editEquipmentLog)}
                 >
                   <option value="">Select Equipment Type</option>
                   {equipmentTypeOptions.map((type) => (
@@ -2014,6 +2412,7 @@ function VehiclesPage() {
                   value={equipmentFormData.plantId}
                   onChange={handleEquipmentChange}
                   style={styles.input}
+                  disabled={Boolean(editEquipmentLog)}
                 >
                   <option value="">Select Plant / Unit</option>
                   {plants.map((plant) => (
@@ -2024,18 +2423,51 @@ function VehiclesPage() {
                 </select>
 
                 <input
+                  name="manualVehicleNumber"
+                  placeholder="Manual Vehicle Number (Optional)"
+                  value={equipmentFormData.manualVehicleNumber}
+                  onChange={handleEquipmentChange}
+                  style={styles.input}
+                />
+
+                <input
+                  name="driverOperatorName"
+                  placeholder="Driver / Operator Name (Optional)"
+                  value={equipmentFormData.driverOperatorName}
+                  onChange={handleEquipmentChange}
+                  style={styles.input}
+                />
+
+                <select
+                  name="meterUnit"
+                  value={equipmentFormData.meterUnit}
+                  onChange={handleEquipmentChange}
+                  style={styles.input}
+                  disabled={loadingEquipmentContext || Boolean(equipmentReadingContext?.latestLog)}
+                >
+                  <option value="hours">Hour Meter</option>
+                  <option value="km">KM / Odometer</option>
+                </select>
+
+                <input
                   type="number"
                   step="0.01"
                   min="0"
                   name="openingMeterReading"
-                  placeholder="Opening Meter Reading"
+                  placeholder={`Opening Meter (${getMeterUnitLabel(equipmentFormData.meterUnit)})`}
                   value={equipmentFormData.openingMeterReading}
                   onChange={handleEquipmentChange}
                   style={{
                     ...styles.input,
-                    ...(equipmentReadingContext?.latestLog ? styles.readOnlyInput : {}),
+                    ...((equipmentReadingContext?.latestLog ||
+                      (editEquipmentLog && !editEquipmentContext.isFirstEntry))
+                      ? styles.readOnlyInput
+                      : {}),
                   }}
-                  readOnly={Boolean(equipmentReadingContext?.latestLog)}
+                  readOnly={Boolean(
+                    equipmentReadingContext?.latestLog ||
+                      (editEquipmentLog && !editEquipmentContext.isFirstEntry)
+                  )}
                 />
 
                 <input
@@ -2043,7 +2475,7 @@ function VehiclesPage() {
                   step="0.01"
                   min="0"
                   name="closingMeterReading"
-                  placeholder="Closing Meter Reading"
+                  placeholder={`Closing Meter (${getMeterUnitLabel(equipmentFormData.meterUnit)})`}
                   value={equipmentFormData.closingMeterReading}
                   onChange={handleEquipmentChange}
                   style={styles.input}
@@ -2061,7 +2493,7 @@ function VehiclesPage() {
                   type="number"
                   step="0.01"
                   name="usageHours"
-                  placeholder="Usage Hours (Auto Calculated)"
+                  placeholder={`${equipmentUsageLabel} (Auto Calculated)`}
                   value={equipmentUsageHoursPreview}
                   readOnly
                   style={{ ...styles.input, ...styles.readOnlyInput }}
@@ -2086,13 +2518,34 @@ function VehiclesPage() {
                   style={styles.input}
                 />
 
-                <button type="submit" style={styles.button} disabled={isSubmittingEquipment}>
-                  {isSubmittingEquipment ? "Saving..." : "Add Equipment Log"}
-                </button>
+                <div style={styles.actionRow}>
+                  <button
+                    type="submit"
+                    style={styles.button}
+                    disabled={isSubmittingEquipment || isUpdatingEquipment}
+                  >
+                    {isSubmittingEquipment || isUpdatingEquipment
+                      ? "Saving..."
+                      : editEquipmentLog
+                        ? "Save Equipment Changes"
+                        : "Add Equipment Log"}
+                  </button>
+                  {editEquipmentLog && (
+                    <button
+                      type="button"
+                      style={styles.secondaryButton}
+                      onClick={closeEditEquipmentPanel}
+                      disabled={isUpdatingEquipment}
+                    >
+                      Cancel Edit
+                    </button>
+                  )}
+                </div>
               </form>
             </div>
           )}
         </SectionCard>
+        )}
       </div>
     </AppShell>
   );
@@ -2578,6 +3031,17 @@ const styles = {
     display: "flex",
     gap: "12px",
     flexWrap: "wrap",
+  },
+  mutedInlineNote: {
+    color: "#64748b",
+    fontSize: "12px",
+    fontWeight: "700",
+  },
+  inlineMetaNote: {
+    marginTop: "6px",
+    color: "#92400e",
+    fontSize: "11px",
+    lineHeight: 1.4,
   },
   emptyState: {
     color: "#6b7280",

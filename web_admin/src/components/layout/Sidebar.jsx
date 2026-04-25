@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   SIDEBAR_MENU_GROUPS,
@@ -8,12 +9,96 @@ import {
   hasEnabledModule,
 } from "../../utils/access";
 import { useAuth } from "../../hooks/useAuth";
+import { api } from "../../services/api";
+
+function formatCompanyLabel(currentUser, companyProfile = null) {
+  const companyNameCandidates = [
+    companyProfile?.companyName,
+    currentUser?.company?.companyName,
+    currentUser?.company?.company_name,
+    currentUser?.company?.name,
+    currentUser?.companyName,
+    currentUser?.company_name,
+  ];
+
+  for (const candidate of companyNameCandidates) {
+    const value = String(candidate || "").trim();
+    if (value) {
+      return value;
+    }
+  }
+
+  if (currentUser?.companyId) {
+    return `Company #${currentUser.companyId}`;
+  }
+
+  return "InfraFlow ERP";
+}
+
+function buildBrandInitials(companyName) {
+  const words = String(companyName || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!words.length) {
+    return "CE";
+  }
+
+  return words
+    .slice(0, 2)
+    .map((word) => word.charAt(0).toUpperCase())
+    .join("");
+}
 
 function Sidebar({ isMobile = false, isOpen = true, onClose = () => {} }) {
   const location = useLocation();
   const { currentUser } = useAuth();
   const currentRole = currentUser?.role || "";
   const isOwnerControlUser = canAccessOwnerControlPanel(currentUser);
+  const [companyProfile, setCompanyProfile] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!currentUser?.companyId) {
+      return () => {
+        active = false;
+      };
+    }
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const response = await api.get("/company-profile");
+        if (!active) {
+          return;
+        }
+        setCompanyProfile(response.data?.data || null);
+      } catch {
+        if (active) {
+          setCompanyProfile(null);
+        }
+      }
+    }, 0);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [currentUser?.companyId]);
+
+  const resolvedCompanyProfile = currentUser?.companyId ? companyProfile : null;
+  const companyLabel = useMemo(
+    () => formatCompanyLabel(currentUser, resolvedCompanyProfile),
+    [currentUser, resolvedCompanyProfile]
+  );
+  const brandInitials = useMemo(() => buildBrandInitials(companyLabel), [companyLabel]);
+  const brandLogoUrl = String(resolvedCompanyProfile?.logoUrl || "").trim();
+  const workspaceLabel = isOwnerControlUser
+    ? "Owner control workspace"
+    : resolvedCompanyProfile?.branchName
+      ? `${resolvedCompanyProfile.branchName} workspace`
+      : "Operations workspace";
 
   const visibleMenuGroups = SIDEBAR_MENU_GROUPS
     .map((group) => ({
@@ -41,14 +126,16 @@ function Sidebar({ isMobile = false, isOpen = true, onClose = () => {} }) {
     >
       <div style={styles.sidebarOverlay} />
       <div style={styles.brandPanel}>
-        <div style={styles.brandIcon}>CE</div>
+        {brandLogoUrl ? (
+          <div style={styles.brandLogoFrame}>
+            <img src={brandLogoUrl} alt={companyLabel} style={styles.brandLogoImage} />
+          </div>
+        ) : (
+          <div style={styles.brandIcon}>{brandInitials}</div>
+        )}
         <div>
-          <div style={styles.logo}>InfraFlow ERP</div>
-          <p style={styles.logoSubtext}>
-            {isOwnerControlUser
-              ? "Owner control workspace"
-              : "Operations workspace"}
-          </p>
+          <div style={styles.logo}>{companyLabel}</div>
+          <p style={styles.logoSubtext}>{workspaceLabel}</p>
         </div>
 
         {isMobile ? (
@@ -179,11 +266,32 @@ const styles = {
     boxShadow: "0 16px 30px rgba(15, 118, 110, 0.26)",
     flexShrink: 0,
   },
+  brandLogoFrame: {
+    width: "52px",
+    height: "52px",
+    borderRadius: "18px",
+    background: "rgba(255,255,255,0.96)",
+    display: "grid",
+    placeItems: "center",
+    padding: "6px",
+    boxShadow: "0 16px 30px rgba(15, 23, 42, 0.18)",
+    flexShrink: 0,
+    overflow: "hidden",
+  },
+  brandLogoImage: {
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    display: "block",
+  },
   logo: {
-    fontSize: "22px",
+    fontSize: "20px",
     fontWeight: "800",
     letterSpacing: "-0.02em",
     color: "#ffffff",
+    lineHeight: 1.15,
+    maxWidth: "178px",
+    wordBreak: "break-word",
   },
   logoSubtext: {
     margin: "4px 0 0",

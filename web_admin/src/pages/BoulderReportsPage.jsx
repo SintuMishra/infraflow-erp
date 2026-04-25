@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import AppShell from "../components/layout/AppShell";
 import SectionCard from "../components/dashboard/SectionCard";
 import { api } from "../services/api";
@@ -283,6 +284,7 @@ function BoulderReportsPage() {
   const [quickAddMode, setQuickAddMode] = useState(true);
   const [quickTripForm, setQuickTripForm] = useState(INITIAL_QUICK_TRIP_FORM);
   const [quickTripStickyVehicle, setQuickTripStickyVehicle] = useState(true);
+  const [vehicleRegistrySearch, setVehicleRegistrySearch] = useState("");
 
   const shiftContextStorageKey = useMemo(
     () =>
@@ -345,6 +347,14 @@ function BoulderReportsPage() {
     () => (masters?.crusherUnits || []).filter((unit) => unit.isActive),
     [masters?.crusherUnits]
   );
+  const hasCrusherUnitMasters = activeCrusherUnits.length > 0;
+  const selectedPlantNeedsUnitSetup = useMemo(() => {
+    if (!selectedPlant?.plantType) {
+      return false;
+    }
+
+    return canonicalizePlantType(selectedPlant.plantType) === "crusher" && !reportFormCrusherUnits.length;
+  }, [reportFormCrusherUnits.length, selectedPlant?.plantType]);
 
   const reportFormCrusherUnits = useMemo(() => {
     if (!selectedPlant?.plantType) {
@@ -690,6 +700,44 @@ function BoulderReportsPage() {
       latestDate: totals.latestDate,
     };
   }, [filteredReports]);
+
+  const activeVehicleCount = useMemo(
+    () => (vehicles || []).filter((vehicle) => vehicle.isActive).length,
+    [vehicles]
+  );
+
+  const filteredRegistryVehicles = useMemo(() => {
+    const query = String(vehicleRegistrySearch || "").trim().toLowerCase();
+
+    if (!query) {
+      return vehicles || [];
+    }
+
+    return (vehicles || []).filter((vehicle) => {
+      const haystack = [
+        vehicle.vehicleNumber,
+        vehicle.contractorName,
+        vehicle.vehicleType,
+        vehicle.notes,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(query);
+    });
+  }, [vehicleRegistrySearch, vehicles]);
+
+  const tripPerformance = useMemo(() => {
+    const totalTrips = tripAggregates.count;
+    const totalInward = Number(tripAggregates.totalInwardWeight || 0);
+
+    return {
+      totalTrips,
+      avgTonsPerTrip:
+        totalTrips > 0 ? Number((totalInward / totalTrips).toFixed(2)) : 0,
+    };
+  }, [tripAggregates]);
 
   const resetReportForm = ({ preserveContext = keepShiftContext, openingStockOverride = null } = {}) => {
     if (!preserveContext) {
@@ -1473,6 +1521,32 @@ function BoulderReportsPage() {
       {success ? <div style={styles.successBanner}>{success}</div> : null}
       {mastersError ? <div style={styles.warningBanner}>{mastersError}</div> : null}
 
+      <div style={styles.heroCard}>
+        <div style={styles.heroGlowOne} />
+        <div style={styles.heroGlowTwo} />
+        <div style={styles.heroContent}>
+          <div>
+            <p style={styles.heroEyebrow}>Mine Logistics Layer</p>
+            <h1 style={styles.heroTitle}>Boulder Movement Control Center</h1>
+            <p style={styles.heroText}>
+              Capture mine-to-stock and mine-to-crusher movement with shift memory,
+              trip-wise inward control, stock auto-calculation, and yield visibility
+              in one production-ready workspace.
+            </p>
+          </div>
+          <div style={styles.heroPills}>
+            <div style={styles.heroPill}>
+              <span style={styles.heroPillLabel}>Current Scope</span>
+              <strong style={styles.heroPillValue}>Shift entry + trip control</strong>
+            </div>
+            <div style={styles.heroPill}>
+              <span style={styles.heroPillLabel}>Operational Benefit</span>
+              <strong style={styles.heroPillValue}>Stock and yield discipline ready</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <SectionCard title="Boulder Snapshot">
         <div style={styles.metricsGrid}>
           <Metric label="Reports" value={effectiveSummary.total} />
@@ -1492,7 +1566,48 @@ function BoulderReportsPage() {
         </div>
       </SectionCard>
 
+      <SectionCard title="Shift Entry Guidance">
+        <div style={styles.guidanceGrid}>
+          <div style={styles.guidanceCard}>
+            <span style={styles.guidanceLabel}>1. Set Shift Context</span>
+            <strong style={styles.guidanceTitle}>Lock plant, shift, and mine first</strong>
+            <p style={styles.guidanceText}>
+              Use shift memory so the operator does not re-enter the same plant, shift,
+              unit, and opening stock for every truck movement.
+            </p>
+          </div>
+          <div style={styles.guidanceCard}>
+            <span style={styles.guidanceLabel}>2. Add Trips</span>
+            <strong style={styles.guidanceTitle}>Capture every inward truck row</strong>
+            <p style={styles.guidanceText}>
+              Quick trip mode is best for real-time entry. Trip rows auto-drive inward,
+              direct-to-crusher quantity, and route pattern.
+            </p>
+          </div>
+          <div style={styles.guidanceCard}>
+            <span style={styles.guidanceLabel}>3. Close Shift</span>
+            <strong style={styles.guidanceTitle}>Review stock, yield, and loss</strong>
+            <p style={styles.guidanceText}>
+              Before saving, cross-check crusher feed, computed closing stock, and finished
+              output so the report stays audit-friendly and practical for production review.
+            </p>
+          </div>
+        </div>
+      </SectionCard>
+
       <SectionCard title="Analysis Controls">
+        <div style={styles.controlBar}>
+          <div style={styles.controlCopy}>
+            <span style={styles.controlLabel}>Current Analysis Window</span>
+            <strong style={styles.controlValue}>
+              {filteredReports.length} report{filteredReports.length === 1 ? "" : "s"} in view
+            </strong>
+            <span style={styles.controlMeta}>
+              Latest visible report:{" "}
+              {effectiveSummary.latestDate ? formatDisplayDate(effectiveSummary.latestDate) : "none"}
+            </span>
+          </div>
+        </div>
         <div style={styles.filtersGrid}>
           <input
             style={styles.input}
@@ -1703,7 +1818,7 @@ function BoulderReportsPage() {
         </div>
       </SectionCard>
 
-      <SectionCard title="Add Boulder Report">
+      <SectionCard title="Shift Entry Console">
         <form style={styles.formGrid} onSubmit={handleReportSubmit}>
           {loadingMasters ? (
             <p style={styles.sectionHint}>Loading master-linked shifts and units...</p>
@@ -1713,9 +1828,20 @@ function BoulderReportsPage() {
               No active shifts found in Masters. Add a shift in Masters before saving boulder reports.
             </p>
           ) : null}
-          {!loadingMasters && !reportFormCrusherUnits.length ? (
-            <p style={styles.warningText}>
-              No active plant units are available in masters. You can continue with plant-level reporting.
+          {!loadingMasters && selectedPlantNeedsUnitSetup ? (
+            <div style={styles.infoPanel}>
+              <strong style={styles.infoPanelTitle}>Plant-level unit fallback is active</strong>
+              <p style={styles.infoPanelText}>
+                No active sub plant / unit is configured yet for this crushing plant, so Boulder Reports will use plant-level context for now.
+              </p>
+              <Link to="/masters" style={styles.inlineLinkButton}>
+                Open Masters
+              </Link>
+            </div>
+          ) : null}
+          {!loadingMasters && !selectedPlant && !hasCrusherUnitMasters ? (
+            <p style={styles.sectionHint}>
+              No sub plant / unit master is configured yet. You can still continue with plant-level reporting and add units later in Masters.
             </p>
           ) : null}
 
@@ -1745,6 +1871,37 @@ function BoulderReportsPage() {
                 Start Fresh Shift
               </button>
             </div>
+          </div>
+
+          <div style={styles.previewGrid}>
+            <PreviewTile
+              label="Trip Rows"
+              value={tripPerformance.totalTrips ? String(tripPerformance.totalTrips) : "0"}
+            />
+            <PreviewTile
+              label="Avg Tons / Trip"
+              value={
+                tripPerformance.totalTrips
+                  ? `${formatMetric(tripPerformance.avgTonsPerTrip)} tons`
+                  : "-"
+              }
+            />
+            <PreviewTile
+              label="Route Pattern"
+              value={formatRouteTypeLabel(
+                tripAggregates.count
+                  ? tripAggregates.resolvedRouteType || "mixed"
+                  : reportForm.routeType
+              )}
+            />
+            <PreviewTile
+              label="Lead Vehicle"
+              value={
+                tripAggregates.leadVehicleNumber ||
+                reportForm.vehicleNumberSnapshot ||
+                "-"
+              }
+            />
           </div>
 
           <label style={styles.fieldLabel}>
@@ -1836,7 +1993,11 @@ function BoulderReportsPage() {
               </select>
             ) : (
               <input
-                value={selectedPlant?.plantName || "Select plant first"}
+                value={
+                  selectedPlant?.plantName
+                    ? `${selectedPlant.plantName} (Plant-level reporting)`
+                    : "Select plant first"
+                }
                 style={styles.input}
                 disabled
                 readOnly
@@ -2320,21 +2481,39 @@ function BoulderReportsPage() {
 
       <SectionCard title="Mine-to-Crusher Vehicle Registry">
         <div style={styles.registryHeader}>
-          <p style={styles.sectionHint}>
-            Keep this list editable. Update contractor or vehicle details any time when hired trucks change.
-          </p>
-          <button
-            type="button"
-            style={styles.secondaryButton}
-            onClick={() => {
-              setShowVehicleForm((prev) => !prev);
-              if (showVehicleForm) {
-                resetVehicleForm();
-              }
-            }}
-          >
-            {showVehicleForm ? "Hide Vehicle Form" : "Add / Edit Vehicle"}
-          </button>
+          <div>
+            <p style={styles.sectionHint}>
+              Keep this list editable. Update contractor or vehicle details any time when hired trucks change.
+            </p>
+            <div style={styles.registryMetaRow}>
+              <span style={styles.subtleText}>
+                {filteredRegistryVehicles.length} vehicle{filteredRegistryVehicles.length === 1 ? "" : "s"} shown
+              </span>
+              <span style={styles.subtleText}>
+                Active: {activeVehicleCount} / Total: {vehicles.length}
+              </span>
+            </div>
+          </div>
+          <div style={styles.inlineActions}>
+            <input
+              style={styles.registrySearchInput}
+              placeholder="Search vehicle, contractor, type"
+              value={vehicleRegistrySearch}
+              onChange={(event) => setVehicleRegistrySearch(event.target.value)}
+            />
+            <button
+              type="button"
+              style={styles.secondaryButton}
+              onClick={() => {
+                setShowVehicleForm((prev) => !prev);
+                if (showVehicleForm) {
+                  resetVehicleForm();
+                }
+              }}
+            >
+              {showVehicleForm ? "Hide Vehicle Form" : "Add / Edit Vehicle"}
+            </button>
+          </div>
         </div>
 
         {showVehicleForm ? (
@@ -2419,8 +2598,8 @@ function BoulderReportsPage() {
               </tr>
             </thead>
             <tbody>
-              {vehicles.length ? (
-                vehicles.map((vehicle) => (
+              {filteredRegistryVehicles.length ? (
+                filteredRegistryVehicles.map((vehicle) => (
                   <tr key={vehicle.id}>
                     <td style={styles.td}>{vehicle.vehicleNumber}</td>
                     <td style={styles.td}>{vehicle.contractorName}</td>
@@ -2456,7 +2635,9 @@ function BoulderReportsPage() {
               ) : (
                 <tr>
                   <td style={styles.emptyCell} colSpan={6}>
-                    No mine-vehicle entries yet.
+                    {vehicleRegistrySearch
+                      ? "No vehicles match the current registry search."
+                      : "No mine-vehicle entries yet."}
                   </td>
                 </tr>
               )}
@@ -2465,7 +2646,20 @@ function BoulderReportsPage() {
         </div>
       </SectionCard>
 
-      <SectionCard title="Boulder Daily Reports">
+      <SectionCard title="Boulder Daily Register">
+        <div style={styles.registerHeader}>
+          <p style={styles.sectionHint}>
+            Review shift-wise boulder movement, stock flow, yield, and trip footprint in one register.
+          </p>
+          <div style={styles.registryMetaRow}>
+            <span style={styles.subtleText}>
+              Showing {filteredReports.length} report{filteredReports.length === 1 ? "" : "s"}
+            </span>
+            <span style={styles.subtleText}>
+              Avg yield: {formatMetric(effectiveSummary.averageYieldPercent)}%
+            </span>
+          </div>
+        </div>
         <div style={styles.tableWrap}>
           <table style={styles.table}>
             <thead>
@@ -2568,6 +2762,93 @@ function PreviewTile({ label, value }) {
 }
 
 const styles = {
+  heroCard: {
+    position: "relative",
+    overflow: "hidden",
+    borderRadius: "28px",
+    padding: "28px",
+    background:
+      "radial-gradient(circle at top left, rgba(245,158,11,0.18), transparent 24%), radial-gradient(circle at bottom right, rgba(14,165,233,0.16), transparent 26%), linear-gradient(135deg, #17212b 0%, #1f2937 48%, #273449 100%)",
+    color: "#ffffff",
+    border: "1px solid rgba(255,255,255,0.08)",
+    boxShadow: "0 24px 60px rgba(15,23,42,0.18)",
+  },
+  heroGlowOne: {
+    position: "absolute",
+    top: "-70px",
+    right: "-30px",
+    width: "220px",
+    height: "220px",
+    borderRadius: "999px",
+    background: "rgba(245,158,11,0.18)",
+    filter: "blur(8px)",
+  },
+  heroGlowTwo: {
+    position: "absolute",
+    bottom: "-110px",
+    left: "-30px",
+    width: "240px",
+    height: "240px",
+    borderRadius: "999px",
+    background: "rgba(14,165,233,0.14)",
+    filter: "blur(10px)",
+  },
+  heroContent: {
+    position: "relative",
+    zIndex: 1,
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "18px",
+    flexWrap: "wrap",
+  },
+  heroEyebrow: {
+    margin: 0,
+    fontSize: "12px",
+    textTransform: "uppercase",
+    letterSpacing: "1.2px",
+    color: "rgba(255,255,255,0.72)",
+    fontWeight: 700,
+  },
+  heroTitle: {
+    margin: "8px 0 10px",
+    fontSize: "34px",
+    lineHeight: 1.08,
+    letterSpacing: "-0.03em",
+  },
+  heroText: {
+    margin: 0,
+    maxWidth: "720px",
+    fontSize: "15px",
+    lineHeight: 1.7,
+    color: "rgba(255,255,255,0.82)",
+  },
+  heroPills: {
+    display: "flex",
+    gap: "12px",
+    flexWrap: "wrap",
+    alignItems: "flex-start",
+  },
+  heroPill: {
+    minWidth: "190px",
+    borderRadius: "18px",
+    padding: "14px 16px",
+    background: "rgba(255,255,255,0.08)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    backdropFilter: "blur(8px)",
+  },
+  heroPillLabel: {
+    display: "block",
+    fontSize: "11px",
+    textTransform: "uppercase",
+    letterSpacing: "0.9px",
+    color: "rgba(255,255,255,0.62)",
+    marginBottom: "6px",
+  },
+  heroPillValue: {
+    fontSize: "14px",
+    fontWeight: 800,
+    color: "#ffffff",
+  },
   errorBanner: {
     border: "1px solid #fecdd3",
     background:
@@ -2624,6 +2905,72 @@ const styles = {
     fontWeight: 800,
     fontSize: "22px",
     color: "#0f172a",
+  },
+  guidanceGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "12px",
+  },
+  guidanceCard: {
+    border: "1px solid rgba(148,163,184,0.24)",
+    borderRadius: "16px",
+    padding: "16px",
+    background:
+      "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.98) 100%)",
+    boxShadow: "0 8px 18px rgba(15,23,42,0.05)",
+  },
+  guidanceLabel: {
+    display: "inline-block",
+    marginBottom: "8px",
+    fontSize: "11px",
+    textTransform: "uppercase",
+    letterSpacing: "0.8px",
+    color: "#b45309",
+    fontWeight: 800,
+  },
+  guidanceTitle: {
+    display: "block",
+    color: "#0f172a",
+    fontSize: "15px",
+    marginBottom: "8px",
+  },
+  guidanceText: {
+    margin: 0,
+    color: "#475569",
+    fontSize: "13px",
+    lineHeight: 1.6,
+  },
+  controlBar: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "14px",
+    flexWrap: "wrap",
+    marginBottom: "12px",
+    padding: "14px 16px",
+    borderRadius: "16px",
+    border: "1px solid rgba(191,219,254,0.9)",
+    background:
+      "linear-gradient(135deg, rgba(239,246,255,0.92) 0%, rgba(248,250,252,0.96) 100%)",
+  },
+  controlCopy: {
+    display: "grid",
+    gap: "4px",
+  },
+  controlLabel: {
+    fontSize: "11px",
+    textTransform: "uppercase",
+    letterSpacing: "0.9px",
+    color: "#0369a1",
+    fontWeight: 800,
+  },
+  controlValue: {
+    color: "#0f172a",
+    fontSize: "18px",
+    fontWeight: 800,
+  },
+  controlMeta: {
+    fontSize: "13px",
+    color: "#475569",
   },
   filtersGrid: {
     display: "grid",
@@ -2790,6 +3137,28 @@ const styles = {
     flexWrap: "wrap",
     marginBottom: "10px",
   },
+  registryMetaRow: {
+    display: "flex",
+    gap: "12px",
+    flexWrap: "wrap",
+    marginTop: "6px",
+  },
+  registrySearchInput: {
+    border: "1px solid #cbd5e1",
+    borderRadius: "12px",
+    padding: "10px 12px",
+    fontSize: "13px",
+    minWidth: "240px",
+    background: "#ffffff",
+  },
+  registerHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "12px",
+    flexWrap: "wrap",
+    marginBottom: "10px",
+  },
   sectionHint: {
     margin: 0,
     color: "#475569",
@@ -2805,6 +3174,44 @@ const styles = {
     padding: "10px 12px",
     fontSize: "13px",
     fontWeight: 600,
+  },
+  infoPanel: {
+    gridColumn: "1 / -1",
+    border: "1px solid #bfdbfe",
+    background:
+      "linear-gradient(135deg, rgba(239,246,255,0.96) 0%, rgba(248,250,252,0.98) 100%)",
+    borderRadius: "14px",
+    padding: "12px 14px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    flexWrap: "wrap",
+  },
+  infoPanelTitle: {
+    color: "#0f172a",
+    fontSize: "14px",
+    fontWeight: 800,
+  },
+  infoPanelText: {
+    margin: 0,
+    color: "#475569",
+    fontSize: "13px",
+    lineHeight: 1.6,
+    flex: "1 1 420px",
+  },
+  inlineLinkButton: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    border: "1px solid #93c5fd",
+    borderRadius: "12px",
+    background: "#ffffff",
+    color: "#0f172a",
+    padding: "10px 14px",
+    fontWeight: 700,
+    textDecoration: "none",
+    whiteSpace: "nowrap",
   },
   contextPanel: {
     gridColumn: "1 / -1",
