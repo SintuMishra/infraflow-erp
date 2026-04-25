@@ -57,6 +57,7 @@ function DashboardPage() {
   const [reviewedCommercialInsights, setReviewedCommercialInsights] = useState(null);
   const [myCommercialInsights, setMyCommercialInsights] = useState(null);
   const [error, setError] = useState("");
+  const [commercialWarning, setCommercialWarning] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshedAt, setLastRefreshedAt] = useState("");
 
@@ -64,36 +65,67 @@ function DashboardPage() {
     setIsRefreshing(true);
 
     try {
-      const requests = [
-        api.get("/dashboard/summary"),
-        api.get("/dashboard/commercial-exceptions", {
-          params: { includeReviewed: true, limit: 50 },
-        }),
-        api.get("/dashboard/commercial-exceptions", {
-          params: { includeReviewed: true, reviewedOnly: true, limit: 20 },
-        }),
-      ];
-
-      if (currentUser?.employeeId) {
-        requests.push(
+      const [summaryRes, commercialRes, reviewedCommercialRes, myCommercialRes] =
+        await Promise.allSettled([
+          api.get("/dashboard/summary"),
           api.get("/dashboard/commercial-exceptions", {
-            params: {
-              assignedEmployeeId: currentUser.employeeId,
-              limit: 20,
-            },
-          })
-        );
+            params: { includeReviewed: true, limit: 50 },
+          }),
+          api.get("/dashboard/commercial-exceptions", {
+            params: { includeReviewed: true, reviewedOnly: true, limit: 20 },
+          }),
+          currentUser?.employeeId
+            ? api.get("/dashboard/commercial-exceptions", {
+                params: {
+                  assignedEmployeeId: currentUser.employeeId,
+                  limit: 20,
+                },
+              })
+            : Promise.resolve(null),
+        ]);
+
+      if (summaryRes.status !== "fulfilled") {
+        throw summaryRes.reason || new Error("Failed to load dashboard summary");
       }
 
-      const [summaryRes, commercialRes, reviewedCommercialRes, myCommercialRes] =
-        await Promise.all(requests);
-      setData(summaryRes.data.data);
-      setCommercialInsights(commercialRes.data?.data || null);
-      setReviewedCommercialInsights(reviewedCommercialRes.data?.data || null);
-      setMyCommercialInsights(myCommercialRes?.data?.data || null);
+      setData(summaryRes.value.data?.data || null);
+
+      const commercialFailures = [];
+
+      if (commercialRes.status === "fulfilled") {
+        setCommercialInsights(commercialRes.value.data?.data || null);
+      } else {
+        setCommercialInsights(null);
+        commercialFailures.push("commercial queue");
+      }
+
+      if (reviewedCommercialRes.status === "fulfilled") {
+        setReviewedCommercialInsights(reviewedCommercialRes.value.data?.data || null);
+      } else {
+        setReviewedCommercialInsights(null);
+        commercialFailures.push("reviewed queue");
+      }
+
+      if (myCommercialRes.status === "fulfilled") {
+        setMyCommercialInsights(myCommercialRes.value?.data?.data || null);
+      } else {
+        setMyCommercialInsights(null);
+        if (currentUser?.employeeId) {
+          commercialFailures.push("my queue");
+        }
+      }
+
+      setCommercialWarning(
+        commercialFailures.length
+          ? `Some commercial exception insights are temporarily unavailable: ${commercialFailures.join(
+              ", "
+            )}.`
+          : ""
+      );
       setLastRefreshedAt(new Date().toISOString());
       setError("");
     } catch {
+      setCommercialWarning("");
       setError("Failed to load dashboard data.");
     } finally {
       setIsRefreshing(false);
@@ -366,6 +398,7 @@ function DashboardPage() {
       subtitle="Live view of dispatch, production, and fleet"
     >
       {error && <p style={styles.error}>{error}</p>}
+      {commercialWarning && <p style={styles.warning}>{commercialWarning}</p>}
 
       {!data ? (
         <div style={styles.loadingState}>Loading dashboard...</div>
@@ -1448,6 +1481,14 @@ const styles = {
     borderRadius: "16px",
     border: "1px solid #fecaca",
     background: "linear-gradient(135deg, #fef2f2 0%, #fff1f2 100%)",
+  },
+  warning: {
+    color: "#92400e",
+    marginBottom: "16px",
+    padding: "14px 16px",
+    borderRadius: "16px",
+    border: "1px solid #fed7aa",
+    background: "linear-gradient(135deg, #fff7ed 0%, #fffbeb 100%)",
   },
   loadingState: {
     minHeight: "240px",
