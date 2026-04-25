@@ -348,13 +348,6 @@ function BoulderReportsPage() {
     [masters?.crusherUnits]
   );
   const hasCrusherUnitMasters = activeCrusherUnits.length > 0;
-  const selectedPlantNeedsUnitSetup = useMemo(() => {
-    if (!selectedPlant?.plantType) {
-      return false;
-    }
-
-    return canonicalizePlantType(selectedPlant.plantType) === "crusher" && !reportFormCrusherUnits.length;
-  }, [reportFormCrusherUnits.length, selectedPlant?.plantType]);
 
   const reportFormCrusherUnits = useMemo(() => {
     if (!selectedPlant?.plantType) {
@@ -369,6 +362,16 @@ function BoulderReportsPage() {
     // inconsistent master naming, allow active units instead of blocking entry.
     return matchedUnits.length ? matchedUnits : activeCrusherUnits;
   }, [activeCrusherUnits, selectedPlant?.plantType]);
+  const selectedPlantNeedsUnitSetup = useMemo(() => {
+    if (!selectedPlant?.plantType) {
+      return false;
+    }
+
+    return (
+      canonicalizePlantType(selectedPlant.plantType) === "crusher" &&
+      !reportFormCrusherUnits.length
+    );
+  }, [reportFormCrusherUnits.length, selectedPlant?.plantType]);
 
   const filterCrusherUnits = useMemo(() => {
     if (!selectedFilterPlant?.plantType) {
