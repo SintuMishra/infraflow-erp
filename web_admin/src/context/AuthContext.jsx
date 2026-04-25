@@ -1,4 +1,4 @@
-import { createContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../services/api";
 import {
   clearSession,
@@ -7,8 +7,7 @@ import {
   hasRole as hasRoleInSession,
   setSession,
 } from "../utils/auth";
-
-const AuthContext = createContext(null);
+import { AuthContext } from "./auth-context";
 
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(() => getStoredUser());
@@ -98,5 +97,3 @@ export function AuthProvider({ children }) {
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
-
-export { AuthContext };
