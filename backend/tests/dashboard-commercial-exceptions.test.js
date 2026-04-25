@@ -1001,3 +1001,88 @@ test("getCommercialExceptions enforces reviewedOnly by forcing includeReviewed i
     }
   );
 });
+
+test(
+  "getCommercialExceptions stays available when audit log schema is missing commercial exception columns",
+  { concurrency: false },
+  async () => {
+    await withDashboardCommercialMocks(
+      {
+        companyScope: {
+          tableExists: async (tableName) => tableName === "audit_logs",
+          hasColumn: async (tableName, columnName) => {
+            if (tableName !== "audit_logs") {
+              return true;
+            }
+
+            return columnName !== "target_type";
+          },
+        },
+        partyOrders: {
+          getAllPartyOrders: async () => [],
+        },
+        dispatch: {
+          findAllDispatchReports: async () => [],
+        },
+        rates: {
+          getAllRates: async () => [],
+        },
+        parties: {
+          getAllParties: async () => [],
+        },
+      },
+      async ({ getCommercialExceptions }) => {
+        const result = await getCommercialExceptions(77, {
+          includeReviewed: true,
+        });
+
+        assert.equal(result.summary.total, 0);
+        assert.equal(result.meta.totalCount, 0);
+      }
+    );
+  }
+);
+
+test(
+  "getCommercialExceptions stays available when audit log lookup query fails",
+  { concurrency: false },
+  async () => {
+    await withDashboardCommercialMocks(
+      {
+        db: {
+          query: async () => {
+            throw new Error("column a.target_type does not exist");
+          },
+        },
+        companyScope: {
+          tableExists: async (tableName) => tableName === "audit_logs",
+          hasColumn: async () => true,
+        },
+        partyOrders: {
+          getAllPartyOrders: async () => [],
+        },
+        dispatch: {
+          findAllDispatchReports: async () => [],
+        },
+        rates: {
+          getAllRates: async () => [],
+        },
+        parties: {
+          getAllParties: async () => [],
+        },
+      },
+      async ({ getCommercialExceptions }) => {
+        const result = await getCommercialExceptions(77, {
+          assignedEmployeeId: 2,
+          includeReviewed: true,
+          reviewedOnly: true,
+        });
+
+        assert.equal(result.summary.total, 0);
+        assert.equal(result.meta.totalCount, 0);
+        assert.equal(result.meta.reviewedOnly, true);
+        assert.equal(result.meta.includeReviewed, true);
+      }
+    );
+  }
+);

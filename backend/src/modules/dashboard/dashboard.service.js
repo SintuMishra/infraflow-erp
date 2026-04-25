@@ -1,6 +1,7 @@
 const { pool } = require("../../config/db");
 const { hasColumn, tableExists } = require("../../utils/companyScope.util");
 const { formatDateOnly } = require("../../utils/date.util");
+const logger = require("../../utils/logger");
 const { getAllPartyOrders } = require("../party_orders/party_orders.model");
 const { findAllDispatchReports } = require("../dispatch/dispatch.model");
 const { getAllRates } = require("../party_material_rates/party_material_rates.model");
@@ -448,40 +449,77 @@ const parseAuditDetails = (value) => {
   return value;
 };
 
-const getReviewedExceptionMap = async (companyId = null) => {
+const getCommercialExceptionAuditQueryState = async (companyId = null) => {
   const auditTableExists = await tableExists("audit_logs");
 
   if (!auditTableExists) {
-    return new Map();
+    return null;
   }
 
-  const auditHasCompany = await hasColumn("audit_logs", "company_id");
-  const auditHasDetails = await hasColumn("audit_logs", "details");
+  const [
+    auditHasCompany,
+    auditHasAction,
+    auditHasTargetType,
+    auditHasCreatedAt,
+    auditHasDetails,
+  ] = await Promise.all([
+    hasColumn("audit_logs", "company_id"),
+    hasColumn("audit_logs", "action"),
+    hasColumn("audit_logs", "target_type"),
+    hasColumn("audit_logs", "created_at"),
+    hasColumn("audit_logs", "details"),
+  ]);
 
-  if (!auditHasDetails) {
-    return new Map();
+  if (!auditHasAction || !auditHasTargetType || !auditHasCreatedAt || !auditHasDetails) {
+    return null;
   }
 
-  const values = ["commercial_exception.reviewed", "commercial_exception"];
-  const conditions = ["a.action = $1", "a.target_type = $2"];
+  const values = [];
+  const conditions = [];
+
+  values.push("commercial_exception");
+  conditions.push(`a.target_type = $${values.length}`);
 
   if (auditHasCompany && companyId !== null) {
     values.push(companyId);
     conditions.push(`a.company_id = $${values.length}`);
   }
 
-  const result = await pool.query(
-    `
-    SELECT
-      a.id,
-      a.created_at AS "createdAt",
-      a.details AS "details"
-    FROM audit_logs a
-    WHERE ${conditions.join(" AND ")}
-    ORDER BY a.created_at DESC, a.id DESC
-    `,
-    values
-  );
+  return {
+    values,
+    conditions,
+  };
+};
+
+const getReviewedExceptionMap = async (companyId = null) => {
+  const auditState = await getCommercialExceptionAuditQueryState(companyId);
+  if (!auditState) {
+    return new Map();
+  }
+  const values = ["commercial_exception.reviewed", ...auditState.values];
+  const conditions = [`a.action = $1`, ...auditState.conditions];
+  let result;
+
+  try {
+    result = await pool.query(
+      `
+      SELECT
+        a.id,
+        a.created_at AS "createdAt",
+        a.details AS "details"
+      FROM audit_logs a
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY a.created_at DESC, a.id DESC
+      `,
+      values
+    );
+  } catch (error) {
+    logger.warn("Commercial exception review audit query failed", {
+      companyId,
+      message: error.message,
+    });
+    return new Map();
+  }
 
   const reviewMap = new Map();
 
@@ -504,39 +542,34 @@ const getReviewedExceptionMap = async (companyId = null) => {
 };
 
 const getAssignedExceptionMap = async (companyId = null) => {
-  const auditTableExists = await tableExists("audit_logs");
-
-  if (!auditTableExists) {
+  const auditState = await getCommercialExceptionAuditQueryState(companyId);
+  if (!auditState) {
     return new Map();
   }
+  const values = ["commercial_exception.assigned", ...auditState.values];
+  const conditions = [`a.action = $1`, ...auditState.conditions];
+  let result;
 
-  const auditHasCompany = await hasColumn("audit_logs", "company_id");
-  const auditHasDetails = await hasColumn("audit_logs", "details");
-
-  if (!auditHasDetails) {
+  try {
+    result = await pool.query(
+      `
+      SELECT
+        a.id,
+        a.created_at AS "createdAt",
+        a.details AS "details"
+      FROM audit_logs a
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY a.created_at DESC, a.id DESC
+      `,
+      values
+    );
+  } catch (error) {
+    logger.warn("Commercial exception assignment audit query failed", {
+      companyId,
+      message: error.message,
+    });
     return new Map();
   }
-
-  const values = ["commercial_exception.assigned", "commercial_exception"];
-  const conditions = ["a.action = $1", "a.target_type = $2"];
-
-  if (auditHasCompany && companyId !== null) {
-    values.push(companyId);
-    conditions.push(`a.company_id = $${values.length}`);
-  }
-
-  const result = await pool.query(
-    `
-    SELECT
-      a.id,
-      a.created_at AS "createdAt",
-      a.details AS "details"
-    FROM audit_logs a
-    WHERE ${conditions.join(" AND ")}
-    ORDER BY a.created_at DESC, a.id DESC
-    `,
-    values
-  );
 
   const assignmentMap = new Map();
 
