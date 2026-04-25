@@ -9,28 +9,76 @@ const buildValidationError = (message, statusCode = 400) => {
   return error;
 };
 
-const normalizeRatePayload = (data = {}) => ({
-  plantId: Number(data.plantId),
-  partyId: Number(data.partyId),
-  materialId: Number(data.materialId),
-  ratePerTon: Number(data.ratePerTon),
-  royaltyMode: String(data.royaltyMode || "").trim(),
-  royaltyValue:
-    data.royaltyValue === undefined || data.royaltyValue === null || data.royaltyValue === ""
-      ? 0
-      : Number(data.royaltyValue),
-  tonsPerBrass:
-    data.tonsPerBrass === undefined || data.tonsPerBrass === null || data.tonsPerBrass === ""
-      ? null
-      : Number(data.tonsPerBrass),
-  loadingCharge:
-    data.loadingCharge === undefined || data.loadingCharge === null || data.loadingCharge === ""
-      ? 0
-      : Number(data.loadingCharge),
-  notes: String(data.notes || "").trim(),
-  effectiveFrom: String(data.effectiveFrom || "").trim(),
-  companyId: normalizeCompanyId(data.companyId),
-});
+const allowedRateUnits = [
+  "per_ton",
+  "per_metric_ton",
+  "per_cft",
+  "per_brass",
+  "per_cubic_meter",
+  "per_trip",
+  "other",
+];
+const conversionRateUnits = ["per_cft", "per_brass", "per_cubic_meter", "per_trip", "other"];
+const allowedLoadingChargeBases = ["none", "fixed", "per_ton", "per_brass", "per_trip"];
+
+const getDefaultRateUnitLabel = (rateUnit) => {
+  if (rateUnit === "per_metric_ton") return "metric ton";
+  if (rateUnit === "per_cft") return "CFT";
+  if (rateUnit === "per_brass") return "brass";
+  if (rateUnit === "per_cubic_meter") return "cubic meter";
+  if (rateUnit === "per_trip") return "trip";
+  return "ton";
+};
+
+const getTodayDateOnlyValue = () => new Date().toISOString().slice(0, 10);
+
+const normalizeRateUnit = (data = {}) => {
+  const rateUnit = String(data.rateUnit || "per_ton").trim();
+  const rateUnitLabel = String(data.rateUnitLabel || "").trim();
+  const rawUnitsPerTon = data.rateUnitsPerTon;
+  const rateUnitsPerTon =
+    rawUnitsPerTon === undefined || rawUnitsPerTon === null || rawUnitsPerTon === ""
+      ? 1
+      : Number(rawUnitsPerTon);
+
+  return {
+    rateUnit,
+    rateUnitLabel: rateUnit === "other" ? rateUnitLabel : getDefaultRateUnitLabel(rateUnit),
+    rateUnitsPerTon: conversionRateUnits.includes(rateUnit) ? rateUnitsPerTon : 1,
+  };
+};
+
+const normalizeRatePayload = (data = {}) => {
+  const loadingChargeBasis = String(data.loadingChargeBasis || "fixed").trim() || "fixed";
+
+  return {
+    plantId: Number(data.plantId),
+    partyId: Number(data.partyId),
+    materialId: Number(data.materialId),
+    ratePerTon: Number(data.ratePerTon),
+    ...normalizeRateUnit(data),
+    royaltyMode: String(data.royaltyMode || "").trim(),
+    royaltyValue:
+      data.royaltyValue === undefined || data.royaltyValue === null || data.royaltyValue === ""
+        ? 0
+        : Number(data.royaltyValue),
+    tonsPerBrass:
+      data.tonsPerBrass === undefined || data.tonsPerBrass === null || data.tonsPerBrass === ""
+        ? null
+        : Number(data.tonsPerBrass),
+    loadingCharge:
+      loadingChargeBasis === "none" ||
+      data.loadingCharge === undefined ||
+      data.loadingCharge === null ||
+      data.loadingCharge === ""
+        ? 0
+        : Number(data.loadingCharge),
+    loadingChargeBasis,
+    notes: String(data.notes || "").trim(),
+    effectiveFrom: String(data.effectiveFrom || "").trim() || getTodayDateOnlyValue(),
+    companyId: normalizeCompanyId(data.companyId),
+  };
+};
 
 const validate = (data) => {
   if (
@@ -48,6 +96,18 @@ const validate = (data) => {
     throw buildValidationError("Rate must be > 0");
   }
 
+  if (!allowedRateUnits.includes(data.rateUnit)) {
+    throw buildValidationError("Invalid rate unit");
+  }
+
+  if (data.rateUnit === "other" && !data.rateUnitLabel) {
+    throw buildValidationError("rateUnitLabel is required for other rate unit");
+  }
+
+  if (!Number.isFinite(data.rateUnitsPerTon) || data.rateUnitsPerTon <= 0) {
+    throw buildValidationError("rateUnitsPerTon must be greater than 0");
+  }
+
   if (!["per_ton", "per_brass", "fixed", "none"].includes(data.royaltyMode)) {
     throw buildValidationError("Invalid royalty mode");
   }
@@ -60,9 +120,15 @@ const validate = (data) => {
     throw buildValidationError("loadingCharge must be 0 or greater");
   }
 
-  if (data.royaltyMode === "per_brass") {
+  if (!allowedLoadingChargeBases.includes(data.loadingChargeBasis)) {
+    throw buildValidationError("Invalid loading charge basis");
+  }
+
+  if (data.royaltyMode === "per_brass" || data.loadingChargeBasis === "per_brass") {
     if (!Number.isFinite(data.tonsPerBrass) || data.tonsPerBrass <= 0) {
-      throw buildValidationError("tonsPerBrass must be greater than 0 for per_brass royalty mode");
+      throw buildValidationError(
+        "tonsPerBrass must be greater than 0 when royalty or loading is per_brass"
+      );
     }
   } else if (data.tonsPerBrass !== null && (!Number.isFinite(data.tonsPerBrass) || data.tonsPerBrass <= 0)) {
     throw buildValidationError("tonsPerBrass must be greater than 0 when provided");
@@ -89,6 +155,30 @@ const validateMasterLinks = async ({ plantId, partyId, materialId, companyId }) 
   }
 };
 
+const ensureNoActiveRateConflict = async ({
+  rateId = null,
+  plantId,
+  partyId,
+  materialId,
+  effectiveFrom,
+  companyId,
+}) => {
+  const conflictingRate = await model.findActiveRateConflict({
+    plantId,
+    partyId,
+    materialId,
+    effectiveFrom,
+    companyId,
+    excludeRateId: rateId,
+  });
+
+  if (conflictingRate) {
+    throw buildValidationError(
+      "An active party material rate already exists for this plant, party, material, and effective date"
+    );
+  }
+};
+
 const getRates = async (companyId = null) => {
   return await model.getAllRates(companyId);
 };
@@ -97,6 +187,7 @@ const createRate = async (data) => {
   const normalized = normalizeRatePayload(data);
   validate(normalized);
   await validateMasterLinks(normalized);
+  await ensureNoActiveRateConflict(normalized);
   return await model.insertRate(normalized);
 };
 
@@ -104,6 +195,10 @@ const updateRate = async (id, data) => {
   const normalized = normalizeRatePayload(data);
   validate(normalized);
   await validateMasterLinks(normalized);
+  await ensureNoActiveRateConflict({
+    rateId: Number(id),
+    ...normalized,
+  });
   const updated = await model.updateRate(id, normalized);
 
   if (!updated) {

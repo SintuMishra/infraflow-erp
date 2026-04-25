@@ -115,6 +115,8 @@ const toNumber = (value, fallback = 0) =>
     : Number(value);
 const roundMoney = (value) =>
   Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+const roundMetric = (value, fractionDigits = 4) =>
+  Number(Number(value || 0).toFixed(fractionDigits));
 const hasExplicitInvoiceOverride = (invoiceValue, computedSubtotal) => {
   if (invoiceValue === undefined || invoiceValue === null || invoiceValue === "") {
     return false;
@@ -219,7 +221,104 @@ const calculateTransportCost = ({ transportRate, quantityTons, distanceKm }) => 
   };
 };
 
+const getDefaultRateUnitLabel = (rateUnit) => {
+  if (rateUnit === "per_cft") return "CFT";
+  if (rateUnit === "per_metric_ton") return "metric ton";
+  if (rateUnit === "per_brass") return "brass";
+  if (rateUnit === "per_cubic_meter") return "cubic meter";
+  if (rateUnit === "per_trip") return "trip";
+  return "ton";
+};
+
+const calculateBillableRateUnits = ({ quantityTons, materialRateUnit, materialRateUnitsPerTon }) => {
+  const quantity = Number(quantityTons || 0);
+  const unitsPerTon = Number(materialRateUnitsPerTon || 1);
+  const rawBillableUnits = quantity * unitsPerTon;
+
+  if (materialRateUnit === "per_trip") {
+    return Math.max(0, Math.ceil(rawBillableUnits - 1e-9));
+  }
+
+  return rawBillableUnits;
+};
+
+const calculateLoadingCharge = ({
+  quantityTons,
+  loadingCharge,
+  loadingChargeBasis,
+  tonsPerBrass,
+}) => {
+  const quantity = Number(quantityTons || 0);
+  const loadingRate = roundMoney(loadingCharge || 0);
+  const basis = String(loadingChargeBasis || "fixed").trim() || "fixed";
+
+  if (basis === "none" || loadingRate <= 0) {
+    return {
+      loadingChargeBasis: "none",
+      loadingChargeRate: loadingRate,
+      loadingCharge: 0,
+    };
+  }
+
+  if (basis === "per_ton") {
+    return {
+      loadingChargeBasis: basis,
+      loadingChargeRate: loadingRate,
+      loadingCharge: roundMoney(quantity * loadingRate),
+    };
+  }
+
+  if (basis === "per_brass") {
+    if (!Number.isFinite(Number(tonsPerBrass)) || Number(tonsPerBrass) <= 0) {
+      throw buildValidationError(
+        "Selected party material rate has invalid tons-per-brass for per_brass loading basis"
+      );
+    }
+
+    return {
+      loadingChargeBasis: basis,
+      loadingChargeRate: loadingRate,
+      loadingCharge: roundMoney((quantity / Number(tonsPerBrass)) * loadingRate),
+    };
+  }
+
+  return {
+    loadingChargeBasis: basis,
+    loadingChargeRate: loadingRate,
+    loadingCharge: roundMoney(loadingRate),
+  };
+};
+
+const calculateMaterialAmount = ({ quantityTons, partyMaterialRate }) => {
+  const quantity = Number(quantityTons || 0);
+  const materialRatePerTon = Number(partyMaterialRate.ratePerTon || 0);
+  const materialRateUnit = partyMaterialRate.rateUnit || "per_ton";
+  const materialRateUnitsPerTon = Number(partyMaterialRate.rateUnitsPerTon || 1);
+
+  if (!Number.isFinite(materialRateUnitsPerTon) || materialRateUnitsPerTon <= 0) {
+    throw buildValidationError(
+      "Selected party material rate has invalid billable units per ton"
+    );
+  }
+
+  return {
+    materialRatePerTon,
+    materialRateUnit,
+    materialRateUnitLabel:
+      partyMaterialRate.rateUnitLabel || getDefaultRateUnitLabel(materialRateUnit),
+    materialRateUnitsPerTon,
+    materialAmount: roundMoney(
+      calculateBillableRateUnits({
+        quantityTons: quantity,
+        materialRateUnit,
+        materialRateUnitsPerTon,
+      }) * materialRatePerTon
+    ),
+  };
+};
+
 const calculateDispatchCommercials = async ({
+  dispatchDate,
   plantId,
   materialId,
   partyId,
@@ -228,6 +327,8 @@ const calculateDispatchCommercials = async ({
   quantityTons,
   distanceKm,
   otherCharge,
+  loadingCharge,
+  loadingChargeManual,
   invoiceValue,
   billingNotes,
   companyId,
@@ -237,6 +338,7 @@ const calculateDispatchCommercials = async ({
     partyId: Number(partyId),
     materialId: Number(materialId),
     companyId: companyId || null,
+    effectiveDate: dispatchDate || null,
   });
 
   if (!partyMaterialRate) {
@@ -258,15 +360,29 @@ const calculateDispatchCommercials = async ({
     : null;
 
   const quantity = Number(quantityTons || 0);
-  const materialRatePerTon = Number(partyMaterialRate.ratePerTon || 0);
-  const materialAmount = roundMoney(quantity * materialRatePerTon);
+  const {
+    materialRatePerTon,
+    materialRateUnit,
+    materialRateUnitLabel,
+    materialRateUnitsPerTon,
+    materialAmount,
+  } = calculateMaterialAmount({ quantityTons: quantity, partyMaterialRate });
   const royaltyMode = partyMaterialRate.royaltyMode || "none";
   const royaltyValue = Number(partyMaterialRate.royaltyValue || 0);
   const tonsPerBrass =
     partyMaterialRate.tonsPerBrass === null || partyMaterialRate.tonsPerBrass === undefined
       ? null
       : Number(partyMaterialRate.tonsPerBrass);
-  const loadingCharge = roundMoney(partyMaterialRate.loadingCharge || 0);
+  const loadingDefaults = calculateLoadingCharge({
+    quantityTons: quantity,
+    loadingCharge: partyMaterialRate.loadingCharge || 0,
+    loadingChargeBasis: partyMaterialRate.loadingChargeBasis || "fixed",
+    tonsPerBrass,
+  });
+  const normalizedLoadingChargeManual = Boolean(loadingChargeManual);
+  const normalizedLoadingCharge = normalizedLoadingChargeManual
+    ? roundMoney(toNumber(loadingCharge, 0))
+    : loadingDefaults.loadingCharge;
   const normalizedOtherCharge = roundMoney(toNumber(otherCharge, 0));
 
   let royaltyAmount = 0;
@@ -297,7 +413,7 @@ const calculateDispatchCommercials = async ({
   const computedSubtotal = roundMoney(
     materialAmount +
     royaltyAmount +
-    loadingCharge +
+    normalizedLoadingCharge +
     transportCost +
     normalizedOtherCharge
   );
@@ -323,14 +439,24 @@ const calculateDispatchCommercials = async ({
     partyMaterialRateId: Number(partyMaterialRate.id),
     transportRateId: transportRate ? Number(transportRate.id) : null,
     materialRatePerTon: roundMoney(materialRatePerTon),
+    materialRateUnit,
+    materialRateUnitLabel,
+    materialRateUnitsPerTon: roundMetric(materialRateUnitsPerTon),
     materialAmount,
     transportRateType,
     transportRateValue,
     transportCost,
     royaltyMode,
     royaltyValue: roundMoney(royaltyValue),
+    royaltyTonsPerBrass:
+      royaltyMode === "per_brass" && Number.isFinite(tonsPerBrass) && tonsPerBrass > 0
+        ? roundMetric(tonsPerBrass)
+        : null,
     royaltyAmount,
-    loadingCharge,
+    loadingCharge: normalizedLoadingCharge,
+    loadingChargeBasis: loadingDefaults.loadingChargeBasis,
+    loadingChargeRate: loadingDefaults.loadingChargeRate,
+    loadingChargeIsManual: normalizedLoadingChargeManual,
     otherCharge: normalizedOtherCharge,
     totalInvoiceValue: finalInvoiceValue,
     invoiceValue: finalInvoiceValue,
@@ -605,6 +731,8 @@ const createDispatchReport = async ({
   transportVendorId,
   partyOrderId,
   otherCharge,
+  loadingCharge,
+  loadingChargeManual,
   billingNotes,
   companyId,
 }) => {
@@ -655,6 +783,7 @@ const createDispatchReport = async ({
 
   const company = await getCompanyProfile(companyId || null);
   const commercials = await calculateDispatchCommercials({
+    dispatchDate,
     plantId,
     materialId,
     partyId,
@@ -663,6 +792,8 @@ const createDispatchReport = async ({
     quantityTons,
     distanceKm,
     otherCharge,
+    loadingCharge,
+    loadingChargeManual,
     invoiceValue,
     billingNotes,
     companyId: companyId || null,
@@ -719,14 +850,21 @@ const createDispatchReport = async ({
       partyMaterialRateId: commercials.partyMaterialRateId,
       transportRateId: commercials.transportRateId,
       materialRatePerTon: commercials.materialRatePerTon,
+      materialRateUnit: commercials.materialRateUnit,
+      materialRateUnitLabel: commercials.materialRateUnitLabel,
+      materialRateUnitsPerTon: commercials.materialRateUnitsPerTon,
       materialAmount: commercials.materialAmount,
       transportRateType: commercials.transportRateType,
       transportRateValue: commercials.transportRateValue,
       transportCost: commercials.transportCost,
       royaltyMode: commercials.royaltyMode,
       royaltyValue: commercials.royaltyValue,
+      royaltyTonsPerBrass: commercials.royaltyTonsPerBrass,
       royaltyAmount: commercials.royaltyAmount,
       loadingCharge: commercials.loadingCharge,
+      loadingChargeBasis: commercials.loadingChargeBasis,
+      loadingChargeRate: commercials.loadingChargeRate,
+      loadingChargeIsManual: commercials.loadingChargeIsManual,
       otherCharge: commercials.otherCharge,
       totalInvoiceValue: commercials.totalInvoiceValue,
       billingNotes: billingNotes || null,
@@ -771,6 +909,8 @@ const editDispatchReport = async ({
   transportVendorId,
   partyOrderId,
   otherCharge,
+  loadingCharge,
+  loadingChargeManual,
   billingNotes,
   companyId,
 }) => {
@@ -823,6 +963,7 @@ const editDispatchReport = async ({
 
   const company = await getCompanyProfile(companyId || null);
   const commercials = await calculateDispatchCommercials({
+    dispatchDate,
     plantId,
     materialId,
     partyId,
@@ -831,6 +972,8 @@ const editDispatchReport = async ({
     quantityTons,
     distanceKm,
     otherCharge,
+    loadingCharge,
+    loadingChargeManual,
     invoiceValue,
     billingNotes,
     companyId: companyId || null,
@@ -885,14 +1028,21 @@ const editDispatchReport = async ({
       partyMaterialRateId: commercials.partyMaterialRateId,
       transportRateId: commercials.transportRateId,
       materialRatePerTon: commercials.materialRatePerTon,
+      materialRateUnit: commercials.materialRateUnit,
+      materialRateUnitLabel: commercials.materialRateUnitLabel,
+      materialRateUnitsPerTon: commercials.materialRateUnitsPerTon,
       materialAmount: commercials.materialAmount,
       transportRateType: commercials.transportRateType,
       transportRateValue: commercials.transportRateValue,
       transportCost: commercials.transportCost,
       royaltyMode: commercials.royaltyMode,
       royaltyValue: commercials.royaltyValue,
+      royaltyTonsPerBrass: commercials.royaltyTonsPerBrass,
       royaltyAmount: commercials.royaltyAmount,
       loadingCharge: commercials.loadingCharge,
+      loadingChargeBasis: commercials.loadingChargeBasis,
+      loadingChargeRate: commercials.loadingChargeRate,
+      loadingChargeIsManual: commercials.loadingChargeIsManual,
       otherCharge: commercials.otherCharge,
       totalInvoiceValue: commercials.totalInvoiceValue,
       billingNotes: billingNotes || null,

@@ -162,6 +162,31 @@ const validateDispatchReportInput = (req, res, next) => {
     });
   }
 
+  const parsedLoadingCharge = parseOptionalNumber(req.body.loadingCharge);
+  if (Number.isNaN(parsedLoadingCharge)) {
+    return res.status(400).json({
+      success: false,
+      message: "loadingCharge must be a valid number",
+    });
+  }
+
+  if (parsedLoadingCharge !== null && parsedLoadingCharge < 0) {
+    return res.status(400).json({
+      success: false,
+      message: "loadingCharge must be 0 or more",
+    });
+  }
+
+  if (
+    req.body.loadingChargeManual !== undefined &&
+    typeof req.body.loadingChargeManual !== "boolean"
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "loadingChargeManual must be provided as true or false",
+    });
+  }
+
   const ewbValidationMessage = validateEwbFields(req.body);
   if (ewbValidationMessage) {
     return res.status(400).json({
@@ -252,6 +277,31 @@ const validateDispatchEditInput = (req, res, next) => {
     return res.status(400).json({
       success: false,
       message: "otherCharge must be 0 or more",
+    });
+  }
+
+  const parsedLoadingCharge = parseOptionalNumber(req.body.loadingCharge);
+  if (Number.isNaN(parsedLoadingCharge)) {
+    return res.status(400).json({
+      success: false,
+      message: "loadingCharge must be a valid number",
+    });
+  }
+
+  if (parsedLoadingCharge !== null && parsedLoadingCharge < 0) {
+    return res.status(400).json({
+      success: false,
+      message: "loadingCharge must be 0 or more",
+    });
+  }
+
+  if (
+    req.body.loadingChargeManual !== undefined &&
+    typeof req.body.loadingChargeManual !== "boolean"
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "loadingChargeManual must be provided as true or false",
     });
   }
 

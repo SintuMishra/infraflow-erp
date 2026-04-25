@@ -39,6 +39,10 @@ const { normalizeRole } = require("../../utils/role.util");
 const {
   dispatchPasswordResetInstruction,
 } = require("../../utils/passwordResetDelivery.util");
+const {
+  buildCompanyModuleFlags,
+  normalizeCompanyModules,
+} = require("../../utils/companyModules.util");
 
 const ROLE_ASSIGNMENT_RULES = {
   super_admin: ["hr", "manager", "crusher_supervisor", "site_engineer", "operator"],
@@ -89,6 +93,8 @@ const resolveCompanyContext = async (companyId) => {
     id: normalizedCompanyId,
     companyName,
     branchName,
+    enabledModules: normalizeCompanyModules(companyAccess?.enabledModules),
+    moduleAccess: buildCompanyModuleFlags(companyAccess?.enabledModules),
   };
 };
 
@@ -353,6 +359,8 @@ const loginUser = async ({
       designation: user.designation,
       companyId: resolvedCompanyId,
       mustChangePassword: Boolean(user.mustChangePassword),
+      enabledModules: normalizeCompanyModules(company?.enabledModules),
+      moduleAccess: buildCompanyModuleFlags(company?.enabledModules),
     },
     company,
   };
@@ -398,6 +406,10 @@ const changePassword = async ({
     throw new Error("USER_NOT_FOUND");
   }
 
+  const refreshedCompany = await resolveCompanyContext(
+    refreshedUser.companyId || companyId || null
+  );
+
   await recordAuditEvent({
     action: "auth.password_changed",
     actorUserId: refreshedUser.id,
@@ -432,7 +444,10 @@ const changePassword = async ({
       designation: refreshedUser.designation,
       companyId: refreshedUser.companyId || companyId || null,
       mustChangePassword: false,
+      enabledModules: normalizeCompanyModules(refreshedCompany?.enabledModules),
+      moduleAccess: buildCompanyModuleFlags(refreshedCompany?.enabledModules),
     },
+    company: refreshedCompany,
   };
 };
 
@@ -688,6 +703,10 @@ const refreshAuthSession = async ({
     },
   });
 
+  const refreshedCompany = await resolveCompanyContext(
+    refreshTokenRecord.companyId || companyId || null
+  );
+
   return {
     token: accessToken,
     refreshToken: nextRefreshToken,
@@ -703,7 +722,10 @@ const refreshAuthSession = async ({
       designation: user.designation,
       companyId: user.companyId || companyId || null,
       mustChangePassword: Boolean(user.mustChangePassword),
+      enabledModules: normalizeCompanyModules(refreshedCompany?.enabledModules),
+      moduleAccess: buildCompanyModuleFlags(refreshedCompany?.enabledModules),
     },
+    company: refreshedCompany,
   };
 };
 
@@ -757,6 +779,8 @@ const getAuthenticatedUserProfile = async ({
 
   return {
     ...profile,
+    enabledModules: normalizeCompanyModules(company?.enabledModules),
+    moduleAccess: buildCompanyModuleFlags(company?.enabledModules),
     companyName: company?.companyName || profile.companyName || null,
     branchName: company?.branchName || profile.branchName || "",
     company:
@@ -766,6 +790,8 @@ const getAuthenticatedUserProfile = async ({
             id: profile.companyId,
             companyName: null,
             branchName: "",
+            enabledModules: normalizeCompanyModules(null),
+            moduleAccess: buildCompanyModuleFlags(null),
           }
         : null),
   };

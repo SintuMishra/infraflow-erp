@@ -5,8 +5,10 @@ import PublicRoute from "../components/auth/PublicRoute";
 import {
   ROUTE_ACCESS,
   canAccessAuditLogsWorkspace,
+  canAccessDashboardWorkspace,
   canAccessOperationalWorkspace,
   canAccessTenantOnboarding,
+  canAccessVendorsWorkspace,
 } from "../utils/access";
 
 const LoginPage = lazy(() => import("../pages/LoginPage"));
@@ -114,7 +116,8 @@ export function AppRouter() {
           element={
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.dashboard}
-              allowWhen={canAccessOperationalWorkspace}
+              allowWhen={canAccessDashboardWorkspace}
+              requiredAnyModules={["operations", "commercial"]}
             >
               <DashboardPage />
             </ProtectedRoute>
@@ -139,6 +142,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.crusherReports}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="operations"
             >
               <Navigate to="/plant-unit-reports" replace />
             </ProtectedRoute>
@@ -151,6 +155,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.crusherReports}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="operations"
             >
               <CrusherReportsPage />
             </ProtectedRoute>
@@ -163,6 +168,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.projectReports}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="operations"
             >
               <ProjectReportsPage />
             </ProtectedRoute>
@@ -175,6 +181,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.dispatchReports}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="operations"
             >
               <DispatchReportsPage />
             </ProtectedRoute>
@@ -187,6 +194,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.boulderReports}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="operations"
             >
               <BoulderReportsPage />
             </ProtectedRoute>
@@ -199,6 +207,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.vehicles}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="operations"
             >
               <VehiclesPage />
             </ProtectedRoute>
@@ -220,6 +229,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.masters}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="operations"
             >
               <MastersPage />
             </ProtectedRoute>
@@ -231,7 +241,8 @@ export function AppRouter() {
           element={
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.vendors}
-              allowWhen={canAccessOperationalWorkspace}
+              allowWhen={canAccessVendorsWorkspace}
+              requiredAnyModules={["operations", "procurement"]}
             >
               <VendorsPage />
             </ProtectedRoute>
@@ -244,6 +255,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.transportRates}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="operations"
             >
               <TransportRatesPage />
             </ProtectedRoute>
@@ -256,6 +268,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.partyMaterialRates}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="commercial"
             >
               <PartyMaterialRatesPage />
             </ProtectedRoute>
@@ -268,6 +281,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.partyOrders}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="commercial"
             >
               <PartyOrdersPage />
             </ProtectedRoute>
@@ -280,6 +294,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.purchaseRequests}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="procurement"
             >
               <PurchaseRequestsPage />
             </ProtectedRoute>
@@ -292,6 +307,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.purchaseOrders}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="procurement"
             >
               <PurchaseOrdersPage />
             </ProtectedRoute>
@@ -304,6 +320,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.goodsReceipts}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="procurement"
             >
               <GoodsReceiptsPage />
             </ProtectedRoute>
@@ -316,6 +333,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.purchaseInvoices}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="procurement"
             >
               <PurchaseInvoicesPage />
             </ProtectedRoute>
@@ -328,6 +346,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.commercialExceptions}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="commercial"
             >
               <CommercialExceptionsPage />
             </ProtectedRoute>
@@ -340,6 +359,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.partyCommercialProfile}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="commercial"
             >
               <PartyCommercialProfilePage />
             </ProtectedRoute>
@@ -352,6 +372,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.dispatchPrint}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="operations"
             >
               <DispatchPrintPage />
             </ProtectedRoute>
@@ -388,6 +409,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.parties}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="commercial"
             >
               <PartiesPage />
             </ProtectedRoute>
@@ -412,6 +434,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.accountsDashboard}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="accounts"
             >
               <AccountsDashboardPage />
             </ProtectedRoute>
@@ -424,6 +447,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.accountsChartOfAccounts}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="accounts"
             >
               <AccountsChartOfAccountsPage />
             </ProtectedRoute>
@@ -436,6 +460,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.accountsLedger}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="accounts"
             >
               <AccountsLedgerPage />
             </ProtectedRoute>
@@ -448,6 +473,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.accountsVoucherEntry}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="accounts"
             >
               <AccountsVoucherEntryPage />
             </ProtectedRoute>
@@ -460,6 +486,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.accountsReceivables}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="accounts"
             >
               <AccountsReceivablesPage />
             </ProtectedRoute>
@@ -472,6 +499,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.accountsPayables}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="accounts"
             >
               <AccountsPayablesPage />
             </ProtectedRoute>
@@ -484,6 +512,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.accountsCashBank}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="accounts"
             >
               <AccountsCashBankPage />
             </ProtectedRoute>
@@ -496,6 +525,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.accountsPostingRules}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="accounts"
             >
               <AccountsPostingRulesPage />
             </ProtectedRoute>
@@ -508,6 +538,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.accountsPolicyControls}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="accounts"
             >
               <AccountsFinancePolicyPage />
             </ProtectedRoute>
@@ -520,6 +551,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.accountsPeriodControls}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="accounts"
             >
               <AccountsPeriodsControlPage />
             </ProtectedRoute>
@@ -532,6 +564,7 @@ export function AppRouter() {
             <ProtectedRoute
               allowedRoles={ROUTE_ACCESS.accountsReports}
               allowWhen={canAccessOperationalWorkspace}
+              requiredModule="accounts"
             >
               <AccountsReportsPage />
             </ProtectedRoute>

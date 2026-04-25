@@ -57,6 +57,13 @@ test("migration files are ordered and include production hardening migrations", 
     "038_purchase_requests_optional_vendor.sql",
     "039_purchase_request_custom_items_and_supplier_quotes.sql",
     "040_procurement_item_category_flexible_constraints.sql",
+    "041_party_material_rate_units.sql",
+    "042_party_material_rate_basis_options.sql",
+    "043_dispatch_royalty_snapshot.sql",
+    "044_party_material_rate_effective_dates.sql",
+    "045_company_enabled_modules.sql",
+    "046_party_material_rate_loading_basis.sql",
+    "047_equipment_log_meter_readings.sql",
   ]);
 });
 
@@ -171,6 +178,34 @@ test("plant-unit report relax migration drops rigid not-null requirements", asyn
   assert.match(sql, /ALTER COLUMN dispatch_tons DROP NOT NULL/i);
   assert.match(sql, /ALTER COLUMN machine_hours DROP NOT NULL/i);
   assert.match(sql, /ALTER COLUMN diesel_used DROP NOT NULL/i);
+});
+
+test("company enabled modules migration adds jsonb entitlement storage", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/045_company_enabled_modules.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /ALTER TABLE companies/i);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS enabled_modules JSONB/i);
+  assert.match(sql, /operations/i);
+  assert.match(sql, /procurement/i);
+  assert.match(sql, /accounts/i);
+});
+
+test("loading basis migration adds basis-aware party rates and dispatch snapshots", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/046_party_material_rate_loading_basis.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /ALTER TABLE public\.party_material_rates/i);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS loading_charge_basis/i);
+  assert.match(sql, /ALTER TABLE public\.dispatch_reports/i);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS loading_charge_rate/i);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS loading_charge_is_manual/i);
 });
 
 test("operational unit migration adds plant type to unit master", async () => {
@@ -421,4 +456,29 @@ test("phase1 procurement grn and invoice migration adds 3-way match tables", asy
   assert.match(sql, /chk_purchase_invoices_match_status/i);
   assert.match(sql, /idx_goods_receipts_company_status_date/i);
   assert.match(sql, /idx_purchase_invoices_company_match/i);
+});
+
+test("dispatch royalty snapshot migration adds stored tons-per-brass snapshot column", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/043_dispatch_royalty_snapshot.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /ALTER TABLE public\.dispatch_reports/i);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS royalty_tons_per_brass NUMERIC\(12,4\)/i);
+});
+
+test("party material rate effective date migration adds effective-from date selection support", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/044_party_material_rate_effective_dates.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /ALTER TABLE public\.party_material_rates/i);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS effective_from DATE/i);
+  assert.match(sql, /SET effective_from = COALESCE/i);
+  assert.match(sql, /CURRENT_DATE/i);
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS idx_party_material_rates_effective_lookup/i);
 });

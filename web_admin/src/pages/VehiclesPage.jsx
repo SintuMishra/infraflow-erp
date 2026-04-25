@@ -5,7 +5,13 @@ import AppShell from "../components/layout/AppShell";
 import SectionCard from "../components/dashboard/SectionCard";
 import { useMasters } from "../hooks/useMasters";
 import { useAuth } from "../hooks/useAuth";
-import { formatDateTimeLabel, formatDisplayDate } from "../utils/date";
+import {
+  formatDateTimeLabel,
+  formatDisplayDate,
+  getTimestampFileLabel,
+  getTodayDateValue,
+  toDateOnlyValue,
+} from "../utils/date";
 
 const formatMetric = (value) =>
   new Intl.NumberFormat("en-IN", {
@@ -24,15 +30,39 @@ const createVehicleFormState = () => ({
 });
 
 const createEquipmentFormState = () => ({
-  usageDate: "",
+  usageDate: getTodayDateValue(),
   equipmentName: "",
   equipmentType: "",
   siteName: "",
+  openingMeterReading: "",
+  closingMeterReading: "",
   usageHours: "",
   fuelUsed: "",
   remarks: "",
   plantId: "",
 });
+
+const escapeCsvValue = (value) => {
+  const stringValue = String(value ?? "");
+
+  if (/[",\n]/.test(stringValue)) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+
+  return stringValue;
+};
+
+const buildCsv = (rows) => {
+  if (!rows.length) {
+    return "";
+  }
+
+  const headers = Object.keys(rows[0]);
+  return [
+    headers.join(","),
+    ...rows.map((row) => headers.map((header) => escapeCsvValue(row[header])).join(",")),
+  ].join("\n");
+};
 
 function VehiclesPage() {
   const { currentUser } = useAuth();
@@ -69,10 +99,15 @@ function VehiclesPage() {
 
   const [equipmentSearch, setEquipmentSearch] = useState("");
   const [equipmentPlantFilter, setEquipmentPlantFilter] = useState("");
+  const [equipmentTypeFilter, setEquipmentTypeFilter] = useState("");
+  const [equipmentDateFrom, setEquipmentDateFrom] = useState("");
+  const [equipmentDateTo, setEquipmentDateTo] = useState("");
 
   const [vehicleFormData, setVehicleFormData] = useState(createVehicleFormState);
 
   const [equipmentFormData, setEquipmentFormData] = useState(createEquipmentFormState);
+  const [equipmentReadingContext, setEquipmentReadingContext] = useState(null);
+  const [loadingEquipmentContext, setLoadingEquipmentContext] = useState(false);
 
   const [editVehicle, setEditVehicle] = useState(null);
   const [editVehicleForm, setEditVehicleForm] = useState(createVehicleFormState);
@@ -108,7 +143,12 @@ function VehiclesPage() {
   ]);
 
   useEffect(() => {
-    const hasEquipmentSearch = equipmentSearch || equipmentPlantFilter;
+    const hasEquipmentSearch =
+      equipmentSearch ||
+      equipmentPlantFilter ||
+      equipmentTypeFilter ||
+      equipmentDateFrom ||
+      equipmentDateTo;
 
     if (hasEquipmentSearch) {
       const timeoutId = window.setTimeout(() => {
@@ -117,7 +157,13 @@ function VehiclesPage() {
 
       return () => window.clearTimeout(timeoutId);
     }
-  }, [equipmentSearch, equipmentPlantFilter]);
+  }, [
+    equipmentSearch,
+    equipmentPlantFilter,
+    equipmentTypeFilter,
+    equipmentDateFrom,
+    equipmentDateTo,
+  ]);
 
   async function loadVehicles() {
     try {
@@ -183,6 +229,91 @@ function VehiclesPage() {
     return () => window.clearTimeout(timeoutId);
   }, []);
 
+  useEffect(() => {
+    const shouldLoadContext =
+      equipmentFormData.equipmentName.trim() &&
+      equipmentFormData.equipmentType.trim() &&
+      equipmentFormData.plantId;
+
+    if (!shouldLoadContext) {
+      setEquipmentReadingContext(null);
+      setLoadingEquipmentContext(false);
+      setEquipmentFormData((prev) => ({
+        ...prev,
+        openingMeterReading: "",
+      }));
+      return;
+    }
+
+    let isActive = true;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        setLoadingEquipmentContext(true);
+        const res = await api.get("/vehicles/equipment-logs/context", {
+          params: {
+            equipmentName: equipmentFormData.equipmentName.trim(),
+            equipmentType: equipmentFormData.equipmentType.trim(),
+            plantId: equipmentFormData.plantId,
+          },
+        });
+
+        if (!isActive) {
+          return;
+        }
+
+        const context = res.data?.data || null;
+        setEquipmentReadingContext(context);
+        setEquipmentFormData((prev) => ({
+          ...prev,
+          openingMeterReading:
+            context?.suggestedOpeningMeterReading !== null &&
+            context?.suggestedOpeningMeterReading !== undefined
+              ? String(context.suggestedOpeningMeterReading)
+              : prev.closingMeterReading === "" && prev.openingMeterReading
+                ? prev.openingMeterReading
+                : "",
+        }));
+      } catch {
+        if (isActive) {
+          setEquipmentReadingContext(null);
+        }
+      } finally {
+        if (isActive) {
+          setLoadingEquipmentContext(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      isActive = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    equipmentFormData.equipmentName,
+    equipmentFormData.equipmentType,
+    equipmentFormData.plantId,
+  ]);
+
+  const equipmentUsageHoursPreview = useMemo(() => {
+    const opening = Number(equipmentFormData.openingMeterReading);
+    const closing = Number(equipmentFormData.closingMeterReading);
+
+    if (
+      equipmentFormData.openingMeterReading === "" ||
+      equipmentFormData.closingMeterReading === "" ||
+      Number.isNaN(opening) ||
+      Number.isNaN(closing) ||
+      closing < opening
+    ) {
+      return "";
+    }
+
+    return (Math.round((closing - opening) * 100) / 100).toFixed(2);
+  }, [
+    equipmentFormData.openingMeterReading,
+    equipmentFormData.closingMeterReading,
+  ]);
+
   async function refreshWorkspace() {
     setIsLoadingData(true);
 
@@ -236,10 +367,24 @@ function VehiclesPage() {
   };
 
   const handleEquipmentChange = (e) => {
-    setEquipmentFormData((prev) => ({
-      ...prev,
-      [e.target.name]: e.target.value,
-    }));
+    const { name, value } = e.target;
+
+    setEquipmentFormData((prev) => {
+      const next = {
+        ...prev,
+        [name]: value,
+      };
+
+      if (
+        name === "equipmentName" ||
+        name === "equipmentType" ||
+        name === "plantId"
+      ) {
+        next.closingMeterReading = "";
+      }
+
+      return next;
+    });
   };
 
   const handleVehicleSubmit = async (e) => {
@@ -317,17 +462,42 @@ function VehiclesPage() {
       return;
     }
 
+    if (!equipmentFormData.siteName.trim()) {
+      setError("Please enter the site / area for the equipment log");
+      return;
+    }
+
+    if (equipmentFormData.openingMeterReading === "") {
+      setError("Opening meter reading is required");
+      return;
+    }
+
+    if (equipmentFormData.closingMeterReading === "") {
+      setError("Closing meter reading is required");
+      return;
+    }
+
+    if (equipmentUsageHoursPreview === "") {
+      setError(
+        "Closing meter reading must be greater than or equal to opening meter reading"
+      );
+      return;
+    }
+
     try {
       setIsSubmittingEquipment(true);
       await api.post("/vehicles/equipment-logs", {
         ...equipmentFormData,
-        usageHours: Number(equipmentFormData.usageHours || 0),
+        openingMeterReading: Number(equipmentFormData.openingMeterReading || 0),
+        closingMeterReading: Number(equipmentFormData.closingMeterReading || 0),
+        usageHours: Number(equipmentUsageHoursPreview || 0),
         fuelUsed: Number(equipmentFormData.fuelUsed || 0),
         plantId: equipmentFormData.plantId || null,
       });
 
       setSuccess("Equipment usage log added successfully");
       setEquipmentFormData(createEquipmentFormState());
+      setEquipmentReadingContext(null);
       setShowEquipmentForm(false);
       setShowEquipmentList(true);
 
@@ -451,6 +621,9 @@ function VehiclesPage() {
     setVehiclePlantFilter("");
     setEquipmentSearch("");
     setEquipmentPlantFilter("");
+    setEquipmentTypeFilter("");
+    setEquipmentDateFrom("");
+    setEquipmentDateTo("");
     setShowVehicleList(false);
     setShowVehicleForm(false);
     setShowEquipmentList(false);
@@ -458,6 +631,7 @@ function VehiclesPage() {
     closeEditVehiclePanel();
     setVehicleFormData(createVehicleFormState());
     setEquipmentFormData(createEquipmentFormState());
+    setEquipmentReadingContext(null);
     setError("");
     setSuccess("");
   };
@@ -502,21 +676,46 @@ function VehiclesPage() {
   const filteredEquipmentLogs = useMemo(() => {
     return equipmentLogs.filter((log) => {
       const q = equipmentSearch.toLowerCase();
+      const logDate = toDateOnlyValue(log.usageDate);
 
       const matchesSearch =
         log.equipmentName?.toLowerCase().includes(q) ||
         log.equipmentType?.toLowerCase().includes(q) ||
         log.siteName?.toLowerCase().includes(q) ||
         log.remarks?.toLowerCase().includes(q) ||
-        log.plantName?.toLowerCase().includes(q);
+        log.plantName?.toLowerCase().includes(q) ||
+        logDate.includes(q);
 
       const matchesPlant = equipmentPlantFilter
         ? String(log.plantId) === String(equipmentPlantFilter)
         : true;
 
-      return matchesSearch && matchesPlant;
+      const matchesType = equipmentTypeFilter
+        ? log.equipmentType === equipmentTypeFilter
+        : true;
+
+      const matchesDateFrom = equipmentDateFrom
+        ? logDate >= equipmentDateFrom
+        : true;
+
+      const matchesDateTo = equipmentDateTo ? logDate <= equipmentDateTo : true;
+
+      return (
+        matchesSearch &&
+        matchesPlant &&
+        matchesType &&
+        matchesDateFrom &&
+        matchesDateTo
+      );
     });
-  }, [equipmentLogs, equipmentSearch, equipmentPlantFilter]);
+  }, [
+    equipmentLogs,
+    equipmentSearch,
+    equipmentPlantFilter,
+    equipmentTypeFilter,
+    equipmentDateFrom,
+    equipmentDateTo,
+  ]);
 
   const summary = useMemo(() => {
     return {
@@ -534,6 +733,14 @@ function VehiclesPage() {
       vehicles: filteredVehicles.length,
       activeVehicles: filteredVehicles.filter((v) => v.status === "active").length,
       equipmentLogs: filteredEquipmentLogs.length,
+      equipmentHours: filteredEquipmentLogs.reduce(
+        (sum, log) => sum + Number(log.usageHours || 0),
+        0
+      ),
+      equipmentFuel: filteredEquipmentLogs.reduce(
+        (sum, log) => sum + Number(log.fuelUsed || 0),
+        0
+      ),
       totalCapacity: filteredVehicles.reduce(
         (sum, vehicle) => sum + Number(vehicle.vehicleCapacityTons || 0),
         0
@@ -558,7 +765,25 @@ function VehiclesPage() {
       vehiclePlantFilter
   );
 
-  const hasEquipmentFilters = Boolean(equipmentSearch || equipmentPlantFilter);
+  const hasEquipmentFilters = Boolean(
+    equipmentSearch ||
+      equipmentPlantFilter ||
+      equipmentTypeFilter ||
+      equipmentDateFrom ||
+      equipmentDateTo
+  );
+
+  const equipmentTypeOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [...(masters?.vehicleTypes || []).map((type) => type.typeName), ...equipmentLogs.map((log) => log.equipmentType)].filter(Boolean)
+        )
+      ).sort((left, right) => left.localeCompare(right)),
+    [equipmentLogs, masters]
+  );
+
+  const latestEquipmentLog = filteredEquipmentLogs[0] || null;
 
   const syncLabel = (lastWorkspaceSyncAt || mastersLoadedAt)
     ? formatDateTimeLabel(lastWorkspaceSyncAt || mastersLoadedAt, {
@@ -586,6 +811,137 @@ function VehiclesPage() {
   const renderCountBadge = (count) => (
     <span style={styles.countBadge}>{count} records</span>
   );
+
+  const handleEquipmentExportCsv = () => {
+    if (filteredEquipmentLogs.length === 0) {
+      setError("No equipment logs match the current filters for export");
+      setSuccess("");
+      return;
+    }
+
+    const rows = filteredEquipmentLogs.map((log) => ({
+      usage_date: toDateOnlyValue(log.usageDate),
+      equipment_name: log.equipmentName || "",
+      equipment_type: log.equipmentType || "",
+      plant: log.plantName || "",
+      site: log.siteName || "",
+      opening_meter_reading: Number(log.openingMeterReading || 0),
+      closing_meter_reading: Number(log.closingMeterReading || 0),
+      usage_hours: Number(log.usageHours || 0),
+      fuel_used: Number(log.fuelUsed || 0),
+      fuel_per_hour:
+        Number(log.usageHours || 0) > 0
+          ? (Number(log.fuelUsed || 0) / Number(log.usageHours || 0)).toFixed(2)
+          : "",
+      remarks: log.remarks || "",
+    }));
+
+    const csv = buildCsv(rows);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const timestamp = getTimestampFileLabel();
+
+    anchor.href = url;
+    anchor.download = `equipment-usage-logs-${timestamp}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    window.URL.revokeObjectURL(url);
+    setSuccess("Equipment logs CSV downloaded");
+    setError("");
+  };
+
+  const handleEquipmentPrintPdf = () => {
+    if (filteredEquipmentLogs.length === 0) {
+      setError("No equipment logs match the current filters for print export");
+      setSuccess("");
+      return;
+    }
+
+    const printWindow = window.open("", "_blank", "width=1200,height=900");
+
+    if (!printWindow) {
+      setError("Popup blocked. Please allow popups to print or save PDF.");
+      setSuccess("");
+      return;
+    }
+
+    const rowsMarkup = filteredEquipmentLogs
+      .map(
+        (log) => `
+          <tr>
+            <td>${formatDisplayDate(log.usageDate)}</td>
+            <td>${log.equipmentName || "-"}</td>
+            <td>${log.equipmentType || "-"}</td>
+            <td>${log.plantName || "-"}</td>
+            <td>${log.siteName || "-"}</td>
+            <td>${formatMetric(log.openingMeterReading)}</td>
+            <td>${formatMetric(log.closingMeterReading)}</td>
+            <td>${formatMetric(log.usageHours)}</td>
+            <td>${formatMetric(log.fuelUsed)}</td>
+            <td>${
+              Number(log.usageHours || 0) > 0
+                ? formatMetric(Number(log.fuelUsed || 0) / Number(log.usageHours || 0))
+                : "-"
+            }</td>
+            <td>${log.remarks || "-"}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Equipment Usage Logs</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 24px; color: #0f172a; }
+            h1 { margin: 0 0 8px; font-size: 24px; }
+            p { margin: 0 0 6px; color: #475569; }
+            .meta { margin: 16px 0 20px; display: flex; gap: 20px; flex-wrap: wrap; }
+            .card { border: 1px solid #cbd5e1; border-radius: 12px; padding: 10px 12px; min-width: 180px; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px 10px; font-size: 12px; text-align: left; vertical-align: top; }
+            th { background: #f8fafc; }
+          </style>
+        </head>
+        <body>
+          <h1>Equipment Usage Log Register</h1>
+          <p>Professional export optimized for print and Save as PDF workflow.</p>
+          <p>Generated on ${new Date().toLocaleString("en-IN")}</p>
+          <div class="meta">
+            <div class="card"><strong>Total Logs</strong><br />${filteredEquipmentLogs.length}</div>
+            <div class="card"><strong>Total Usage Hours</strong><br />${formatMetric(filteredSummary.equipmentHours)}</div>
+            <div class="card"><strong>Total Fuel Used</strong><br />${formatMetric(filteredSummary.equipmentFuel)} L</div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Equipment</th>
+                <th>Type</th>
+                <th>Plant</th>
+                <th>Site</th>
+                <th>Opening Meter</th>
+                <th>Closing Meter</th>
+                <th>Usage Hours</th>
+                <th>Fuel Used</th>
+                <th>Fuel / Hour</th>
+                <th>Remarks</th>
+              </tr>
+            </thead>
+            <tbody>${rowsMarkup}</tbody>
+          </table>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    setSuccess("Equipment logs print view opened");
+    setError("");
+  };
 
   const logisticsWorkflow = [
     {
@@ -1315,13 +1671,14 @@ function VehiclesPage() {
 
         <SectionCard title="Equipment Log Search & Filters">
           <p style={styles.sectionSubtitle}>
-            Search equipment logs by equipment name, type, site, remarks, or
-            plant.
+            Search equipment logs by date, equipment, site, remarks, or plant.
+            Narrow the register by plant, equipment type, and date range before
+            exporting.
           </p>
 
           <div style={styles.form}>
             <input
-              placeholder="Search equipment logs"
+              placeholder="Search by equipment, site, plant, remarks, or date"
               value={equipmentSearch}
               onChange={(e) => setEquipmentSearch(e.target.value)}
               style={styles.input}
@@ -1339,6 +1696,33 @@ function VehiclesPage() {
                 </option>
               ))}
             </select>
+
+            <select
+              value={equipmentTypeFilter}
+              onChange={(e) => setEquipmentTypeFilter(e.target.value)}
+              style={styles.input}
+            >
+              <option value="">All Equipment Types</option>
+              {equipmentTypeOptions.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+
+            <input
+              type="date"
+              value={equipmentDateFrom}
+              onChange={(e) => setEquipmentDateFrom(e.target.value)}
+              style={styles.input}
+            />
+
+            <input
+              type="date"
+              value={equipmentDateTo}
+              onChange={(e) => setEquipmentDateTo(e.target.value)}
+              style={styles.input}
+            />
           </div>
 
           <div style={styles.filterMetaRow}>
@@ -1353,6 +1737,9 @@ function VehiclesPage() {
                 onClick={() => {
                   setEquipmentSearch("");
                   setEquipmentPlantFilter("");
+                  setEquipmentTypeFilter("");
+                  setEquipmentDateFrom("");
+                  setEquipmentDateTo("");
                 }}
               >
                 Clear Log Filters
@@ -1375,12 +1762,31 @@ function VehiclesPage() {
                 {renderCountBadge(filteredEquipmentLogs.length)}
               </div>
               <p style={styles.blockSubtitle}>
-                Track plant-wise equipment usage history, hours, fuel
-                consumption, and site-level notes.
+                Track meter continuity, auto-calculated usage hours, fuel
+                consumption, and site-level execution notes in one industrial
+                register.
               </p>
             </div>
 
             <div style={styles.workspaceActions}>
+              <button
+                type="button"
+                style={styles.secondaryButton}
+                onClick={handleEquipmentExportCsv}
+                disabled={filteredEquipmentLogs.length === 0}
+              >
+                Download CSV
+              </button>
+
+              <button
+                type="button"
+                style={styles.secondaryButton}
+                onClick={handleEquipmentPrintPdf}
+                disabled={filteredEquipmentLogs.length === 0}
+              >
+                Print / Save PDF
+              </button>
+
               <button
                 type="button"
                 style={styles.secondaryButton}
@@ -1414,6 +1820,41 @@ function VehiclesPage() {
             </div>
           </div>
 
+          <div style={styles.summaryGrid}>
+            <div style={{ ...styles.summaryCard, ...styles.summaryBlue }}>
+              <span style={styles.summaryTag}>Filtered Register</span>
+              <p style={styles.summaryLabel}>Usage Hours</p>
+              <h3 style={styles.summaryValue}>{formatMetric(filteredSummary.equipmentHours)}</h3>
+              <p style={styles.summaryHint}>
+                Auto-summed from the visible equipment log set.
+              </p>
+            </div>
+
+            <div style={{ ...styles.summaryCard, ...styles.summaryGreen }}>
+              <span style={styles.summaryTag}>Fuel</span>
+              <p style={styles.summaryLabel}>Fuel Used</p>
+              <h3 style={styles.summaryValue}>{formatMetric(filteredSummary.equipmentFuel)}</h3>
+              <p style={styles.summaryHint}>
+                Litres recorded across the current filtered period.
+              </p>
+            </div>
+
+            <div style={{ ...styles.summaryCard, ...styles.summaryAmber }}>
+              <span style={styles.summaryTag}>Latest Meter</span>
+              <p style={styles.summaryLabel}>Last Closing Reading</p>
+              <h3 style={styles.summaryValue}>
+                {latestEquipmentLog
+                  ? formatMetric(latestEquipmentLog.closingMeterReading)
+                  : "-"}
+              </h3>
+              <p style={styles.summaryHint}>
+                {latestEquipmentLog
+                  ? `${latestEquipmentLog.equipmentName} on ${formatDisplayDate(latestEquipmentLog.usageDate)}`
+                  : "No filtered equipment history available yet."}
+              </p>
+            </div>
+          </div>
+
           {showEquipmentList && (
             <>
               {filteredEquipmentLogs.length === 0 ? (
@@ -1439,8 +1880,11 @@ function VehiclesPage() {
                         <th style={styles.th}>Type</th>
                         <th style={styles.th}>Plant</th>
                         <th style={styles.th}>Area / Site</th>
-                        <th style={styles.th}>Hours</th>
-                        <th style={styles.th}>Fuel</th>
+                        <th style={styles.th}>Opening Meter</th>
+                        <th style={styles.th}>Closing Meter</th>
+                        <th style={styles.th}>Usage Hours</th>
+                        <th style={styles.th}>Fuel Used</th>
+                        <th style={styles.th}>Fuel / Hour</th>
                         <th style={styles.th}>Remarks</th>
                       </tr>
                     </thead>
@@ -1452,8 +1896,28 @@ function VehiclesPage() {
                           <td style={styles.td}>{log.equipmentType}</td>
                           <td style={styles.td}>{log.plantName || "-"}</td>
                           <td style={styles.td}>{log.siteName || "-"}</td>
-                          <td style={styles.td}>{log.usageHours}</td>
-                          <td style={styles.td}>{log.fuelUsed}</td>
+                          <td style={styles.td}>
+                            {log.openingMeterReading !== null &&
+                            log.openingMeterReading !== undefined
+                              ? formatMetric(log.openingMeterReading)
+                              : "-"}
+                          </td>
+                          <td style={styles.td}>
+                            {log.closingMeterReading !== null &&
+                            log.closingMeterReading !== undefined
+                              ? formatMetric(log.closingMeterReading)
+                              : "-"}
+                          </td>
+                          <td style={styles.td}>{formatMetric(log.usageHours)}</td>
+                          <td style={styles.td}>{formatMetric(log.fuelUsed)}</td>
+                          <td style={styles.td}>
+                            {Number(log.usageHours || 0) > 0
+                              ? formatMetric(
+                                  Number(log.fuelUsed || 0) /
+                                    Number(log.usageHours || 0)
+                                )
+                              : "-"}
+                          </td>
                           <td style={styles.td}>{log.remarks || "-"}</td>
                         </tr>
                       ))}
@@ -1468,9 +1932,50 @@ function VehiclesPage() {
             <div style={styles.compactFormShell}>
               <h3 style={styles.blockTitle}>Add Equipment Usage Log</h3>
               <p style={styles.blockSubtitle}>
-                Record equipment usage, operating hours, fuel usage, and
-                site-level remarks.
+                Record equipment meter movement with auto-carried opening
+                reading, calculated usage hours, fuel consumption, and site
+                remarks.
               </p>
+
+              <div style={styles.contextPanel}>
+                <div style={styles.contextStat}>
+                  <span style={styles.contextLabel}>Meter Continuity</span>
+                  <strong style={styles.contextValue}>
+                    {loadingEquipmentContext
+                      ? "Checking..."
+                      : equipmentReadingContext?.isFirstLog
+                        ? "First log"
+                        : equipmentReadingContext?.latestLog
+                          ? "Linked to last closing"
+                          : "Select equipment"}
+                  </strong>
+                </div>
+                <div style={styles.contextStat}>
+                  <span style={styles.contextLabel}>Suggested Opening</span>
+                  <strong style={styles.contextValue}>
+                    {equipmentFormData.openingMeterReading
+                      ? formatMetric(equipmentFormData.openingMeterReading)
+                      : "-"}
+                  </strong>
+                </div>
+                <div style={styles.contextStat}>
+                  <span style={styles.contextLabel}>Calculated Usage Hours</span>
+                  <strong style={styles.contextValue}>
+                    {equipmentUsageHoursPreview || "-"}
+                  </strong>
+                </div>
+              </div>
+
+              {equipmentReadingContext?.latestLog && (
+                <p style={styles.helperText}>
+                  Last log found for this equipment: closing meter{" "}
+                  {formatMetric(
+                    equipmentReadingContext.latestLog.closingMeterReading
+                  )}{" "}
+                  on {formatDisplayDate(equipmentReadingContext.latestLog.usageDate)} at{" "}
+                  {equipmentReadingContext.latestLog.siteName || "-"}.
+                </p>
+              )}
 
               <form onSubmit={handleEquipmentSubmit} style={styles.form}>
                 <input
@@ -1497,9 +2002,9 @@ function VehiclesPage() {
                   disabled={loadingMasters}
                 >
                   <option value="">Select Equipment Type</option>
-                  {(masters?.vehicleTypes || []).map((type) => (
-                    <option key={type.id} value={type.typeName}>
-                      {type.typeName}
+                  {equipmentTypeOptions.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
                     </option>
                   ))}
                 </select>
@@ -1519,6 +2024,32 @@ function VehiclesPage() {
                 </select>
 
                 <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  name="openingMeterReading"
+                  placeholder="Opening Meter Reading"
+                  value={equipmentFormData.openingMeterReading}
+                  onChange={handleEquipmentChange}
+                  style={{
+                    ...styles.input,
+                    ...(equipmentReadingContext?.latestLog ? styles.readOnlyInput : {}),
+                  }}
+                  readOnly={Boolean(equipmentReadingContext?.latestLog)}
+                />
+
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  name="closingMeterReading"
+                  placeholder="Closing Meter Reading"
+                  value={equipmentFormData.closingMeterReading}
+                  onChange={handleEquipmentChange}
+                  style={styles.input}
+                />
+
+                <input
                   name="siteName"
                   placeholder="Specific Site / Area Name"
                   value={equipmentFormData.siteName}
@@ -1530,17 +2061,18 @@ function VehiclesPage() {
                   type="number"
                   step="0.01"
                   name="usageHours"
-                  placeholder="Usage Hours"
-                  value={equipmentFormData.usageHours}
-                  onChange={handleEquipmentChange}
-                  style={styles.input}
+                  placeholder="Usage Hours (Auto Calculated)"
+                  value={equipmentUsageHoursPreview}
+                  readOnly
+                  style={{ ...styles.input, ...styles.readOnlyInput }}
                 />
 
                 <input
                   type="number"
                   step="0.01"
+                  min="0"
                   name="fuelUsed"
-                  placeholder="Fuel Used"
+                  placeholder="Fuel Used (Litres)"
                   value={equipmentFormData.fuelUsed}
                   onChange={handleEquipmentChange}
                   style={styles.input}
@@ -1972,6 +2504,39 @@ const styles = {
     border: "1px solid #e2e8f0",
     marginTop: "18px",
   },
+  contextPanel: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: "12px",
+    marginTop: "16px",
+    marginBottom: "16px",
+  },
+  contextStat: {
+    padding: "14px 16px",
+    borderRadius: "16px",
+    border: "1px solid #dbeafe",
+    background: "linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%)",
+  },
+  contextLabel: {
+    display: "block",
+    marginBottom: "6px",
+    color: "#475569",
+    fontSize: "12px",
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: "0.4px",
+  },
+  contextValue: {
+    color: "#0f172a",
+    fontSize: "16px",
+    fontWeight: "800",
+  },
+  helperText: {
+    margin: "0 0 16px",
+    color: "#475569",
+    fontSize: "13px",
+    lineHeight: 1.6,
+  },
   form: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -1984,6 +2549,11 @@ const styles = {
     fontSize: "14px",
     outline: "none",
     background: "#fff",
+  },
+  readOnlyInput: {
+    background: "#f8fafc",
+    color: "#334155",
+    borderColor: "#cbd5e1",
   },
   button: {
     padding: "12px 16px",

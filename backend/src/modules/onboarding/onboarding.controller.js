@@ -45,13 +45,31 @@ const recordOnboardingAudit = async ({
   });
 };
 
+const resolvePlatformOwnerCompanyId = () => {
+  const platformOwnerCompanyId = Number(env.platformOwnerCompanyId || 0) || null;
+
+  if (!platformOwnerCompanyId) {
+    const error = new Error("PLATFORM_OWNER_SCOPE_UNCONFIGURED");
+    error.statusCode = 503;
+    throw error;
+  }
+
+  return platformOwnerCompanyId;
+};
+
+const sendPlatformOwnerScopeUnavailable = (res) =>
+  res.status(503).json({
+    success: false,
+    message:
+      "Platform owner scope is not configured on this environment. Set platform owner company id before using tenant onboarding.",
+  });
+
 const bootstrapCompanyOwnerController = async (req, res) => {
   try {
     const actorCompanyId = Number(req.companyId || req.user?.companyId || 0) || null;
-    const platformOwnerCompanyId =
-      Number(env.platformOwnerCompanyId || 0) || null;
+    const platformOwnerCompanyId = resolvePlatformOwnerCompanyId();
 
-    if (platformOwnerCompanyId !== null && actorCompanyId !== platformOwnerCompanyId) {
+    if (actorCompanyId !== platformOwnerCompanyId) {
       await recordOnboardingAudit({
         action: "onboarding.bootstrap_forbidden_company_scope",
         req,
@@ -105,6 +123,7 @@ const bootstrapCompanyOwnerController = async (req, res) => {
       companyId: data.company?.id || null,
       details: {
         companyCode: data.company?.companyCode || null,
+        enabledModules: data.company?.enabledModules || null,
         ownerEmployeeId: data.owner?.employeeId || null,
         ownerUsername: data.owner?.username || null,
       },
@@ -168,6 +187,15 @@ const bootstrapCompanyOwnerController = async (req, res) => {
       });
     }
 
+    if (error.message === "PLATFORM_OWNER_SCOPE_UNCONFIGURED") {
+      await recordOnboardingAudit({
+        action: "onboarding.bootstrap_failed_owner_scope_unconfigured",
+        req,
+      });
+
+      return sendPlatformOwnerScopeUnavailable(res);
+    }
+
     await recordOnboardingAudit({
       action: "onboarding.bootstrap_failed_unexpected",
       req,
@@ -187,10 +215,9 @@ const bootstrapCompanyOwnerController = async (req, res) => {
 
 const assertPlatformOwnerControlScope = async (req, action) => {
   const actorCompanyId = Number(req.companyId || req.user?.companyId || 0) || null;
-  const platformOwnerCompanyId =
-    Number(env.platformOwnerCompanyId || 0) || null;
+  const platformOwnerCompanyId = resolvePlatformOwnerCompanyId();
 
-  if (platformOwnerCompanyId !== null && actorCompanyId !== platformOwnerCompanyId) {
+  if (actorCompanyId !== platformOwnerCompanyId) {
     await recordOnboardingAudit({
       action,
       req,
@@ -242,6 +269,10 @@ const listManagedCompaniesController = async (req, res) => {
       });
     }
 
+    if (error.message === "PLATFORM_OWNER_SCOPE_UNCONFIGURED") {
+      return sendPlatformOwnerScopeUnavailable(res);
+    }
+
     return sendControllerError(req, res, error, "Failed to load managed client companies");
   }
 };
@@ -256,6 +287,7 @@ const updateManagedCompanyController = async (req, res) => {
       branchName: req.body?.branchName,
       companyEmail: req.body?.companyEmail,
       companyMobile: req.body?.companyMobile,
+      enabledModules: req.body?.enabledModules,
     });
 
     await recordOnboardingAudit({
@@ -268,6 +300,7 @@ const updateManagedCompanyController = async (req, res) => {
         branchName: data.companyProfile?.branchName || null,
         companyEmail: data.companyProfile?.email || null,
         companyMobile: data.companyProfile?.mobile || null,
+        enabledModules: data.company?.enabledModules || null,
       },
     });
 
@@ -283,6 +316,10 @@ const updateManagedCompanyController = async (req, res) => {
         message:
           "Only the platform owner account can manage client companies.",
       });
+    }
+
+    if (error.message === "PLATFORM_OWNER_SCOPE_UNCONFIGURED") {
+      return sendPlatformOwnerScopeUnavailable(res);
     }
 
     if (error.message === "INVALID_MANAGED_COMPANY_UPDATE") {
@@ -350,6 +387,10 @@ const updateManagedCompanyAccessController = async (req, res) => {
         message:
           "Only the platform owner account can manage client companies.",
       });
+    }
+
+    if (error.message === "PLATFORM_OWNER_SCOPE_UNCONFIGURED") {
+      return sendPlatformOwnerScopeUnavailable(res);
     }
 
     if (error.message === "INVALID_MANAGED_COMPANY_ACCESS") {
@@ -428,6 +469,10 @@ const updateManagedCompanyBillingController = async (req, res) => {
       });
     }
 
+    if (error.message === "PLATFORM_OWNER_SCOPE_UNCONFIGURED") {
+      return sendPlatformOwnerScopeUnavailable(res);
+    }
+
     if (error.message === "INVALID_MANAGED_COMPANY_BILLING_UPDATE") {
       return res.status(400).json({
         success: false,
@@ -491,6 +536,10 @@ const listManagedCompanyBillingInvoicesController = async (req, res) => {
       });
     }
 
+    if (error.message === "PLATFORM_OWNER_SCOPE_UNCONFIGURED") {
+      return sendPlatformOwnerScopeUnavailable(res);
+    }
+
     if (error.message === "INVALID_MANAGED_COMPANY_BILLING_INVOICE_OPERATION") {
       return res.status(400).json({
         success: false,
@@ -547,6 +596,10 @@ const createManagedCompanyBillingInvoiceController = async (req, res) => {
         message:
           "Only the platform owner account can manage client companies.",
       });
+    }
+
+    if (error.message === "PLATFORM_OWNER_SCOPE_UNCONFIGURED") {
+      return sendPlatformOwnerScopeUnavailable(res);
     }
 
     if (error.message === "INVALID_MANAGED_COMPANY_BILLING_INVOICE_OPERATION") {
@@ -623,6 +676,10 @@ const permanentlyDeleteManagedCompanyController = async (req, res) => {
         message:
           "Only the platform owner account can manage client companies.",
       });
+    }
+
+    if (error.message === "PLATFORM_OWNER_SCOPE_UNCONFIGURED") {
+      return sendPlatformOwnerScopeUnavailable(res);
     }
 
     if (error.message === "INVALID_MANAGED_COMPANY_DELETE") {

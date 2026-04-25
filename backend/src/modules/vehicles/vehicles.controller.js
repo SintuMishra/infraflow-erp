@@ -4,6 +4,7 @@ const {
   updateVehicleRecord,
   updateVehicleStatusRecord,
   getEquipmentLogsList,
+  getEquipmentLogContext,
   createEquipmentLogRecord,
 } = require("./vehicles.service");
 const { sendControllerError } = require("../../utils/http.util");
@@ -95,6 +96,31 @@ const getEquipmentLogs = async (req, res) => {
   }
 };
 
+const getEquipmentLogReadingContext = async (req, res) => {
+  try {
+    const context = await getEquipmentLogContext({
+      equipmentName: req.query.equipmentName,
+      equipmentType: req.query.equipmentType,
+      plantId: req.query.plantId,
+      companyId: req.companyId || null,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: context,
+    });
+  } catch (error) {
+    console.error("GET /vehicles/equipment-logs/context error:", error);
+
+    return sendControllerError(
+      req,
+      res,
+      error,
+      "Failed to load equipment reading context"
+    );
+  }
+};
+
 const createEquipmentLog = async (req, res) => {
   try {
     const log = await createEquipmentLogRecord({
@@ -121,5 +147,6 @@ module.exports = {
   updateVehicle,
   updateVehicleStatus,
   getEquipmentLogs,
+  getEquipmentLogReadingContext,
   createEquipmentLog,
 };

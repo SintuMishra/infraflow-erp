@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import { getDefaultWorkspacePath } from "../utils/access";
 
 function ChangePasswordPage() {
   const navigate = useNavigate();
@@ -39,7 +40,7 @@ function ChangePasswordPage() {
 
       setSuccess("Password changed successfully. Redirecting...");
       setTimeout(() => {
-        navigate("/dashboard");
+        navigate(getDefaultWorkspacePath(user));
       }, 1200);
     } catch (err) {
       setError(

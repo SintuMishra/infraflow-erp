@@ -162,6 +162,9 @@ test("createDispatchReport computes commercials and intra-state GST from source 
   );
 
   assert.equal(insertedPayload.materialAmount, 1000);
+  assert.equal(insertedPayload.materialRateUnit, "per_ton");
+  assert.equal(insertedPayload.materialRateUnitLabel, "ton");
+  assert.equal(insertedPayload.materialRateUnitsPerTon, 1);
   assert.equal(insertedPayload.royaltyAmount, 100);
   assert.equal(insertedPayload.loadingCharge, 50);
   assert.equal(insertedPayload.transportCost, 150);
@@ -173,6 +176,296 @@ test("createDispatchReport computes commercials and intra-state GST from source 
   assert.equal(insertedPayload.igst, 0);
   assert.equal(insertedPayload.totalWithGst, 1557.6);
   assert.deepEqual(vehicleStatusUpdates, [{ vehicleId: 3, status: "in_use" }]);
+});
+
+test("createDispatchReport computes material amount from converted selling rate units", async () => {
+  let insertedPayload = null;
+
+  await withDispatchServiceMocks(
+    {
+      model: {
+        findAllDispatchReports: async () => [],
+        findDispatchById: async () => null,
+        insertDispatchReport: async (payload) => {
+          insertedPayload = payload;
+          return { id: 102, ...payload };
+        },
+        updateDispatchReportById: async () => null,
+        updateDispatchStatusById: async () => null,
+        setVehicleOperationalStatus: async () => null,
+        plantExists: async () => ({ id: 1, plantName: "Alpha Plant" }),
+        materialExists: async () => ({
+          id: 2,
+          materialName: "Aggregate 20mm",
+          gstRate: 0,
+        }),
+        vehicleExists: async () => ({
+          id: 3,
+          vehicleNumber: "UP32AB1234",
+          plantId: 1,
+          vendorId: null,
+          status: "active",
+          vehicleCapacityTons: 20,
+        }),
+        findActivePartyMaterialRate: async () => ({
+          id: 11,
+          ratePerTon: 45,
+          rateUnit: "per_cft",
+          rateUnitLabel: "CFT",
+          rateUnitsPerTon: 22.5,
+          royaltyMode: "none",
+          royaltyValue: 0,
+          loadingCharge: 0,
+        }),
+        findActiveTransportRate: async () => null,
+      },
+      db: {
+        withTransaction: async (work) => work({}),
+      },
+      company: {
+        getCompanyProfile: async () => ({ stateCode: "09" }),
+      },
+      party: {
+        getPartyById: async () => ({ id: 5, stateCode: "09" }),
+      },
+    },
+    async ({ createDispatchReport }) => {
+      await createDispatchReport({
+        dispatchDate: "2026-04-15",
+        sourceType: "Plant",
+        destinationName: "Site A",
+        quantityTons: 10,
+        createdBy: 1,
+        plantId: 1,
+        materialId: 2,
+        vehicleId: 3,
+        partyId: 5,
+      });
+    }
+  );
+
+  assert.equal(insertedPayload.materialRatePerTon, 45);
+  assert.equal(insertedPayload.materialRateUnit, "per_cft");
+  assert.equal(insertedPayload.materialRateUnitLabel, "CFT");
+  assert.equal(insertedPayload.materialRateUnitsPerTon, 22.5);
+  assert.equal(insertedPayload.materialAmount, 10125);
+  assert.equal(insertedPayload.totalInvoiceValue, 10125);
+});
+
+test("createDispatchReport computes basis-driven loading and preserves manual loading override", async () => {
+  let insertedPayload = null;
+
+  await withDispatchServiceMocks(
+    {
+      model: {
+        findAllDispatchReports: async () => [],
+        findDispatchById: async () => null,
+        insertDispatchReport: async (payload) => {
+          insertedPayload = payload;
+          return { id: 103, ...payload };
+        },
+        updateDispatchReportById: async () => null,
+        updateDispatchStatusById: async () => null,
+        setVehicleOperationalStatus: async () => null,
+        plantExists: async () => ({ id: 1, plantName: "Alpha Plant" }),
+        materialExists: async () => ({
+          id: 2,
+          materialName: "Stone Dust",
+          gstRate: 0,
+        }),
+        vehicleExists: async () => ({
+          id: 3,
+          vehicleNumber: "UP32AB1234",
+          plantId: 1,
+          vendorId: null,
+          status: "active",
+          vehicleCapacityTons: 20,
+        }),
+        findActivePartyMaterialRate: async () => ({
+          id: 11,
+          ratePerTon: 100,
+          royaltyMode: "none",
+          royaltyValue: 0,
+          loadingCharge: 25,
+          loadingChargeBasis: "per_ton",
+        }),
+        findActiveTransportRate: async () => null,
+      },
+      db: {
+        withTransaction: async (work) => work({}),
+      },
+      company: {
+        getCompanyProfile: async () => ({ stateCode: "09" }),
+      },
+      party: {
+        getPartyById: async () => ({ id: 5, stateCode: "09" }),
+      },
+    },
+    async ({ createDispatchReport }) => {
+      await createDispatchReport({
+        dispatchDate: "2026-04-15",
+        sourceType: "Plant",
+        destinationName: "Site A",
+        quantityTons: 10,
+        createdBy: 1,
+        plantId: 1,
+        materialId: 2,
+        vehicleId: 3,
+        partyId: 5,
+        loadingCharge: 400,
+        loadingChargeManual: true,
+      });
+    }
+  );
+
+  assert.equal(insertedPayload.loadingChargeBasis, "per_ton");
+  assert.equal(insertedPayload.loadingChargeRate, 25);
+  assert.equal(insertedPayload.loadingCharge, 400);
+  assert.equal(insertedPayload.loadingChargeIsManual, true);
+  assert.equal(insertedPayload.totalInvoiceValue, 1400);
+});
+
+test("createDispatchReport preserves converted selling rate precision in dispatch snapshot", async () => {
+  let insertedPayload = null;
+
+  await withDispatchServiceMocks(
+    {
+      model: {
+        findAllDispatchReports: async () => [],
+        findDispatchById: async () => null,
+        insertDispatchReport: async (payload) => {
+          insertedPayload = payload;
+          return { id: 103, ...payload };
+        },
+        updateDispatchReportById: async () => null,
+        updateDispatchStatusById: async () => null,
+        setVehicleOperationalStatus: async () => null,
+        plantExists: async () => ({ id: 1, plantName: "Alpha Plant" }),
+        materialExists: async () => ({
+          id: 2,
+          materialName: "Aggregate 20mm",
+          gstRate: 0,
+        }),
+        vehicleExists: async () => ({
+          id: 3,
+          vehicleNumber: "UP32AB1234",
+          plantId: 1,
+          vendorId: null,
+          status: "active",
+          vehicleCapacityTons: 20,
+        }),
+        findActivePartyMaterialRate: async () => ({
+          id: 11,
+          ratePerTon: 1800,
+          rateUnit: "per_brass",
+          rateUnitLabel: "brass",
+          rateUnitsPerTon: 0.3534,
+          royaltyMode: "none",
+          royaltyValue: 0,
+          loadingCharge: 0,
+        }),
+        findActiveTransportRate: async () => null,
+      },
+      db: {
+        withTransaction: async (work) => work({}),
+      },
+      company: {
+        getCompanyProfile: async () => ({ stateCode: "09" }),
+      },
+      party: {
+        getPartyById: async () => ({ id: 5, stateCode: "09" }),
+      },
+    },
+    async ({ createDispatchReport }) => {
+      await createDispatchReport({
+        dispatchDate: "2026-04-15",
+        sourceType: "Plant",
+        destinationName: "Site A",
+        quantityTons: 10,
+        createdBy: 1,
+        plantId: 1,
+        materialId: 2,
+        vehicleId: 3,
+        partyId: 5,
+      });
+    }
+  );
+
+  assert.equal(insertedPayload.materialRateUnit, "per_brass");
+  assert.equal(insertedPayload.materialRateUnitsPerTon, 0.3534);
+  assert.equal(insertedPayload.materialAmount, 6361.2);
+});
+
+test("createDispatchReport rounds per_trip selling rate billing up to full trips", async () => {
+  let insertedPayload = null;
+
+  await withDispatchServiceMocks(
+    {
+      model: {
+        findAllDispatchReports: async () => [],
+        findDispatchById: async () => null,
+        insertDispatchReport: async (payload) => {
+          insertedPayload = payload;
+          return { id: 104, ...payload };
+        },
+        updateDispatchReportById: async () => null,
+        updateDispatchStatusById: async () => null,
+        setVehicleOperationalStatus: async () => null,
+        plantExists: async () => ({ id: 1, plantName: "Alpha Plant" }),
+        materialExists: async () => ({
+          id: 2,
+          materialName: "Aggregate 20mm",
+          gstRate: 0,
+        }),
+        vehicleExists: async () => ({
+          id: 3,
+          vehicleNumber: "UP32AB1234",
+          plantId: 1,
+          vendorId: null,
+          status: "active",
+          vehicleCapacityTons: 20,
+        }),
+        findActivePartyMaterialRate: async () => ({
+          id: 11,
+          ratePerTon: 2500,
+          rateUnit: "per_trip",
+          rateUnitLabel: "trip",
+          rateUnitsPerTon: 0.1,
+          royaltyMode: "none",
+          royaltyValue: 0,
+          loadingCharge: 0,
+        }),
+        findActiveTransportRate: async () => null,
+      },
+      db: {
+        withTransaction: async (work) => work({}),
+      },
+      company: {
+        getCompanyProfile: async () => ({ stateCode: "09" }),
+      },
+      party: {
+        getPartyById: async () => ({ id: 5, stateCode: "09" }),
+      },
+    },
+    async ({ createDispatchReport }) => {
+      await createDispatchReport({
+        dispatchDate: "2026-04-15",
+        sourceType: "Plant",
+        destinationName: "Site A",
+        quantityTons: 15,
+        createdBy: 1,
+        plantId: 1,
+        materialId: 2,
+        vehicleId: 3,
+        partyId: 5,
+      });
+    }
+  );
+
+  assert.equal(insertedPayload.materialRateUnit, "per_trip");
+  assert.equal(insertedPayload.materialRateUnitsPerTon, 0.1);
+  assert.equal(insertedPayload.materialAmount, 5000);
+  assert.equal(insertedPayload.totalInvoiceValue, 5000);
 });
 
 test("dispatch service forwards company scope through list, read, create, and status flows", async () => {
@@ -392,7 +685,13 @@ test("dispatch service forwards company scope through list, read, create, and st
   assert.deepEqual(calls.getPartyById, [{ partyId: 5, companyId: 77 }]);
   assert.deepEqual(calls.getCompanyProfile, [77]);
   assert.deepEqual(calls.findActivePartyMaterialRate, [
-    { plantId: 1, partyId: 5, materialId: 2, companyId: 77 },
+    {
+      plantId: 1,
+      partyId: 5,
+      materialId: 2,
+      companyId: 77,
+      effectiveDate: "2026-04-15",
+    },
   ]);
   assert.deepEqual(calls.findActiveTransportRate, [
     { plantId: 1, vendorId: 44, materialId: 2, companyId: 77 },
@@ -555,6 +854,7 @@ test("createDispatchReport computes per_brass royalty using tons-per-brass conve
   );
 
   assert.equal(insertedPayload.royaltyAmount, 800);
+  assert.equal(insertedPayload.royaltyTonsPerBrass, 2.5);
   assert.equal(insertedPayload.totalInvoiceValue, 1675);
 });
 

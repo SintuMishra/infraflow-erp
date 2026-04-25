@@ -274,8 +274,13 @@ function DispatchPrintPage() {
     const taxMode = igst > 0 ? "Inter-state supply (IGST)" : "Intra-state supply (CGST + SGST)";
     const invoiceAdjustment = Number((taxableValue - componentSubtotal).toFixed(2));
     const royaltyMode = String(data.royaltyMode || "none").trim();
+    const loadingChargeBasis = String(data.loadingChargeBasis || "fixed").trim();
+    const loadingChargeRate = Number(
+      (data.loadingChargeRate ?? data.loadingCharge) || 0
+    );
     const quantityTons = Number(data.quantityTons || 0);
     let royaltyBasisLabel = "No royalty applied";
+    let loadingBasisLabel = "No loading applied";
 
     if (royaltyMode === "per_ton") {
       royaltyBasisLabel = `${formatNumber(quantityTons)} tons x ${formatCurrency(
@@ -283,10 +288,13 @@ function DispatchPrintPage() {
       )} per ton`;
     } else if (royaltyMode === "per_brass") {
       const royaltyValuePerBrass = Number(data.royaltyValue || 0);
+      const tonsPerBrass = Number(data.royaltyTonsPerBrass || 0);
       const brassQuantity =
-        royaltyValuePerBrass > 0
-          ? Number((royaltyAmount / royaltyValuePerBrass).toFixed(4))
-          : 0;
+        tonsPerBrass > 0
+          ? Number((quantityTons / tonsPerBrass).toFixed(4))
+          : royaltyValuePerBrass > 0
+            ? Number((royaltyAmount / royaltyValuePerBrass).toFixed(4))
+            : 0;
 
       royaltyBasisLabel = `${formatNumber(quantityTons)} tons ~ ${formatNumber(
         brassQuantity,
@@ -294,6 +302,23 @@ function DispatchPrintPage() {
       )} brass x ${formatCurrency(royaltyValuePerBrass)} per brass`;
     } else if (royaltyMode === "fixed") {
       royaltyBasisLabel = `Fixed royalty ${formatCurrency(data.royaltyValue || 0)}`;
+    }
+
+    if (loadingChargeBasis === "per_ton") {
+      loadingBasisLabel = `${formatNumber(quantityTons)} tons x ${formatCurrency(
+        loadingChargeRate
+      )} per ton`;
+    } else if (loadingChargeBasis === "per_brass") {
+      const tonsPerBrass = Number(data.royaltyTonsPerBrass || 0);
+      const brassQuantity = tonsPerBrass > 0 ? Number((quantityTons / tonsPerBrass).toFixed(4)) : 0;
+      loadingBasisLabel = `${formatNumber(quantityTons)} tons ~ ${formatNumber(
+        brassQuantity,
+        4
+      )} brass x ${formatCurrency(loadingChargeRate)} per brass`;
+    } else if (loadingChargeBasis === "per_trip") {
+      loadingBasisLabel = `Per trip loading ${formatCurrency(loadingChargeRate)}`;
+    } else if (loadingChargeBasis === "fixed") {
+      loadingBasisLabel = `Fixed loading ${formatCurrency(loadingChargeRate)}`;
     }
 
     return {
@@ -314,6 +339,7 @@ function DispatchPrintPage() {
       amountInWords,
       taxMode,
       royaltyBasisLabel,
+      loadingBasisLabel,
     };
   }, [data]);
 
@@ -723,8 +749,8 @@ function DispatchPrintPage() {
                 <th style={styles.th}>Material Code</th>
                 <th style={styles.th}>HSN/SAC</th>
                 <th style={styles.th}>Qty (Tons)</th>
-                <th style={styles.th}>Rate / Ton</th>
-                <th style={styles.th}>Taxable Value</th>
+                <th style={styles.th}>Rate Unit</th>
+                <th style={styles.th}>Material Value</th>
               </tr>
             </thead>
             <tbody>
@@ -737,7 +763,14 @@ function DispatchPrintPage() {
                 <td style={styles.td}>{data.hsnSacCode || "Not configured"}</td>
                 <td style={styles.td}>{data.quantityTons ?? "-"}</td>
                 <td style={styles.td}>
-                  {formatCurrency(data.materialRatePerTon || 0)}
+                  {formatCurrency(data.materialRatePerTon || 0)} /{" "}
+                  {data.materialRateUnitLabel || "ton"}
+                  {Number(data.materialRateUnitsPerTon || 1) !== 1 ? (
+                    <div style={styles.rateHint}>
+                      {data.materialRateUnitsPerTon}{" "}
+                      {data.materialRateUnitLabel || "unit"} / ton
+                    </div>
+                  ) : null}
                 </td>
                 <td style={styles.td}>
                   {formatCurrency(billing?.materialAmount || 0)}
@@ -757,10 +790,16 @@ function DispatchPrintPage() {
               <strong>Billing Notes:</strong> {data.billingNotes || "-"}
             </div>
             <div style={styles.detailRow}>
+              <strong>Commercial Snapshot:</strong> Saved with this dispatch. Edit and save the dispatch to refresh from the latest party rate.
+            </div>
+            <div style={styles.detailRow}>
               <strong>Royalty Mode:</strong> {data.royaltyMode || "-"}
             </div>
             <div style={styles.detailRow}>
               <strong>Royalty Basis:</strong> {billing?.royaltyBasisLabel || "-"}
+            </div>
+            <div style={styles.detailRow}>
+              <strong>Loading Basis:</strong> {billing?.loadingBasisLabel || "-"}
             </div>
             <div style={styles.detailRow}>
               <strong>Transport Rate Type:</strong>{" "}
@@ -1430,6 +1469,12 @@ const styles = {
     fontSize: "13px",
     color: "#111827",
     verticalAlign: "top",
+  },
+  rateHint: {
+    marginTop: "4px",
+    color: "#64748b",
+    fontSize: "11px",
+    fontWeight: "700",
   },
   amountGrid: {
     display: "grid",

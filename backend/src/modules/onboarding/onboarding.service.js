@@ -17,6 +17,10 @@ const {
   getCompanyProfile,
   saveCompanyProfile,
 } = require("../company_profile/company_profile.service");
+const {
+  DEFAULT_COMPANY_MODULES,
+  normalizeCompanyModules,
+} = require("../../utils/companyModules.util");
 
 const normalizeText = (value) => String(value || "").trim();
 const normalizeNullableText = (value) => {
@@ -132,7 +136,16 @@ const findCompanyByName = async (companyName, db = pool) => {
   return result.rows[0] || null;
 };
 
-const createCompany = async ({ companyName, companyCode }, db = pool) => {
+const createCompany = async (
+  { companyName, companyCode, enabledModules = DEFAULT_COMPANY_MODULES },
+  db = pool
+) => {
+  const companiesHasEnabledModules = await hasColumn("companies", "enabled_modules", db);
+  const normalizedEnabledModules = normalizeCompanyModules(
+    enabledModules,
+    DEFAULT_COMPANY_MODULES
+  );
+
   try {
     const result = await db.query(
       `
@@ -140,20 +153,34 @@ const createCompany = async ({ companyName, companyCode }, db = pool) => {
         company_code,
         company_name,
         is_active
+        ${companiesHasEnabledModules ? ", enabled_modules" : ""}
       )
-      VALUES ($1, $2, TRUE)
+      VALUES ($1, $2, TRUE${companiesHasEnabledModules ? ", $3::jsonb" : ""})
       RETURNING
         id,
         company_code AS "companyCode",
         company_name AS "companyName",
         is_active AS "isActive",
+        ${
+          companiesHasEnabledModules
+            ? `enabled_modules AS "enabledModules",`
+            : `NULL AS "enabledModules",`
+        }
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       `,
-      [companyCode, companyName]
+      companiesHasEnabledModules
+        ? [companyCode, companyName, JSON.stringify(normalizedEnabledModules)]
+        : [companyCode, companyName]
     );
 
-    return result.rows[0];
+    return {
+      ...result.rows[0],
+      enabledModules: normalizeCompanyModules(
+        result.rows[0]?.enabledModules,
+        normalizedEnabledModules
+      ),
+    };
   } catch (error) {
     if (isCompanyNameConflict(error)) {
       throw new Error("COMPANY_ALREADY_EXISTS");
@@ -165,6 +192,7 @@ const createCompany = async ({ companyName, companyCode }, db = pool) => {
 
 const getCompanyById = async (companyId, db = pool) => {
   const normalizedCompanyId = Number(companyId || 0) || null;
+  const companiesHasEnabledModules = await hasColumn("companies", "enabled_modules", db);
 
   if (!normalizedCompanyId) {
     return null;
@@ -177,6 +205,11 @@ const getCompanyById = async (companyId, db = pool) => {
       company_code AS "companyCode",
       company_name AS "companyName",
       is_active AS "isActive",
+      ${
+        companiesHasEnabledModules
+          ? `enabled_modules AS "enabledModules",`
+          : `NULL AS "enabledModules",`
+      }
       created_at AS "createdAt",
       updated_at AS "updatedAt"
     FROM companies
@@ -185,8 +218,19 @@ const getCompanyById = async (companyId, db = pool) => {
     `,
     [normalizedCompanyId]
   );
+  const company = result.rows[0] || null;
 
-  return result.rows[0] || null;
+  if (!company) {
+    return null;
+  }
+
+  return {
+    ...company,
+    enabledModules: normalizeCompanyModules(
+      company.enabledModules,
+      DEFAULT_COMPANY_MODULES
+    ),
+  };
 };
 
 const bootstrapCompanyOwner = async ({
@@ -198,6 +242,7 @@ const bootstrapCompanyOwner = async ({
   ownerDesignation,
   ownerJoiningDate,
   ownerDepartment = "Admin",
+  enabledModules = DEFAULT_COMPANY_MODULES,
 }) => {
   await ensureOnboardingFoundation();
 
@@ -217,6 +262,11 @@ const bootstrapCompanyOwner = async ({
     throw new Error("INVALID_ONBOARDING_PAYLOAD");
   }
 
+  const normalizedEnabledModules = normalizeCompanyModules(
+    enabledModules,
+    DEFAULT_COMPANY_MODULES
+  );
+
   return await withTransaction(async (db) => {
     const existingCompany = await findCompanyByName(normalizedCompanyName, db);
 
@@ -235,6 +285,7 @@ const bootstrapCompanyOwner = async ({
             {
               companyName: normalizedCompanyName,
               companyCode,
+              enabledModules: normalizedEnabledModules,
             },
             db
           )
@@ -320,6 +371,7 @@ const listManagedCompanies = async ({
   const employeesHasCompany = await hasColumn("employees", "company_id");
   const profileHasCompany = await hasColumn("company_profile", "company_id");
   const billingControlsExists = await tableExists("company_billing_controls");
+  const companiesHasEnabledModules = await hasColumn("companies", "enabled_modules");
   const platformOwnerCompanyId =
     Number.isInteger(env.platformOwnerCompanyId) && env.platformOwnerCompanyId > 0
       ? env.platformOwnerCompanyId
@@ -425,6 +477,11 @@ const listManagedCompanies = async ({
       c.company_code AS "companyCode",
       c.company_name AS "companyName",
       c.is_active AS "isActive",
+      ${
+        companiesHasEnabledModules
+          ? `c.enabled_modules AS "enabledModules",`
+          : `NULL AS "enabledModules",`
+      }
       c.created_at AS "createdAt",
       c.updated_at AS "updatedAt",
       cp.branch_name AS "branchName",
@@ -482,7 +539,13 @@ const listManagedCompanies = async ({
   `;
 
   const result = await pool.query(query, values);
-  return result.rows;
+  return result.rows.map((company) => ({
+    ...company,
+    enabledModules: normalizeCompanyModules(
+      company.enabledModules,
+      DEFAULT_COMPANY_MODULES
+    ),
+  }));
 };
 
 const updateManagedCompanyProfile = async ({
@@ -491,6 +554,7 @@ const updateManagedCompanyProfile = async ({
   branchName = "",
   companyEmail = "",
   companyMobile = "",
+  enabledModules = DEFAULT_COMPANY_MODULES,
 }) => {
   await ensureOnboardingFoundation();
 
@@ -499,6 +563,10 @@ const updateManagedCompanyProfile = async ({
   const normalizedBranchName = normalizeText(branchName);
   const normalizedCompanyEmail = normalizeText(companyEmail);
   const normalizedCompanyMobile = normalizeText(companyMobile);
+  const normalizedEnabledModules = normalizeCompanyModules(
+    enabledModules,
+    DEFAULT_COMPANY_MODULES
+  );
 
   if (!normalizedCompanyId || !normalizedCompanyName) {
     throw new Error("INVALID_MANAGED_COMPANY_UPDATE");
@@ -506,6 +574,7 @@ const updateManagedCompanyProfile = async ({
 
   return await withTransaction(async (db) => {
     const existingCompany = await getCompanyById(normalizedCompanyId, db);
+    const companiesHasEnabledModules = await hasColumn("companies", "enabled_modules", db);
 
     if (!existingCompany) {
       throw new Error("COMPANY_NOT_FOUND");
@@ -517,10 +586,17 @@ const updateManagedCompanyProfile = async ({
         UPDATE companies
         SET
           company_name = $1,
+          ${companiesHasEnabledModules ? `enabled_modules = $2::jsonb,` : ""}
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2
+        WHERE id = $${companiesHasEnabledModules ? 3 : 2}
         `,
-        [normalizedCompanyName, normalizedCompanyId]
+        companiesHasEnabledModules
+          ? [
+              normalizedCompanyName,
+              JSON.stringify(normalizedEnabledModules),
+              normalizedCompanyId,
+            ]
+          : [normalizedCompanyName, normalizedCompanyId]
       );
     } catch (error) {
       if (isCompanyNameConflict(error)) {

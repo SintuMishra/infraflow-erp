@@ -399,6 +399,7 @@ test("party material rate service normalizes payload fields before insert", asyn
     loaded: true,
     exports: {
       getAllRates: async () => [],
+      findActiveRateConflict: async () => null,
       insertRate: async (payload) => {
         capturedPayload = payload;
         return payload;
@@ -436,6 +437,9 @@ test("party material rate service normalizes payload fields before insert", asyn
       partyId: "2",
       materialId: "3",
       ratePerTon: "1250",
+      rateUnit: "per_cft",
+      rateUnitsPerTon: "22.5",
+      effectiveFrom: "2026-04-18",
       royaltyMode: " none ",
       royaltyValue: "",
       loadingCharge: " 20 ",
@@ -457,10 +461,14 @@ test("party material rate service normalizes payload fields before insert", asyn
   assert.equal(capturedPayload.partyId, 2);
   assert.equal(capturedPayload.materialId, 3);
   assert.equal(capturedPayload.ratePerTon, 1250);
+  assert.equal(capturedPayload.rateUnit, "per_cft");
+  assert.equal(capturedPayload.rateUnitLabel, "CFT");
+  assert.equal(capturedPayload.rateUnitsPerTon, 22.5);
   assert.equal(capturedPayload.royaltyMode, "none");
   assert.equal(capturedPayload.royaltyValue, 0);
   assert.equal(capturedPayload.loadingCharge, 20);
   assert.equal(capturedPayload.notes, "smoke note");
+  assert.equal(capturedPayload.effectiveFrom, "2026-04-18");
   assert.equal(capturedPayload.companyId, 55);
   assert.equal(capturedPayload.tonsPerBrass, null);
 });
@@ -488,6 +496,7 @@ test("party material rate service keeps tonsPerBrass for per_brass mode", async 
     loaded: true,
     exports: {
       getAllRates: async () => [],
+      findActiveRateConflict: async () => null,
       insertRate: async (payload) => {
         capturedPayload = payload;
         return payload;
@@ -551,6 +560,7 @@ test("party material rate service rejects non-boolean status payload", async () 
     "../src/modules/party_material_rates/party_material_rates.model.js",
     {
       getAllRates: async () => [],
+      findActiveRateConflict: async () => null,
       insertRate: async () => null,
       updateRate: async () => null,
       toggleStatus: async () => null,
@@ -585,6 +595,7 @@ test("party material rate service rejects creation when linked masters are missi
     loaded: true,
     exports: {
       getAllRates: async () => [],
+      findActiveRateConflict: async () => null,
       insertRate: async () => {
         throw new Error("insert should not run when links are missing");
       },
@@ -627,6 +638,86 @@ test("party material rate service rejects creation when linked masters are missi
           companyId: 44,
         }),
       /Selected plant does not exist/
+    );
+  } finally {
+    delete require.cache[servicePath];
+
+    if (originalService) require.cache[servicePath] = originalService;
+    if (originalModel) require.cache[modelPath] = originalModel;
+    else delete require.cache[modelPath];
+    if (originalDispatchModel) require.cache[dispatchModelPath] = originalDispatchModel;
+    else delete require.cache[dispatchModelPath];
+    if (originalPartiesModel) require.cache[partiesModelPath] = originalPartiesModel;
+    else delete require.cache[partiesModelPath];
+  }
+});
+
+test("party material rate service rejects duplicate active rate on the same effective date", async () => {
+  const servicePath = require.resolve(
+    "../src/modules/party_material_rates/party_material_rates.service.js"
+  );
+  const modelPath = require.resolve(
+    "../src/modules/party_material_rates/party_material_rates.model.js"
+  );
+  const dispatchModelPath = require.resolve("../src/modules/dispatch/dispatch.model.js");
+  const partiesModelPath = require.resolve("../src/modules/parties/parties.model.js");
+
+  const originalService = require.cache[servicePath];
+  const originalModel = require.cache[modelPath];
+  const originalDispatchModel = require.cache[dispatchModelPath];
+  const originalPartiesModel = require.cache[partiesModelPath];
+
+  require.cache[modelPath] = {
+    id: modelPath,
+    filename: modelPath,
+    loaded: true,
+    exports: {
+      getAllRates: async () => [],
+      findActiveRateConflict: async () => ({ id: 99 }),
+      insertRate: async () => {
+        throw new Error("insert should not run when active date conflict exists");
+      },
+      updateRate: async () => null,
+      toggleStatus: async () => null,
+    },
+  };
+
+  require.cache[dispatchModelPath] = {
+    id: dispatchModelPath,
+    filename: dispatchModelPath,
+    loaded: true,
+    exports: {
+      plantExists: async () => ({ id: 1, plantName: "Main Plant" }),
+      materialExists: async () => ({ id: 3, materialName: "Dust" }),
+    },
+  };
+
+  require.cache[partiesModelPath] = {
+    id: partiesModelPath,
+    filename: partiesModelPath,
+    loaded: true,
+    exports: {
+      getPartyById: async () => ({ id: 2, partyName: "ABC Infra" }),
+    },
+  };
+
+  delete require.cache[servicePath];
+
+  try {
+    const { createRate } = require(servicePath);
+    await assert.rejects(
+      () =>
+        createRate({
+          plantId: 1,
+          partyId: 2,
+          materialId: 3,
+          ratePerTon: 1200,
+          rateUnit: "per_ton",
+          effectiveFrom: "2026-04-18",
+          royaltyMode: "none",
+          companyId: 44,
+        }),
+      /already exists for this plant, party, material, and effective date/
     );
   } finally {
     delete require.cache[servicePath];

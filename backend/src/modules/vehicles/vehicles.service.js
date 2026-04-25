@@ -4,12 +4,23 @@ const {
   editVehicle,
   setVehicleStatus,
   findAllEquipmentLogs,
+  findLatestEquipmentLog,
   insertEquipmentLog,
   plantExists,
 } = require("./vehicles.model");
 
 const allowedOwnershipTypes = ["company", "attached_private", "transporter"];
 const allowedVehicleStatuses = ["active", "in_use", "inactive", "maintenance"];
+
+const roundToTwo = (value) => Math.round(Number(value) * 100) / 100;
+
+const normalizeNumber = (value, { allowBlank = false } = {}) => {
+  if (value === undefined || value === null || value === "") {
+    return allowBlank ? null : Number.NaN;
+  }
+
+  return Number(value);
+};
 
 const validatePlantIfPresent = async (plantId, companyId = null) => {
   if (plantId) {
@@ -58,11 +69,19 @@ const validateVehicleCapacity = (vehicleCapacityTons) => {
     vehicleCapacityTons !== "" &&
     (Number.isNaN(Number(vehicleCapacityTons)) || Number(vehicleCapacityTons) <= 0)
   ) {
-    const error = new Error("vehicleCapacityTons must be a valid number greater than 0");
+    const error = new Error(
+      "vehicleCapacityTons must be a valid number greater than 0"
+    );
     error.statusCode = 400;
     throw error;
   }
 };
+
+const buildEquipmentIdentity = ({ equipmentName, equipmentType, plantId }) => ({
+  equipmentName: String(equipmentName || "").trim(),
+  equipmentType: String(equipmentType || "").trim(),
+  plantId: plantId ? Number(plantId) : null,
+});
 
 const getVehiclesList = async (companyId = null) => {
   return await findAllVehicles(companyId);
@@ -94,10 +113,12 @@ const createVehicleRecord = async ({
     vendorId,
     plantId: plantId ? Number(plantId) : null,
     vehicleCapacityTons:
-      vehicleCapacityTons === "" || vehicleCapacityTons === undefined || vehicleCapacityTons === null
+      vehicleCapacityTons === "" ||
+      vehicleCapacityTons === undefined ||
+      vehicleCapacityTons === null
         ? null
         : Number(vehicleCapacityTons),
-    companyId: companyId || null,
+    companyId,
   });
 };
 
@@ -129,10 +150,12 @@ const updateVehicleRecord = async ({
     vendorId,
     plantId: plantId ? Number(plantId) : null,
     vehicleCapacityTons:
-      vehicleCapacityTons === "" || vehicleCapacityTons === undefined || vehicleCapacityTons === null
+      vehicleCapacityTons === "" ||
+      vehicleCapacityTons === undefined ||
+      vehicleCapacityTons === null
         ? null
         : Number(vehicleCapacityTons),
-    companyId: companyId || null,
+    companyId,
   });
 };
 
@@ -142,7 +165,7 @@ const updateVehicleStatusRecord = async ({ vehicleId, status, companyId }) => {
   return await setVehicleStatus({
     vehicleId: Number(vehicleId),
     status,
-    companyId: companyId || null,
+    companyId,
   });
 };
 
@@ -150,12 +173,45 @@ const getEquipmentLogsList = async (companyId = null) => {
   return await findAllEquipmentLogs(companyId);
 };
 
+const getEquipmentLogContext = async ({
+  equipmentName,
+  equipmentType,
+  plantId,
+  companyId,
+}) => {
+  if (!equipmentName || !equipmentType || !plantId) {
+    return {
+      latestLog: null,
+      suggestedOpeningMeterReading: null,
+      isFirstLog: true,
+    };
+  }
+
+  const equipmentIdentity = buildEquipmentIdentity({
+    equipmentName,
+    equipmentType,
+    plantId,
+  });
+
+  const latestLog = await findLatestEquipmentLog({
+    ...equipmentIdentity,
+    companyId,
+  });
+
+  return {
+    latestLog,
+    suggestedOpeningMeterReading: latestLog?.closingMeterReading ?? null,
+    isFirstLog: !latestLog,
+  };
+};
+
 const createEquipmentLogRecord = async ({
   usageDate,
   equipmentName,
   equipmentType,
   siteName,
-  usageHours,
+  openingMeterReading,
+  closingMeterReading,
   fuelUsed,
   remarks,
   createdBy,
@@ -164,17 +220,98 @@ const createEquipmentLogRecord = async ({
 }) => {
   await validatePlantIfPresent(plantId, companyId);
 
-  return await insertEquipmentLog({
-    usageDate,
+  const normalizedFuelUsed = normalizeNumber(fuelUsed);
+  const normalizedOpening = normalizeNumber(openingMeterReading, {
+    allowBlank: true,
+  });
+  const normalizedClosing = normalizeNumber(closingMeterReading);
+
+  if (!siteName || !String(siteName).trim()) {
+    const error = new Error("siteName is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (Number.isNaN(normalizedFuelUsed) || normalizedFuelUsed < 0) {
+    const error = new Error("fuelUsed must be a valid number greater than or equal to 0");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (Number.isNaN(normalizedClosing) || normalizedClosing < 0) {
+    const error = new Error(
+      "closingMeterReading must be a valid number greater than or equal to 0"
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const equipmentIdentity = buildEquipmentIdentity({
     equipmentName,
     equipmentType,
-    siteName,
+    plantId,
+  });
+  const latestLog = await findLatestEquipmentLog({
+    ...equipmentIdentity,
+    companyId,
+  });
+
+  if (latestLog && usageDate < latestLog.usageDate) {
+    const error = new Error(
+      `Backdated logs are not allowed after the latest entry dated ${latestLog.usageDate}`
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const resolvedOpening =
+    latestLog?.closingMeterReading !== null && latestLog?.closingMeterReading !== undefined
+      ? latestLog.closingMeterReading
+      : normalizedOpening;
+
+  if (resolvedOpening === null || resolvedOpening === undefined) {
+    const error = new Error(
+      "openingMeterReading is required for the first equipment log"
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (
+    normalizedOpening !== null &&
+    latestLog &&
+    roundToTwo(normalizedOpening) !== roundToTwo(latestLog.closingMeterReading)
+  ) {
+    const error = new Error(
+      `Opening meter reading must match the last closing meter reading (${latestLog.closingMeterReading})`
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (normalizedClosing < resolvedOpening) {
+    const error = new Error(
+      "closingMeterReading must be greater than or equal to openingMeterReading"
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const usageHours = roundToTwo(normalizedClosing - resolvedOpening);
+
+  return await insertEquipmentLog({
+    usageDate,
+    equipmentName: equipmentIdentity.equipmentName,
+    equipmentType: equipmentIdentity.equipmentType,
+    siteName: String(siteName).trim(),
     usageHours,
-    fuelUsed,
+    fuelUsed: roundToTwo(normalizedFuelUsed),
+    openingMeterReading: roundToTwo(resolvedOpening),
+    closingMeterReading: roundToTwo(normalizedClosing),
     remarks,
     createdBy,
-    plantId: plantId ? Number(plantId) : null,
-    companyId: companyId || null,
+    plantId: equipmentIdentity.plantId,
+    companyId,
   });
 };
 
@@ -184,5 +321,6 @@ module.exports = {
   updateVehicleRecord,
   updateVehicleStatusRecord,
   getEquipmentLogsList,
+  getEquipmentLogContext,
   createEquipmentLogRecord,
 };

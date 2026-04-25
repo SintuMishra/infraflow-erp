@@ -1,6 +1,9 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
-import { canAccessOwnerControlPanel } from "../../utils/access";
+import {
+  canAccessOwnerControlPanel,
+  getDefaultWorkspacePath,
+} from "../../utils/access";
 
 function PublicRoute({ children }) {
   const location = useLocation();
@@ -15,14 +18,12 @@ function PublicRoute({ children }) {
     const isOwnerRoute = location.pathname.startsWith("/owner-login");
     const targetPath = currentUser?.mustChangePassword
       ? "/change-password"
-      : isOwnerConsoleUser
-      ? "/tenant-onboarding"
-      : "/dashboard";
+      : getDefaultWorkspacePath(currentUser);
 
     // If a company-scoped user somehow opens owner-login while already signed in,
     // keep them inside client workspace instead of owner routes.
     if (isOwnerRoute && !isOwnerConsoleUser && !currentUser?.mustChangePassword) {
-      return <Navigate to="/dashboard" replace />;
+      return <Navigate to={getDefaultWorkspacePath(currentUser)} replace />;
     }
 
     return (

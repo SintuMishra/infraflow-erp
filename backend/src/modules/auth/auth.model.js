@@ -1,5 +1,9 @@
 const { pool } = require("../../config/db");
 const { hasColumn, tableExists } = require("../../utils/companyScope.util");
+const {
+  DEFAULT_COMPANY_MODULES,
+  normalizeCompanyModules,
+} = require("../../utils/companyModules.util");
 
 const buildEmployeeCodeAlias = (identifier) => {
   const normalizedIdentifier = String(identifier || "").trim();
@@ -97,6 +101,7 @@ const findUsersByLoginIdentifier = async (identifier, companyId = null) => {
 
 const findActiveCompanyLoginContextByCode = async (companyCode) => {
   const companiesExists = await tableExists("companies");
+  const companiesHasEnabledModules = await hasColumn("companies", "enabled_modules");
 
   if (!companiesExists) {
     return null;
@@ -114,7 +119,12 @@ const findActiveCompanyLoginContextByCode = async (companyCode) => {
       id,
       company_code AS "companyCode",
       company_name AS "companyName",
-      is_active AS "isActive"
+      is_active AS "isActive",
+      ${
+        companiesHasEnabledModules
+          ? `enabled_modules AS "enabledModules"`
+          : `NULL AS "enabledModules"`
+      }
     FROM companies
     WHERE LOWER(company_code) = LOWER($1)
       AND is_active = TRUE
@@ -122,8 +132,19 @@ const findActiveCompanyLoginContextByCode = async (companyCode) => {
     `,
     [normalizedCompanyCode]
   );
+  const company = result.rows[0] || null;
 
-  return result.rows[0] || null;
+  if (!company) {
+    return null;
+  }
+
+  return {
+    ...company,
+    enabledModules: normalizeCompanyModules(
+      company.enabledModules,
+      DEFAULT_COMPANY_MODULES
+    ),
+  };
 };
 
 const findCompanyAccessById = async (companyId) => {
@@ -134,6 +155,7 @@ const findCompanyAccessById = async (companyId) => {
   }
 
   const companiesExists = await tableExists("companies");
+  const companiesHasEnabledModules = await hasColumn("companies", "enabled_modules");
 
   if (!companiesExists) {
     return null;
@@ -145,15 +167,31 @@ const findCompanyAccessById = async (companyId) => {
       id,
       company_code AS "companyCode",
       company_name AS "companyName",
-      is_active AS "isActive"
+      is_active AS "isActive",
+      ${
+        companiesHasEnabledModules
+          ? `enabled_modules AS "enabledModules"`
+          : `NULL AS "enabledModules"`
+      }
     FROM companies
     WHERE id = $1
     LIMIT 1
     `,
     [normalizedCompanyId]
   );
+  const company = result.rows[0] || null;
 
-  return result.rows[0] || null;
+  if (!company) {
+    return null;
+  }
+
+  return {
+    ...company,
+    enabledModules: normalizeCompanyModules(
+      company.enabledModules,
+      DEFAULT_COMPANY_MODULES
+    ),
+  };
 };
 
 const findUserByUsername = async (username, companyId = null) => {

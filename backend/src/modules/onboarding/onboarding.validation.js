@@ -5,6 +5,32 @@ const GSTIN_PATTERN = /^[0-9]{2}[A-Z0-9]{13}$/;
 const PAN_PATTERN = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 const STATE_CODE_PATTERN = /^\d{1,2}$/;
 const PINCODE_PATTERN = /^\d{6}$/;
+const ALLOWED_COMPANY_MODULES = new Set([
+  "operations",
+  "commercial",
+  "procurement",
+  "accounts",
+]);
+
+const validateEnabledModules = (value) => {
+  if (value === undefined) {
+    return null;
+  }
+
+  if (!Array.isArray(value) || value.length === 0) {
+    return "enabledModules must be a non-empty array";
+  }
+
+  const invalidModule = value.find(
+    (moduleKey) => !ALLOWED_COMPANY_MODULES.has(String(moduleKey || "").trim().toLowerCase())
+  );
+
+  if (invalidModule) {
+    return `enabledModules contains unsupported value: ${invalidModule}`;
+  }
+
+  return null;
+};
 
 const validateBootstrapCompanyInput = (req, res, next) => {
   const payload = req.body && typeof req.body === "object" ? req.body : {};
@@ -26,12 +52,20 @@ const validateBootstrapCompanyInput = (req, res, next) => {
   const normalizedPan = String(companyProfile?.pan || "")
     .trim()
     .toUpperCase();
+  const enabledModulesError = validateEnabledModules(payload.enabledModules);
 
   if (!String(companyName || "").trim() || !String(ownerFullName || "").trim() || !String(ownerDesignation || "").trim()) {
     return res.status(400).json({
       success: false,
       message:
         "companyName, ownerFullName, and ownerDesignation are required",
+    });
+  }
+
+  if (enabledModulesError) {
+    return res.status(400).json({
+      success: false,
+      message: enabledModulesError,
     });
   }
 
@@ -107,6 +141,7 @@ const validateManagedCompanyUpdateInput = (req, res, next) => {
   const companyEmail = String(payload.companyEmail || "").trim();
   const companyMobile = String(payload.companyMobile || "").trim();
   const companyId = Number(req.params?.companyId || 0) || null;
+  const enabledModulesError = validateEnabledModules(payload.enabledModules);
 
   if (!companyId) {
     return res.status(400).json({
@@ -119,6 +154,13 @@ const validateManagedCompanyUpdateInput = (req, res, next) => {
     return res.status(400).json({
       success: false,
       message: "companyName is required",
+    });
+  }
+
+  if (enabledModulesError) {
+    return res.status(400).json({
+      success: false,
+      message: enabledModulesError,
     });
   }
 

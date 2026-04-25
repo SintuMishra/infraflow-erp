@@ -1,6 +1,9 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { canAccessOwnerControlPanel } from "../utils/access";
+import {
+  canAccessOwnerControlPanel,
+  getDefaultWorkspacePath,
+} from "../utils/access";
 
 function formatRole(role) {
   if (!role) return "Workspace User";
@@ -14,9 +17,7 @@ function formatRole(role) {
 function UnauthorizedPage() {
   const { currentUser } = useAuth();
   const isPlatformOwnerUser = canAccessOwnerControlPanel(currentUser);
-  const fallbackPath = canAccessOwnerControlPanel(currentUser)
-    ? "/tenant-onboarding"
-    : "/dashboard";
+  const fallbackPath = getDefaultWorkspacePath(currentUser);
   const shouldShowClientLoginHint =
     String(currentUser?.role || "").toLowerCase() === "super_admin" &&
     !isPlatformOwnerUser;

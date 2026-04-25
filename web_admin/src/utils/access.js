@@ -6,6 +6,45 @@ export const ROLE_GROUPS = {
   finance: ["super_admin", "manager", "admin", "hr"],
 };
 
+export const COMPANY_MODULE_KEYS = Object.freeze([
+  "operations",
+  "commercial",
+  "procurement",
+  "accounts",
+]);
+
+export const DEFAULT_ENABLED_MODULES = Object.freeze([...COMPANY_MODULE_KEYS]);
+
+export const COMPANY_MODULE_PRESETS = Object.freeze({
+  full_erp: DEFAULT_ENABLED_MODULES,
+  procurement_accounts: ["procurement", "accounts"],
+  procurement_only: ["procurement"],
+  accounts_only: ["accounts"],
+});
+
+export const COMPANY_MODULE_OPTIONS = Object.freeze([
+  {
+    key: "operations",
+    label: "Operations",
+    description: "Dispatch, crusher, project, boulder, vehicles, vendors, and transport rates.",
+  },
+  {
+    key: "commercial",
+    label: "Commercial",
+    description: "Parties, rates, orders, and commercial exception workflows.",
+  },
+  {
+    key: "procurement",
+    label: "Procurement",
+    description: "Purchase requests, purchase orders, GRN, and purchase invoices.",
+  },
+  {
+    key: "accounts",
+    label: "Accounts",
+    description: "Ledger, vouchers, receivables, payables, cash-bank, and finance reports.",
+  },
+]);
+
 const PLATFORM_OWNER_COMPANY_ID = (() => {
   const rawValue = String(import.meta.env.VITE_PLATFORM_OWNER_COMPANY_ID || "").trim();
 
@@ -39,8 +78,7 @@ export const isOwnerConsoleUser = (user) => {
   }
 
   if (PLATFORM_OWNER_COMPANY_ID === null) {
-    // Safe fallback for non-production/dev environments where owner company id is not injected.
-    return true;
+    return false;
   }
 
   return isPlatformOwnerCompanyUser(user);
@@ -48,6 +86,64 @@ export const isOwnerConsoleUser = (user) => {
 
 export const canAccessOperationalWorkspace = (user) => {
   return Boolean(user);
+};
+
+export const hasAnyEnabledModule = (user, moduleKeys = []) => {
+  if (!Array.isArray(moduleKeys) || moduleKeys.length === 0) {
+    return true;
+  }
+
+  return moduleKeys.some((moduleKey) => hasEnabledModule(user, moduleKey));
+};
+
+export const normalizeEnabledModules = (value) => {
+  const source = Array.isArray(value)
+    ? value
+    : Array.isArray(value?.enabledModules)
+    ? value.enabledModules
+    : Array.isArray(value?.company?.enabledModules)
+    ? value.company.enabledModules
+    : [];
+
+  const normalized = source
+    .map((moduleKey) => String(moduleKey || "").trim().toLowerCase())
+    .filter((moduleKey, index, array) =>
+      COMPANY_MODULE_KEYS.includes(moduleKey) && array.indexOf(moduleKey) === index
+    );
+
+  return normalized.length > 0 ? normalized : [...DEFAULT_ENABLED_MODULES];
+};
+
+export const hasEnabledModule = (user, moduleKey) => {
+  if (!moduleKey) {
+    return true;
+  }
+
+  if (canAccessOwnerControlPanel(user)) {
+    return true;
+  }
+
+  return normalizeEnabledModules(user).includes(String(moduleKey).trim().toLowerCase());
+};
+
+export const getDefaultWorkspacePath = (user) => {
+  if (canAccessOwnerControlPanel(user)) {
+    return "/tenant-onboarding";
+  }
+
+  if (hasEnabledModule(user, "operations") || hasEnabledModule(user, "commercial")) {
+    return "/dashboard";
+  }
+
+  if (hasEnabledModule(user, "procurement")) {
+    return "/purchase-requests";
+  }
+
+  if (hasEnabledModule(user, "accounts")) {
+    return "/accounts/dashboard";
+  }
+
+  return "/dashboard";
 };
 
 export const canAccessOwnerControlPanel = (user) => {
@@ -61,6 +157,15 @@ export const canAccessTenantOnboarding = (user) => {
 export const canAccessAuditLogsWorkspace = (user) => {
   return canAccessOwnerControlPanel(user) || canAccessOperationalWorkspace(user);
 };
+
+export const canAccessDashboardWorkspace = (user) =>
+  hasAnyEnabledModule(user, ["operations", "commercial"]);
+
+export const canAccessVendorsWorkspace = (user) =>
+  hasAnyEnabledModule(user, ["operations", "procurement"]);
+
+export const canAccessPlantsWorkspace = (user) =>
+  hasAnyEnabledModule(user, ["operations", "commercial", "procurement"]);
 
 export const ROUTE_ACCESS = {
   dashboard: [],
@@ -116,6 +221,7 @@ export const SIDEBAR_MENU_GROUPS = [
         label: "Dashboard",
         path: "/dashboard",
         hint: "Overview and analytics",
+        requiredAnyModules: ["operations", "commercial"],
         workspace: "client",
       },
     ],
@@ -149,6 +255,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/plant-unit-reports",
         hint: "Daily operational reporting",
         allowedRoles: ROUTE_ACCESS.crusherReports,
+        requiredModule: "operations",
         workspace: "client",
       },
       {
@@ -156,6 +263,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/project-reports",
         hint: "Site execution tracking",
         allowedRoles: ROUTE_ACCESS.projectReports,
+        requiredModule: "operations",
         workspace: "client",
       },
       {
@@ -163,6 +271,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/dispatch-reports",
         hint: "Dispatch and billing execution",
         allowedRoles: ROUTE_ACCESS.dispatchReports,
+        requiredModule: "operations",
         workspace: "client",
       },
       {
@@ -170,6 +279,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/boulder-reports",
         hint: "Mine-to-crusher raw boulder flow",
         allowedRoles: ROUTE_ACCESS.boulderReports,
+        requiredModule: "operations",
         workspace: "client",
       },
       {
@@ -177,6 +287,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/vehicles",
         hint: "Fleet, equipment, and linkage",
         allowedRoles: ROUTE_ACCESS.vehicles,
+        requiredModule: "operations",
         workspace: "client",
       },
       {
@@ -184,6 +295,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/vendors",
         hint: "Transporters and suppliers",
         allowedRoles: ROUTE_ACCESS.vendors,
+        requiredAnyModules: ["operations", "procurement"],
         workspace: "client",
       },
       {
@@ -191,6 +303,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/transport-rates",
         hint: "Plant-wise logistics costing",
         allowedRoles: ROUTE_ACCESS.transportRates,
+        requiredModule: "operations",
         workspace: "client",
       },
     ],
@@ -203,6 +316,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/purchase-requests",
         hint: "Material demand planning and approvals",
         allowedRoles: ROUTE_ACCESS.purchaseRequests,
+        requiredModule: "procurement",
         workspace: "client",
       },
       {
@@ -210,6 +324,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/purchase-orders",
         hint: "Vendor order placement and control",
         allowedRoles: ROUTE_ACCESS.purchaseOrders,
+        requiredModule: "procurement",
         workspace: "client",
       },
       {
@@ -217,6 +332,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/goods-receipts",
         hint: "GRN entry and PO quantity updates",
         allowedRoles: ROUTE_ACCESS.goodsReceipts,
+        requiredModule: "procurement",
         workspace: "client",
       },
       {
@@ -224,6 +340,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/purchase-invoices",
         hint: "3-way matching and payable linkage",
         allowedRoles: ROUTE_ACCESS.purchaseInvoices,
+        requiredModule: "procurement",
         workspace: "client",
       },
     ],
@@ -236,6 +353,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/parties",
         hint: "Customers and buyers",
         allowedRoles: ROUTE_ACCESS.parties,
+        requiredModule: "commercial",
         workspace: "client",
       },
       {
@@ -243,6 +361,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/party-material-rates",
         hint: "Material pricing contracts",
         allowedRoles: ROUTE_ACCESS.partyMaterialRates,
+        requiredModule: "commercial",
         workspace: "client",
       },
       {
@@ -250,6 +369,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/party-orders",
         hint: "Order book and pending loads",
         allowedRoles: ROUTE_ACCESS.partyOrders,
+        requiredModule: "commercial",
         workspace: "client",
       },
       {
@@ -257,6 +377,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/commercial-exceptions",
         hint: "Overdue, unlinked, and closure gaps",
         allowedRoles: ROUTE_ACCESS.commercialExceptions,
+        requiredModule: "commercial",
         workspace: "client",
       },
     ],
@@ -269,6 +390,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/accounts/dashboard",
         hint: "Finance KPI and controls",
         allowedRoles: ROUTE_ACCESS.accountsDashboard,
+        requiredModule: "accounts",
         workspace: "client",
       },
       {
@@ -276,6 +398,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/accounts/chart-of-accounts",
         hint: "Account groups, chart and ledgers",
         allowedRoles: ROUTE_ACCESS.accountsChartOfAccounts,
+        requiredModule: "accounts",
         workspace: "client",
       },
       {
@@ -283,6 +406,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/accounts/ledger",
         hint: "Ledger drill and books",
         allowedRoles: ROUTE_ACCESS.accountsLedger,
+        requiredModule: "accounts",
         workspace: "client",
       },
       {
@@ -290,6 +414,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/accounts/vouchers",
         hint: "Journal, payment, receipt, contra",
         allowedRoles: ROUTE_ACCESS.accountsVoucherEntry,
+        requiredModule: "accounts",
         workspace: "client",
       },
       {
@@ -297,6 +422,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/accounts/receivables",
         hint: "Dispatch-linked AR and settlements",
         allowedRoles: ROUTE_ACCESS.accountsReceivables,
+        requiredModule: "accounts",
         workspace: "client",
       },
       {
@@ -304,6 +430,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/accounts/payables",
         hint: "Bills, AP and settlements",
         allowedRoles: ROUTE_ACCESS.accountsPayables,
+        requiredModule: "accounts",
         workspace: "client",
       },
       {
@@ -311,6 +438,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/accounts/cash-bank",
         hint: "Bank accounts and cash movement",
         allowedRoles: ROUTE_ACCESS.accountsCashBank,
+        requiredModule: "accounts",
         workspace: "client",
       },
       {
@@ -318,6 +446,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/accounts/posting-rules",
         hint: "Source-event posting configuration",
         allowedRoles: ROUTE_ACCESS.accountsPostingRules,
+        requiredModule: "accounts",
         workspace: "client",
       },
       {
@@ -325,6 +454,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/accounts/policy-controls",
         hint: "Maker-checker control settings",
         allowedRoles: ROUTE_ACCESS.accountsPolicyControls,
+        requiredModule: "accounts",
         workspace: "client",
       },
       {
@@ -332,6 +462,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/accounts/period-controls",
         hint: "Close/reopen periods with evidence",
         allowedRoles: ROUTE_ACCESS.accountsPeriodControls,
+        requiredModule: "accounts",
         workspace: "client",
       },
       {
@@ -339,6 +470,7 @@ export const SIDEBAR_MENU_GROUPS = [
         path: "/accounts/reports",
         hint: "Trial balance, ageing and books",
         allowedRoles: ROUTE_ACCESS.accountsReports,
+        requiredModule: "accounts",
         workspace: "client",
       },
     ],

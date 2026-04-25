@@ -1,7 +1,14 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
+import { hasAnyEnabledModule, hasEnabledModule } from "../../utils/access";
 
-function ProtectedRoute({ children, allowedRoles = [], allowWhen = true }) {
+function ProtectedRoute({
+  children,
+  allowedRoles = [],
+  allowWhen = true,
+  requiredModule = "",
+  requiredAnyModules = [],
+}) {
   const location = useLocation();
   const { currentUser, hasRole, isAuthenticated, sessionLoading } = useAuth();
 
@@ -18,6 +25,14 @@ function ProtectedRoute({ children, allowedRoles = [], allowWhen = true }) {
   }
 
   if (allowedRoles.length > 0 && !hasRole(allowedRoles)) {
+    return <Navigate to="/unauthorized" replace />;
+  }
+
+  if (!hasEnabledModule(currentUser, requiredModule)) {
+    return <Navigate to="/unauthorized" replace />;
+  }
+
+  if (!hasAnyEnabledModule(currentUser, requiredAnyModules)) {
     return <Navigate to="/unauthorized" replace />;
   }
 

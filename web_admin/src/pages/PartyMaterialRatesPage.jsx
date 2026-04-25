@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../services/api";
 import AppShell from "../components/layout/AppShell";
 import SectionCard from "../components/dashboard/SectionCard";
+import { formatDisplayDate, getTodayDateValue } from "../utils/date";
 
 const currencyFormatter = new Intl.NumberFormat("en-IN", {
   minimumFractionDigits: 2,
@@ -10,6 +11,163 @@ const currencyFormatter = new Intl.NumberFormat("en-IN", {
 });
 
 const formatCurrency = (value) => currencyFormatter.format(Number(value || 0));
+
+const RATE_UNIT_OPTIONS = [
+  { value: "per_ton", label: "Rate Per Ton", unitLabel: "ton", requiresConversion: false },
+  {
+    value: "per_metric_ton",
+    label: "Rate Per Metric Ton",
+    unitLabel: "metric ton",
+    requiresConversion: false,
+  },
+  { value: "per_cft", label: "Rate Per CFT", unitLabel: "CFT", conversionLabel: "CFT per ton", requiresConversion: true },
+  {
+    value: "per_brass",
+    label: "Rate Per Brass",
+    unitLabel: "brass",
+    conversionLabel: "Brass per ton",
+    requiresConversion: true,
+  },
+  {
+    value: "per_cubic_meter",
+    label: "Rate Per Cubic Meter",
+    unitLabel: "cubic meter",
+    conversionLabel: "Cubic meters per ton",
+    requiresConversion: true,
+  },
+  {
+    value: "per_trip",
+    label: "Rate Per Trip / Trolley",
+    unitLabel: "trip",
+    conversionLabel: "Trips per ton",
+    requiresConversion: true,
+  },
+  {
+    value: "other",
+    label: "Other Rate Unit",
+    unitLabel: "",
+    conversionLabel: "Billable units per ton",
+    requiresConversion: true,
+  },
+];
+
+const LOADING_BASIS_OPTIONS = [
+  { value: "none", label: "No Loading" },
+  { value: "fixed", label: "Fixed Per Dispatch" },
+  { value: "per_ton", label: "Per Ton" },
+  { value: "per_brass", label: "Per Brass" },
+  { value: "per_trip", label: "Per Trip / Load" },
+];
+
+const getRateUnitMeta = (rateUnit) =>
+  RATE_UNIT_OPTIONS.find((option) => option.value === rateUnit) || RATE_UNIT_OPTIONS[0];
+
+const getRateUnitLabel = (item) =>
+  item.rateUnit === "other"
+    ? item.rateUnitLabel || "custom unit"
+    : item.rateUnitLabel || getRateUnitMeta(item.rateUnit).unitLabel;
+
+const rateUnitRequiresConversion = (rateUnit) =>
+  Boolean(getRateUnitMeta(rateUnit).requiresConversion);
+
+const getRateInputPlaceholder = (item) =>
+  `Enter ${getRateUnitMeta(item.rateUnit).label.toLowerCase()}`;
+
+const getConversionPlaceholder = (item) =>
+  getRateUnitMeta(item.rateUnit).conversionLabel || `${getRateUnitLabel(item)} per ton`;
+
+const getRateUnitProfessionalHint = (rateUnit) => {
+  if (rateUnit === "per_trip") {
+    return "Trip billing rounds up to full trips during dispatch billing. Use trips per ton based on your commercial loading standard.";
+  }
+
+  return "";
+};
+
+const getLoadingBasisLabel = (basis) =>
+  LOADING_BASIS_OPTIONS.find((option) => option.value === basis)?.label || "Fixed Per Dispatch";
+
+const getLoadingProfessionalHint = (basis) => {
+  if (basis === "per_trip") {
+    return "Per trip loading applies once for each dispatch load. Dispatch users can still alter the final amount manually when ground conditions differ.";
+  }
+
+  if (basis === "per_brass") {
+    return "Per brass loading uses the same tons-per-brass commercial conversion that royalty uses.";
+  }
+
+  if (basis === "per_ton") {
+    return "Per ton loading scales automatically with dispatch quantity.";
+  }
+
+  return "";
+};
+
+const formatLoadingChargeValue = (item) => {
+  const basis = item.loadingChargeBasis || "fixed";
+  const amount = formatCurrency(item.loadingCharge || 0);
+
+  if (basis === "none") {
+    return "None";
+  }
+
+  if (basis === "fixed") {
+    return `${amount} / dispatch`;
+  }
+
+  if (basis === "per_trip") {
+    return `${amount} / trip`;
+  }
+
+  if (basis === "per_ton") {
+    return `${amount} / ton`;
+  }
+
+  if (basis === "per_brass") {
+    return `${amount} / brass`;
+  }
+
+  return amount;
+};
+
+const DEFAULT_TONS_PER_BRASS = 2.83;
+const DEFAULT_CFT_PER_TON = 22.5;
+const DEFAULT_CUBIC_METER_PER_TON = DEFAULT_CFT_PER_TON / 35.3147;
+
+const formatSuggestedConversion = (value) => {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "";
+  }
+
+  return String(Math.round((value + Number.EPSILON) * 10000) / 10000);
+};
+
+const getSuggestedRateUnitsPerTon = (rateUnit) => {
+  if (rateUnit === "per_ton" || rateUnit === "per_metric_ton") {
+    return "1";
+  }
+
+  if (rateUnit === "per_cft") {
+    return formatSuggestedConversion(DEFAULT_CFT_PER_TON);
+  }
+
+  if (rateUnit === "per_brass") {
+    return formatSuggestedConversion(1 / DEFAULT_TONS_PER_BRASS);
+  }
+
+  if (rateUnit === "per_cubic_meter") {
+    return formatSuggestedConversion(DEFAULT_CUBIC_METER_PER_TON);
+  }
+
+  if (rateUnit === "per_trip") {
+    return "1";
+  }
+
+  return "";
+};
+
+const formatRateValue = (item) =>
+  `${formatCurrency(item.ratePerTon)} / ${getRateUnitLabel(item)}`;
 
 function PartyMaterialRatesPage() {
   const location = useLocation();
@@ -30,16 +188,23 @@ function PartyMaterialRatesPage() {
 
   const [showList, setShowList] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [formConversionTouched, setFormConversionTouched] = useState(false);
+  const [editConversionTouched, setEditConversionTouched] = useState(false);
 
   const [form, setForm] = useState({
     plantId: "",
     partyId: "",
     materialId: "",
     ratePerTon: "",
+    rateUnit: "per_ton",
+    rateUnitLabel: "",
+    rateUnitsPerTon: "1",
+    effectiveFrom: getTodayDateValue(),
     royaltyMode: "per_ton",
     royaltyValue: "",
     tonsPerBrass: "",
     loadingCharge: "",
+    loadingChargeBasis: "fixed",
     notes: "",
   });
 
@@ -49,10 +214,15 @@ function PartyMaterialRatesPage() {
     partyId: "",
     materialId: "",
     ratePerTon: "",
+    rateUnit: "per_ton",
+    rateUnitLabel: "",
+    rateUnitsPerTon: "1",
+    effectiveFrom: getTodayDateValue(),
     royaltyMode: "per_ton",
     royaltyValue: "",
     tonsPerBrass: "",
     loadingCharge: "",
+    loadingChargeBasis: "fixed",
     notes: "",
   });
 
@@ -246,6 +416,29 @@ function PartyMaterialRatesPage() {
     }));
   };
 
+  const handleRateUnitChange = (setter, setTouched) => (e) => {
+    const nextUnit = e.target.value;
+    setter((prev) => ({
+      ...prev,
+      rateUnit: nextUnit,
+      rateUnitLabel:
+        nextUnit === "other" ? prev.rateUnitLabel : getRateUnitMeta(nextUnit).unitLabel,
+      rateUnitsPerTon: getSuggestedRateUnitsPerTon(nextUnit),
+    }));
+    setTouched(false);
+  };
+
+  const handleRateInputChange = (setter, touched) => (e) => {
+    const { name, value } = e.target;
+    setter((prev) => ({
+      ...prev,
+      [name]: value,
+      ...(name === "ratePerTon" && rateUnitRequiresConversion(prev.rateUnit) && !touched
+        ? { rateUnitsPerTon: getSuggestedRateUnitsPerTon(prev.rateUnit) }
+        : {}),
+    }));
+  };
+
   const renderCountBadge = (count) => (
     <span style={styles.countBadge}>{count} records</span>
   );
@@ -283,12 +476,32 @@ function PartyMaterialRatesPage() {
     }
 
     if (!data.ratePerTon || Number(data.ratePerTon) <= 0) {
-      setError("Rate per ton must be greater than 0");
+      setError("Rate must be greater than 0");
+      return false;
+    }
+
+    if (!RATE_UNIT_OPTIONS.some((option) => option.value === data.rateUnit)) {
+      setError("Please select a valid rate unit");
+      return false;
+    }
+
+    if (data.rateUnit === "other" && !String(data.rateUnitLabel || "").trim()) {
+      setError("Custom rate unit name is required");
+      return false;
+    }
+
+    if (rateUnitRequiresConversion(data.rateUnit) && (!data.rateUnitsPerTon || Number(data.rateUnitsPerTon) <= 0)) {
+      setError("Billable units per ton must be greater than 0");
       return false;
     }
 
     if (!["per_ton", "per_brass", "fixed", "none"].includes(data.royaltyMode)) {
       setError("Please select a valid royalty mode");
+      return false;
+    }
+
+    if (!String(data.effectiveFrom || "").trim()) {
+      setError("Effective from date is required");
       return false;
     }
 
@@ -301,10 +514,10 @@ function PartyMaterialRatesPage() {
     }
 
     if (
-      data.royaltyMode === "per_brass" &&
+      (data.royaltyMode === "per_brass" || data.loadingChargeBasis === "per_brass") &&
       (data.tonsPerBrass === "" || Number(data.tonsPerBrass) <= 0)
     ) {
-      setError("Tons per brass must be greater than 0 for royalty per brass");
+      setError("Tons per brass must be greater than 0 when royalty or loading is per brass");
       return false;
     }
 
@@ -321,6 +534,14 @@ function PartyMaterialRatesPage() {
     partyId: Number(data.partyId),
     materialId: Number(data.materialId),
     ratePerTon: Number(data.ratePerTon),
+    rateUnit: data.rateUnit || "per_ton",
+    rateUnitLabel:
+      data.rateUnit === "other"
+        ? String(data.rateUnitLabel || "").trim()
+        : getRateUnitMeta(data.rateUnit).unitLabel,
+    rateUnitsPerTon:
+      rateUnitRequiresConversion(data.rateUnit) ? Number(data.rateUnitsPerTon) : 1,
+    effectiveFrom: String(data.effectiveFrom || "").trim(),
     royaltyMode: data.royaltyMode,
     royaltyValue:
       data.royaltyMode === "none"
@@ -329,13 +550,18 @@ function PartyMaterialRatesPage() {
         ? 0
         : Number(data.royaltyValue),
     tonsPerBrass:
-      data.royaltyMode === "per_brass"
+      data.royaltyMode === "per_brass" || data.loadingChargeBasis === "per_brass"
         ? data.tonsPerBrass === ""
           ? null
           : Number(data.tonsPerBrass)
         : null,
     loadingCharge:
-      data.loadingCharge === "" ? 0 : Number(data.loadingCharge),
+      data.loadingChargeBasis === "none"
+        ? 0
+        : data.loadingCharge === ""
+          ? 0
+          : Number(data.loadingCharge),
+    loadingChargeBasis: data.loadingChargeBasis || "fixed",
     notes: data.notes || "",
   });
 
@@ -355,12 +581,18 @@ function PartyMaterialRatesPage() {
         partyId: "",
         materialId: "",
         ratePerTon: "",
+        rateUnit: "per_ton",
+        rateUnitLabel: "",
+        rateUnitsPerTon: "1",
+        effectiveFrom: getTodayDateValue(),
         royaltyMode: "per_ton",
         royaltyValue: "",
         tonsPerBrass: "",
         loadingCharge: "",
+        loadingChargeBasis: "fixed",
         notes: "",
       });
+      setFormConversionTouched(false);
       setShowForm(false);
       setShowList(true);
       await loadAll();
@@ -382,6 +614,7 @@ function PartyMaterialRatesPage() {
 
   const openEditPanel = (item) => {
     setEditItem(item);
+    setEditConversionTouched(false);
     setEditForm({
       plantId: String(item.plantId || ""),
       partyId: String(item.partyId || ""),
@@ -390,6 +623,13 @@ function PartyMaterialRatesPage() {
         item.ratePerTon !== null && item.ratePerTon !== undefined
           ? String(item.ratePerTon)
           : "",
+      rateUnit: item.rateUnit || "per_ton",
+      rateUnitLabel: item.rateUnitLabel || "",
+      rateUnitsPerTon:
+        item.rateUnitsPerTon !== null && item.rateUnitsPerTon !== undefined
+          ? String(item.rateUnitsPerTon)
+          : "1",
+      effectiveFrom: item.effectiveFrom || getTodayDateValue(),
       royaltyMode: item.royaltyMode || "per_ton",
       royaltyValue:
         item.royaltyValue !== null && item.royaltyValue !== undefined
@@ -403,6 +643,7 @@ function PartyMaterialRatesPage() {
         item.loadingCharge !== null && item.loadingCharge !== undefined
           ? String(item.loadingCharge)
           : "",
+      loadingChargeBasis: item.loadingChargeBasis || "fixed",
       notes: item.notes || "",
     });
     setError("");
@@ -748,6 +989,11 @@ function PartyMaterialRatesPage() {
               so the total commercial view stays practical: material pricing here,
               transportation costing there.
             </p>
+            <p style={styles.logicText}>
+              Trip-based selling rates bill only in full trips. Dispatch billing
+              rounds fractional trip demand upward, so keep trips-per-ton aligned
+              with your agreed vehicle loading standard.
+            </p>
           </div>
         </SectionCard>
 
@@ -802,7 +1048,8 @@ function PartyMaterialRatesPage() {
                         <th style={styles.th}>Plant</th>
                         <th style={styles.th}>Party</th>
                         <th style={styles.th}>Material</th>
-                        <th style={styles.th}>Rate / Ton</th>
+                        <th style={styles.th}>Effective From</th>
+                        <th style={styles.th}>Rate Unit</th>
                         <th style={styles.th}>Royalty</th>
                         <th style={styles.th}>Loading</th>
                         <th style={styles.th}>Notes</th>
@@ -817,11 +1064,26 @@ function PartyMaterialRatesPage() {
                           <td style={styles.td}>{item.partyName}</td>
                           <td style={styles.td}>{item.materialName}</td>
                           <td style={styles.td}>
-                            {formatCurrency(item.ratePerTon)}
+                            {item.effectiveFrom
+                              ? formatDisplayDate(item.effectiveFrom)
+                              : "-"}
+                          </td>
+                          <td style={styles.td}>
+                            {formatRateValue(item)}
+                            {Number(item.rateUnitsPerTon || 1) !== 1 && (
+                              <div style={styles.tdSubtle}>
+                                {item.rateUnitsPerTon} {getRateUnitLabel(item)} / ton
+                              </div>
+                            )}
                           </td>
                           <td style={styles.td}>{formatRoyalty(item)}</td>
                           <td style={styles.td}>
-                            {formatCurrency(item.loadingCharge || 0)}
+                            {formatLoadingChargeValue(item)}
+                            {getLoadingProfessionalHint(item.loadingChargeBasis) ? (
+                              <div style={styles.tdSubtle}>
+                                {getLoadingBasisLabel(item.loadingChargeBasis)}
+                              </div>
+                            ) : null}
                           </td>
                           <td style={styles.td}>{item.notes || "-"}</td>
                           <td style={styles.td}>
@@ -911,15 +1173,68 @@ function PartyMaterialRatesPage() {
                   ))}
                 </select>
 
+                <select
+                  name="rateUnit"
+                  value={form.rateUnit}
+                  onChange={handleRateUnitChange(setForm, setFormConversionTouched)}
+                  style={styles.input}
+                >
+                  {RATE_UNIT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+
+                <input
+                  name="effectiveFrom"
+                  type="date"
+                  value={form.effectiveFrom}
+                  onChange={handleChange(setForm)}
+                  style={styles.input}
+                />
+
                 <input
                   name="ratePerTon"
                   type="number"
                   step="0.01"
-                  placeholder="Rate Per Ton"
+                  placeholder={getRateInputPlaceholder(form)}
                   value={form.ratePerTon}
-                  onChange={handleChange(setForm)}
+                  onChange={handleRateInputChange(setForm, formConversionTouched)}
                   style={styles.input}
                 />
+
+                {form.rateUnit === "other" && (
+                  <input
+                    name="rateUnitLabel"
+                    placeholder="Custom unit name"
+                    value={form.rateUnitLabel}
+                    onChange={handleChange(setForm)}
+                    style={styles.input}
+                  />
+                )}
+
+                {rateUnitRequiresConversion(form.rateUnit) && (
+                  <>
+                    <input
+                      name="rateUnitsPerTon"
+                      type="number"
+                      step="0.0001"
+                      placeholder={getConversionPlaceholder(form)}
+                      value={form.rateUnitsPerTon}
+                      onChange={(e) => {
+                        setFormConversionTouched(true);
+                        handleChange(setForm)(e);
+                      }}
+                      style={styles.input}
+                    />
+                    {getRateUnitProfessionalHint(form.rateUnit) ? (
+                      <p style={styles.logicText}>
+                        {getRateUnitProfessionalHint(form.rateUnit)}
+                      </p>
+                    ) : null}
+                  </>
+                )}
 
                 <select
                   name="royaltyMode"
@@ -948,30 +1263,47 @@ function PartyMaterialRatesPage() {
                   disabled={form.royaltyMode === "none"}
                 />
 
-                <input
-                  name="tonsPerBrass"
-                  type="number"
-                  step="0.0001"
-                  placeholder={
-                    form.royaltyMode === "per_brass"
-                      ? "Tons Per Brass"
-                      : "Tons/Brass not required"
-                  }
-                  value={form.tonsPerBrass}
+                {form.royaltyMode === "per_brass" && (
+                  <input
+                    name="tonsPerBrass"
+                    type="number"
+                    step="0.0001"
+                    placeholder="Tons Per Brass"
+                    value={form.tonsPerBrass}
+                    onChange={handleChange(setForm)}
+                    style={styles.input}
+                  />
+                )}
+
+                <select
+                  name="loadingChargeBasis"
+                  value={form.loadingChargeBasis}
                   onChange={handleChange(setForm)}
                   style={styles.input}
-                  disabled={form.royaltyMode !== "per_brass"}
-                />
+                >
+                  {LOADING_BASIS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
 
                 <input
                   name="loadingCharge"
                   type="number"
                   step="0.01"
-                  placeholder="Loading Charge"
+                  placeholder={`Loading ${getLoadingBasisLabel(form.loadingChargeBasis)}`}
                   value={form.loadingCharge}
                   onChange={handleChange(setForm)}
                   style={styles.input}
+                  disabled={form.loadingChargeBasis === "none"}
                 />
+
+                {getLoadingProfessionalHint(form.loadingChargeBasis) ? (
+                  <p style={styles.logicText}>
+                    {getLoadingProfessionalHint(form.loadingChargeBasis)}
+                  </p>
+                ) : null}
 
                 <input
                   name="notes"
@@ -1041,15 +1373,68 @@ function PartyMaterialRatesPage() {
                 ))}
               </select>
 
+              <select
+                name="rateUnit"
+                value={editForm.rateUnit}
+                onChange={handleRateUnitChange(setEditForm, setEditConversionTouched)}
+                style={styles.input}
+              >
+                {RATE_UNIT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                name="effectiveFrom"
+                type="date"
+                value={editForm.effectiveFrom}
+                onChange={handleChange(setEditForm)}
+                style={styles.input}
+              />
+
               <input
                 name="ratePerTon"
                 type="number"
                 step="0.01"
-                placeholder="Rate Per Ton"
+                placeholder={getRateInputPlaceholder(editForm)}
                 value={editForm.ratePerTon}
-                onChange={handleChange(setEditForm)}
+                onChange={handleRateInputChange(setEditForm, editConversionTouched)}
                 style={styles.input}
               />
+
+              {editForm.rateUnit === "other" && (
+                <input
+                  name="rateUnitLabel"
+                  placeholder="Custom unit name"
+                  value={editForm.rateUnitLabel}
+                  onChange={handleChange(setEditForm)}
+                  style={styles.input}
+                />
+              )}
+
+              {rateUnitRequiresConversion(editForm.rateUnit) && (
+                <>
+                  <input
+                    name="rateUnitsPerTon"
+                    type="number"
+                    step="0.0001"
+                    placeholder={getConversionPlaceholder(editForm)}
+                    value={editForm.rateUnitsPerTon}
+                    onChange={(e) => {
+                      setEditConversionTouched(true);
+                      handleChange(setEditForm)(e);
+                    }}
+                    style={styles.input}
+                  />
+                  {getRateUnitProfessionalHint(editForm.rateUnit) ? (
+                    <p style={styles.logicText}>
+                      {getRateUnitProfessionalHint(editForm.rateUnit)}
+                    </p>
+                  ) : null}
+                </>
+              )}
 
               <select
                 name="royaltyMode"
@@ -1078,30 +1463,47 @@ function PartyMaterialRatesPage() {
                 disabled={editForm.royaltyMode === "none"}
               />
 
-              <input
-                name="tonsPerBrass"
-                type="number"
-                step="0.0001"
-                placeholder={
-                  editForm.royaltyMode === "per_brass"
-                    ? "Tons Per Brass"
-                    : "Tons/Brass not required"
-                }
-                value={editForm.tonsPerBrass}
+              {editForm.royaltyMode === "per_brass" && (
+                <input
+                  name="tonsPerBrass"
+                  type="number"
+                  step="0.0001"
+                  placeholder="Tons Per Brass"
+                  value={editForm.tonsPerBrass}
+                  onChange={handleChange(setEditForm)}
+                  style={styles.input}
+                />
+              )}
+
+              <select
+                name="loadingChargeBasis"
+                value={editForm.loadingChargeBasis}
                 onChange={handleChange(setEditForm)}
                 style={styles.input}
-                disabled={editForm.royaltyMode !== "per_brass"}
-              />
+              >
+                {LOADING_BASIS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
 
               <input
                 name="loadingCharge"
                 type="number"
                 step="0.01"
-                placeholder="Loading Charge"
+                placeholder={`Loading ${getLoadingBasisLabel(editForm.loadingChargeBasis)}`}
                 value={editForm.loadingCharge}
                 onChange={handleChange(setEditForm)}
                 style={styles.input}
+                disabled={editForm.loadingChargeBasis === "none"}
               />
+
+              {getLoadingProfessionalHint(editForm.loadingChargeBasis) ? (
+                <p style={styles.logicText}>
+                  {getLoadingProfessionalHint(editForm.loadingChargeBasis)}
+                </p>
+              ) : null}
 
               <input
                 name="notes"
@@ -1690,6 +2092,11 @@ const styles = {
     color: "#111827",
     fontSize: "14px",
     verticalAlign: "top",
+  },
+  tdSubtle: {
+    color: "#64748b",
+    fontSize: "12px",
+    marginTop: "4px",
   },
 };
 

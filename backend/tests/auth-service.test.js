@@ -629,6 +629,13 @@ test("getAuthenticatedUserProfile falls back to company access when company prof
         id: 2,
         companyName: "Acme Infra Projects",
         branchName: "",
+        enabledModules: ["operations", "commercial", "procurement", "accounts"],
+        moduleAccess: {
+          operations: true,
+          commercial: true,
+          procurement: true,
+          accounts: true,
+        },
       });
     }
   );

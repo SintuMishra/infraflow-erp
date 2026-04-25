@@ -4,6 +4,8 @@ import {
   canAccessTenantOnboarding,
   canAccessOwnerControlPanel,
   canAccessOperationalWorkspace,
+  hasAnyEnabledModule,
+  hasEnabledModule,
 } from "../../utils/access";
 import { useAuth } from "../../hooks/useAuth";
 
@@ -21,6 +23,8 @@ function Sidebar({ isMobile = false, isOpen = true, onClose = () => {} }) {
           (item.workspace !== "owner" || isOwnerControlUser) &&
           (item.workspace !== "client" || canAccessOperationalWorkspace(currentUser)) &&
           (!item.allowedRoles?.length || item.allowedRoles.includes(currentRole)) &&
+          hasEnabledModule(currentUser, item.requiredModule) &&
+          hasAnyEnabledModule(currentUser, item.requiredAnyModules) &&
           (!item.requiresPlatformOwnerCompany ||
             canAccessTenantOnboarding(currentUser))
       ),

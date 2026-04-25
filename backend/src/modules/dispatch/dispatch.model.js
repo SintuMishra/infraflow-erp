@@ -21,12 +21,15 @@ const formatDispatchRow = (row) => {
     invoiceValue: toNumberOrNull(formatted.invoiceValue),
     distanceKm: toNumberOrNull(formatted.distanceKm),
     materialRatePerTon: toNumberOrNull(formatted.materialRatePerTon),
+    materialRateUnitsPerTon: toNumberOrNull(formatted.materialRateUnitsPerTon),
+    royaltyTonsPerBrass: toNumberOrNull(formatted.royaltyTonsPerBrass),
     materialAmount: toNumberOrNull(formatted.materialAmount),
     transportRateValue: toNumberOrNull(formatted.transportRateValue),
     transportCost: toNumberOrNull(formatted.transportCost),
     royaltyValue: toNumberOrNull(formatted.royaltyValue),
     royaltyAmount: toNumberOrNull(formatted.royaltyAmount),
     loadingCharge: toNumberOrNull(formatted.loadingCharge),
+    loadingChargeRate: toNumberOrNull(formatted.loadingChargeRate),
     otherCharge: toNumberOrNull(formatted.otherCharge),
     totalInvoiceValue: toNumberOrNull(formatted.totalInvoiceValue),
     gstRate: toNumberOrNull(formatted.gstRate),
@@ -49,6 +52,13 @@ const getDispatchSchemaCapabilities = async (db = pool) => {
     hasFinanceSourceLinkId,
     hasFinanceLastVoucherId,
     hasFinanceNotes,
+    hasMaterialRateUnit,
+    hasMaterialRateUnitLabel,
+    hasMaterialRateUnitsPerTon,
+    hasRoyaltyTonsPerBrass,
+    hasLoadingChargeBasis,
+    hasLoadingChargeRate,
+    hasLoadingChargeIsManual,
   ] = await Promise.all([
     hasColumn("dispatch_reports", "company_id", db),
     hasColumn("dispatch_reports", "party_order_id", db),
@@ -60,6 +70,13 @@ const getDispatchSchemaCapabilities = async (db = pool) => {
     hasColumn("dispatch_reports", "finance_source_link_id", db),
     hasColumn("dispatch_reports", "finance_last_voucher_id", db),
     hasColumn("dispatch_reports", "finance_notes", db),
+    hasColumn("dispatch_reports", "material_rate_unit", db),
+    hasColumn("dispatch_reports", "material_rate_unit_label", db),
+    hasColumn("dispatch_reports", "material_rate_units_per_ton", db),
+    hasColumn("dispatch_reports", "royalty_tons_per_brass", db),
+    hasColumn("dispatch_reports", "loading_charge_basis", db),
+    hasColumn("dispatch_reports", "loading_charge_rate", db),
+    hasColumn("dispatch_reports", "loading_charge_is_manual", db),
   ]);
 
   return {
@@ -74,6 +91,13 @@ const getDispatchSchemaCapabilities = async (db = pool) => {
     hasFinanceSourceLinkId,
     hasFinanceLastVoucherId,
     hasFinanceNotes,
+    hasMaterialRateUnit,
+    hasMaterialRateUnitLabel,
+    hasMaterialRateUnitsPerTon,
+    hasRoyaltyTonsPerBrass,
+    hasLoadingChargeBasis,
+    hasLoadingChargeRate,
+    hasLoadingChargeIsManual,
   };
 };
 
@@ -202,6 +226,13 @@ const buildBaseDispatchSelect = async (db = pool, schemaCapabilities = null) => 
     hasFinanceSourceLinkId,
     hasFinanceLastVoucherId,
     hasFinanceNotes,
+    hasMaterialRateUnit,
+    hasMaterialRateUnitLabel,
+    hasMaterialRateUnitsPerTon,
+    hasRoyaltyTonsPerBrass,
+    hasLoadingChargeBasis,
+    hasLoadingChargeRate,
+    hasLoadingChargeIsManual,
   } = capabilities;
 
   return `
@@ -249,14 +280,21 @@ const buildBaseDispatchSelect = async (db = pool, schemaCapabilities = null) => 
       }
 
       dr.material_rate_per_ton AS "materialRatePerTon",
+      ${hasMaterialRateUnit ? `dr.material_rate_unit AS "materialRateUnit",` : `'per_ton' AS "materialRateUnit",`}
+      ${hasMaterialRateUnitLabel ? `dr.material_rate_unit_label AS "materialRateUnitLabel",` : `'ton' AS "materialRateUnitLabel",`}
+      ${hasMaterialRateUnitsPerTon ? `dr.material_rate_units_per_ton AS "materialRateUnitsPerTon",` : `1 AS "materialRateUnitsPerTon",`}
       dr.material_amount AS "materialAmount",
       dr.transport_rate_type AS "transportRateType",
       dr.transport_rate_value AS "transportRateValue",
       dr.transport_cost AS "transportCost",
       dr.royalty_mode AS "royaltyMode",
       dr.royalty_value AS "royaltyValue",
+      ${hasRoyaltyTonsPerBrass ? `dr.royalty_tons_per_brass AS "royaltyTonsPerBrass",` : `NULL AS "royaltyTonsPerBrass",`}
       dr.royalty_amount AS "royaltyAmount",
       dr.loading_charge AS "loadingCharge",
+      ${hasLoadingChargeBasis ? `dr.loading_charge_basis AS "loadingChargeBasis",` : `'fixed' AS "loadingChargeBasis",`}
+      ${hasLoadingChargeRate ? `dr.loading_charge_rate AS "loadingChargeRate",` : `dr.loading_charge AS "loadingChargeRate",`}
+      ${hasLoadingChargeIsManual ? `dr.loading_charge_is_manual AS "loadingChargeIsManual",` : `FALSE AS "loadingChargeIsManual",`}
       dr.other_charge AS "otherCharge",
       dr.total_invoice_value AS "totalInvoiceValue",
       dr.billing_notes AS "billingNotes",
@@ -428,14 +466,21 @@ const insertDispatchReport = async ({
   transportRateId,
   partyOrderId,
   materialRatePerTon,
+  materialRateUnit,
+  materialRateUnitLabel,
+  materialRateUnitsPerTon,
   materialAmount,
   transportRateType,
   transportRateValue,
   transportCost,
   royaltyMode,
   royaltyValue,
+  royaltyTonsPerBrass,
   royaltyAmount,
   loadingCharge,
+  loadingChargeBasis,
+  loadingChargeRate,
+  loadingChargeIsManual,
   otherCharge,
   totalInvoiceValue,
   billingNotes,
@@ -448,6 +493,49 @@ const insertDispatchReport = async ({
 }, db = pool) => {
   const dispatchHasCompany = await hasColumn("dispatch_reports", "company_id", db);
   const dispatchHasPartyOrder = await hasColumn("dispatch_reports", "party_order_id", db);
+  const hasMaterialRateUnit = await hasColumn("dispatch_reports", "material_rate_unit", db);
+  const hasMaterialRateUnitLabel = await hasColumn("dispatch_reports", "material_rate_unit_label", db);
+  const hasMaterialRateUnitsPerTon = await hasColumn("dispatch_reports", "material_rate_units_per_ton", db);
+  const hasRoyaltyTonsPerBrass = await hasColumn("dispatch_reports", "royalty_tons_per_brass", db);
+  const hasLoadingChargeBasis = await hasColumn("dispatch_reports", "loading_charge_basis", db);
+  const hasLoadingChargeRate = await hasColumn("dispatch_reports", "loading_charge_rate", db);
+  const hasLoadingChargeIsManual = await hasColumn("dispatch_reports", "loading_charge_is_manual", db);
+  const optionalRateUnitColumns = [
+    hasMaterialRateUnit ? "material_rate_unit" : null,
+    hasMaterialRateUnitLabel ? "material_rate_unit_label" : null,
+    hasMaterialRateUnitsPerTon ? "material_rate_units_per_ton" : null,
+  ].filter(Boolean);
+  const optionalRoyaltyColumns = [
+    hasRoyaltyTonsPerBrass ? "royalty_tons_per_brass" : null,
+  ].filter(Boolean);
+  const optionalLoadingColumns = [
+    hasLoadingChargeBasis ? "loading_charge_basis" : null,
+    hasLoadingChargeRate ? "loading_charge_rate" : null,
+    hasLoadingChargeIsManual ? "loading_charge_is_manual" : null,
+  ].filter(Boolean);
+  const optionalRateUnitValues = [
+    ...(hasMaterialRateUnit ? [materialRateUnit || "per_ton"] : []),
+    ...(hasMaterialRateUnitLabel ? [materialRateUnitLabel || "ton"] : []),
+    ...(hasMaterialRateUnitsPerTon ? [materialRateUnitsPerTon ?? 1] : []),
+  ];
+  const optionalRoyaltyValues = [
+    ...(hasRoyaltyTonsPerBrass ? [royaltyTonsPerBrass ?? null] : []),
+  ];
+  const optionalLoadingValues = [
+    ...(hasLoadingChargeBasis ? [loadingChargeBasis || "fixed"] : []),
+    ...(hasLoadingChargeRate ? [loadingChargeRate ?? loadingCharge ?? null] : []),
+    ...(hasLoadingChargeIsManual ? [Boolean(loadingChargeIsManual)] : []),
+  ];
+  const rateUnitStartIndex = dispatchHasPartyOrder ? 27 : 26;
+  const rateUnitPlaceholders = optionalRateUnitValues.map((_, index) => `$${rateUnitStartIndex + index}`);
+  const royaltyStartIndex = rateUnitStartIndex + optionalRateUnitValues.length;
+  const royaltyPlaceholders = optionalRoyaltyValues.map((_, index) => `$${royaltyStartIndex + index}`);
+  const loadingStartIndex = royaltyStartIndex + optionalRoyaltyValues.length;
+  const loadingPlaceholders = optionalLoadingValues.map((_, index) => `$${loadingStartIndex + index}`);
+  const offset =
+    optionalRateUnitValues.length +
+    optionalRoyaltyValues.length +
+    optionalLoadingValues.length;
   const query = `
     INSERT INTO dispatch_reports (
       dispatch_date,
@@ -476,6 +564,9 @@ const insertDispatchReport = async ({
       transport_rate_id,
       ${dispatchHasPartyOrder ? `party_order_id,` : ""}
       material_rate_per_ton,
+      ${optionalRateUnitColumns.length ? `${optionalRateUnitColumns.join(",\n      ")},` : ""}
+      ${optionalRoyaltyColumns.length ? `${optionalRoyaltyColumns.join(",\n      ")},` : ""}
+      ${optionalLoadingColumns.length ? `${optionalLoadingColumns.join(",\n      ")},` : ""}
       material_amount,
       transport_rate_type,
       transport_rate_value,
@@ -499,9 +590,13 @@ const insertDispatchReport = async ({
       $10, $11, $12, $13, $14, $15, $16, $17, $18,
       $19, $20, $21, $22, $23, $24
       ${dispatchHasPartyOrder ? `, $25` : ""}
-      , $${dispatchHasPartyOrder ? 26 : 25}, $${dispatchHasPartyOrder ? 27 : 26}, $${dispatchHasPartyOrder ? 28 : 27}, $${dispatchHasPartyOrder ? 29 : 28}, $${dispatchHasPartyOrder ? 30 : 29}, $${dispatchHasPartyOrder ? 31 : 30}, $${dispatchHasPartyOrder ? 32 : 31}, $${dispatchHasPartyOrder ? 33 : 32}, $${dispatchHasPartyOrder ? 34 : 33},
-      $${dispatchHasPartyOrder ? 35 : 34}, $${dispatchHasPartyOrder ? 36 : 35}, $${dispatchHasPartyOrder ? 37 : 36}, $${dispatchHasPartyOrder ? 38 : 37}, $${dispatchHasPartyOrder ? 39 : 38}, $${dispatchHasPartyOrder ? 40 : 39}, $${dispatchHasPartyOrder ? 41 : 40}, $${dispatchHasPartyOrder ? 42 : 41}
-      ${dispatchHasCompany ? `, $${dispatchHasPartyOrder ? 43 : 42}` : ""}
+      , $${dispatchHasPartyOrder ? 26 : 25}
+      ${rateUnitPlaceholders.length ? `, ${rateUnitPlaceholders.join(", ")}` : ""}
+      ${royaltyPlaceholders.length ? `, ${royaltyPlaceholders.join(", ")}` : ""}
+      ${loadingPlaceholders.length ? `, ${loadingPlaceholders.join(", ")}` : ""}
+      , $${(dispatchHasPartyOrder ? 27 : 26) + offset}, $${(dispatchHasPartyOrder ? 28 : 27) + offset}, $${(dispatchHasPartyOrder ? 29 : 28) + offset}, $${(dispatchHasPartyOrder ? 30 : 29) + offset}, $${(dispatchHasPartyOrder ? 31 : 30) + offset}, $${(dispatchHasPartyOrder ? 32 : 31) + offset}, $${(dispatchHasPartyOrder ? 33 : 32) + offset}, $${(dispatchHasPartyOrder ? 34 : 33) + offset}, $${(dispatchHasPartyOrder ? 35 : 34) + offset},
+      $${(dispatchHasPartyOrder ? 36 : 35) + offset}, $${(dispatchHasPartyOrder ? 37 : 36) + offset}, $${(dispatchHasPartyOrder ? 38 : 37) + offset}, $${(dispatchHasPartyOrder ? 39 : 38) + offset}, $${(dispatchHasPartyOrder ? 40 : 39) + offset}, $${(dispatchHasPartyOrder ? 41 : 40) + offset}, $${(dispatchHasPartyOrder ? 42 : 41) + offset}
+      ${dispatchHasCompany ? `, $${(dispatchHasPartyOrder ? 43 : 42) + offset}` : ""}
     )
     RETURNING id
   `;
@@ -533,6 +628,9 @@ const insertDispatchReport = async ({
     transportRateId || null,
     ...(dispatchHasPartyOrder ? [partyOrderId || null] : []),
     materialRatePerTon ?? null,
+    ...optionalRateUnitValues,
+    ...optionalRoyaltyValues,
+    ...optionalLoadingValues,
     materialAmount ?? null,
     transportRateType || null,
     transportRateValue ?? null,
@@ -582,14 +680,21 @@ const updateDispatchReportById = async ({
   transportRateId,
   partyOrderId,
   materialRatePerTon,
+  materialRateUnit,
+  materialRateUnitLabel,
+  materialRateUnitsPerTon,
   materialAmount,
   transportRateType,
   transportRateValue,
   transportCost,
   royaltyMode,
   royaltyValue,
+  royaltyTonsPerBrass,
   royaltyAmount,
   loadingCharge,
+  loadingChargeBasis,
+  loadingChargeRate,
+  loadingChargeIsManual,
   otherCharge,
   totalInvoiceValue,
   billingNotes,
@@ -602,6 +707,50 @@ const updateDispatchReportById = async ({
 }, db = pool) => {
   const dispatchHasCompany = await hasColumn("dispatch_reports", "company_id", db);
   const dispatchHasPartyOrder = await hasColumn("dispatch_reports", "party_order_id", db);
+  const hasMaterialRateUnit = await hasColumn("dispatch_reports", "material_rate_unit", db);
+  const hasMaterialRateUnitLabel = await hasColumn("dispatch_reports", "material_rate_unit_label", db);
+  const hasMaterialRateUnitsPerTon = await hasColumn("dispatch_reports", "material_rate_units_per_ton", db);
+  const hasRoyaltyTonsPerBrass = await hasColumn("dispatch_reports", "royalty_tons_per_brass", db);
+  const hasLoadingChargeBasis = await hasColumn("dispatch_reports", "loading_charge_basis", db);
+  const hasLoadingChargeRate = await hasColumn("dispatch_reports", "loading_charge_rate", db);
+  const hasLoadingChargeIsManual = await hasColumn("dispatch_reports", "loading_charge_is_manual", db);
+  const optionalRateUnitValues = [
+    ...(hasMaterialRateUnit ? [materialRateUnit || "per_ton"] : []),
+    ...(hasMaterialRateUnitLabel ? [materialRateUnitLabel || "ton"] : []),
+    ...(hasMaterialRateUnitsPerTon ? [materialRateUnitsPerTon ?? 1] : []),
+  ];
+  const optionalRoyaltyValues = [
+    ...(hasRoyaltyTonsPerBrass ? [royaltyTonsPerBrass ?? null] : []),
+  ];
+  const optionalLoadingValues = [
+    ...(hasLoadingChargeBasis ? [loadingChargeBasis || "fixed"] : []),
+    ...(hasLoadingChargeRate ? [loadingChargeRate ?? loadingCharge ?? null] : []),
+    ...(hasLoadingChargeIsManual ? [Boolean(loadingChargeIsManual)] : []),
+  ];
+  const rateUnitStartIndex = dispatchHasPartyOrder ? 25 : 24;
+  const optionalRateUnitAssignments = [
+    hasMaterialRateUnit ? `material_rate_unit = $${rateUnitStartIndex}` : null,
+    hasMaterialRateUnitLabel ? `material_rate_unit_label = $${rateUnitStartIndex + (hasMaterialRateUnit ? 1 : 0)}` : null,
+    hasMaterialRateUnitsPerTon ? `material_rate_units_per_ton = $${rateUnitStartIndex + (hasMaterialRateUnit ? 1 : 0) + (hasMaterialRateUnitLabel ? 1 : 0)}` : null,
+  ].filter(Boolean);
+  const royaltyStartIndex = rateUnitStartIndex + optionalRateUnitValues.length;
+  const optionalRoyaltyAssignments = [
+    hasRoyaltyTonsPerBrass ? `royalty_tons_per_brass = $${royaltyStartIndex}` : null,
+  ].filter(Boolean);
+  const loadingStartIndex = royaltyStartIndex + optionalRoyaltyValues.length;
+  const optionalLoadingAssignments = [
+    hasLoadingChargeBasis ? `loading_charge_basis = $${loadingStartIndex}` : null,
+    hasLoadingChargeRate
+      ? `loading_charge_rate = $${loadingStartIndex + (hasLoadingChargeBasis ? 1 : 0)}`
+      : null,
+    hasLoadingChargeIsManual
+      ? `loading_charge_is_manual = $${loadingStartIndex + (hasLoadingChargeBasis ? 1 : 0) + (hasLoadingChargeRate ? 1 : 0)}`
+      : null,
+  ].filter(Boolean);
+  const offset =
+    optionalRateUnitValues.length +
+    optionalRoyaltyValues.length +
+    optionalLoadingValues.length;
   const query = `
     UPDATE dispatch_reports
     SET
@@ -629,25 +778,28 @@ const updateDispatchReportById = async ({
       transport_rate_id = $22,
       ${dispatchHasPartyOrder ? `party_order_id = $23,` : ""}
       material_rate_per_ton = $${dispatchHasPartyOrder ? 24 : 23},
-      material_amount = $${dispatchHasPartyOrder ? 25 : 24},
-      transport_rate_type = $${dispatchHasPartyOrder ? 26 : 25},
-      transport_rate_value = $${dispatchHasPartyOrder ? 27 : 26},
-      transport_cost = $${dispatchHasPartyOrder ? 28 : 27},
-      royalty_mode = $${dispatchHasPartyOrder ? 29 : 28},
-      royalty_value = $${dispatchHasPartyOrder ? 30 : 29},
-      royalty_amount = $${dispatchHasPartyOrder ? 31 : 30},
-      loading_charge = $${dispatchHasPartyOrder ? 32 : 31},
-      other_charge = $${dispatchHasPartyOrder ? 33 : 32},
-      total_invoice_value = $${dispatchHasPartyOrder ? 34 : 33},
-      billing_notes = $${dispatchHasPartyOrder ? 35 : 34},
-      gst_rate = $${dispatchHasPartyOrder ? 36 : 35},
-      cgst = $${dispatchHasPartyOrder ? 37 : 36},
-      sgst = $${dispatchHasPartyOrder ? 38 : 37},
-      igst = $${dispatchHasPartyOrder ? 39 : 38},
-      total_with_gst = $${dispatchHasPartyOrder ? 40 : 39},
+      ${optionalRateUnitAssignments.length ? `${optionalRateUnitAssignments.join(",\n      ")},` : ""}
+      ${optionalRoyaltyAssignments.length ? `${optionalRoyaltyAssignments.join(",\n      ")},` : ""}
+      ${optionalLoadingAssignments.length ? `${optionalLoadingAssignments.join(",\n      ")},` : ""}
+      material_amount = $${(dispatchHasPartyOrder ? 25 : 24) + offset},
+      transport_rate_type = $${(dispatchHasPartyOrder ? 26 : 25) + offset},
+      transport_rate_value = $${(dispatchHasPartyOrder ? 27 : 26) + offset},
+      transport_cost = $${(dispatchHasPartyOrder ? 28 : 27) + offset},
+      royalty_mode = $${(dispatchHasPartyOrder ? 29 : 28) + offset},
+      royalty_value = $${(dispatchHasPartyOrder ? 30 : 29) + offset},
+      royalty_amount = $${(dispatchHasPartyOrder ? 31 : 30) + offset},
+      loading_charge = $${(dispatchHasPartyOrder ? 32 : 31) + offset},
+      other_charge = $${(dispatchHasPartyOrder ? 33 : 32) + offset},
+      total_invoice_value = $${(dispatchHasPartyOrder ? 34 : 33) + offset},
+      billing_notes = $${(dispatchHasPartyOrder ? 35 : 34) + offset},
+      gst_rate = $${(dispatchHasPartyOrder ? 36 : 35) + offset},
+      cgst = $${(dispatchHasPartyOrder ? 37 : 36) + offset},
+      sgst = $${(dispatchHasPartyOrder ? 38 : 37) + offset},
+      igst = $${(dispatchHasPartyOrder ? 39 : 38) + offset},
+      total_with_gst = $${(dispatchHasPartyOrder ? 40 : 39) + offset},
       updated_at = CURRENT_TIMESTAMP
-    WHERE id = $${dispatchHasPartyOrder ? 41 : 40}
-    ${dispatchHasCompany && companyId !== null ? `AND company_id = $${dispatchHasPartyOrder ? 42 : 41}` : ""}
+    WHERE id = $${(dispatchHasPartyOrder ? 41 : 40) + offset}
+    ${dispatchHasCompany && companyId !== null ? `AND company_id = $${(dispatchHasPartyOrder ? 42 : 41) + offset}` : ""}
     RETURNING id
   `;
 
@@ -676,6 +828,9 @@ const updateDispatchReportById = async ({
     transportRateId || null,
     ...(dispatchHasPartyOrder ? [partyOrderId || null] : []),
     materialRatePerTon ?? null,
+    ...optionalRateUnitValues,
+    ...optionalRoyaltyValues,
+    ...optionalLoadingValues,
     materialAmount ?? null,
     transportRateType || null,
     transportRateValue ?? null,
@@ -922,8 +1077,34 @@ const vendorExists = async (vendorId, companyId = null) => {
   return result.rows[0] || null;
 };
 
-const findActivePartyMaterialRate = async ({ plantId, partyId, materialId, companyId }) => {
+const findActivePartyMaterialRate = async ({
+  plantId,
+  partyId,
+  materialId,
+  companyId,
+  effectiveDate,
+}) => {
   const ratesHasCompany = await hasColumn("party_material_rates", "company_id");
+  const ratesHasEffectiveFrom = await hasColumn("party_material_rates", "effective_from");
+  const ratesHasLoadingChargeBasis = await hasColumn(
+    "party_material_rates",
+    "loading_charge_basis"
+  );
+  const effectiveRateDate = String(effectiveDate || "").trim() || null;
+  const params = [plantId, partyId, materialId];
+  let nextParamIndex = params.length + 1;
+  const effectiveDateFilter =
+    ratesHasEffectiveFrom && effectiveRateDate
+      ? `AND COALESCE(effective_from, CURRENT_DATE) <= $${nextParamIndex++}`
+      : "";
+  if (ratesHasEffectiveFrom && effectiveRateDate) {
+    params.push(effectiveRateDate);
+  }
+  const companyFilter =
+    ratesHasCompany && companyId !== null ? `AND company_id = $${nextParamIndex}` : "";
+  if (ratesHasCompany && companyId !== null) {
+    params.push(companyId);
+  }
   const query = `
     SELECT
       id,
@@ -931,39 +1112,54 @@ const findActivePartyMaterialRate = async ({ plantId, partyId, materialId, compa
       party_id AS "partyId",
       material_id AS "materialId",
       rate_per_ton AS "ratePerTon",
+      COALESCE(rate_unit, 'per_ton') AS "rateUnit",
+      rate_unit_label AS "rateUnitLabel",
+      COALESCE(rate_units_per_ton, 1) AS "rateUnitsPerTon",
       royalty_mode AS "royaltyMode",
       royalty_value AS "royaltyValue",
       tons_per_brass AS "tonsPerBrass",
       loading_charge AS "loadingCharge",
-      notes
+      ${
+        ratesHasLoadingChargeBasis
+          ? `COALESCE(loading_charge_basis, 'fixed') AS "loadingChargeBasis",`
+          : `'fixed' AS "loadingChargeBasis",`
+      }
+      notes,
+      ${
+        ratesHasEffectiveFrom
+          ? `effective_from::text AS "effectiveFrom"`
+          : `NULL AS "effectiveFrom"`
+      }
     FROM party_material_rates
     WHERE plant_id = $1
       AND party_id = $2
       AND material_id = $3
       AND is_active = TRUE
-      ${ratesHasCompany && companyId !== null ? `AND company_id = $4` : ""}
-    ORDER BY id DESC
+      ${effectiveDateFilter}
+      ${companyFilter}
+    ORDER BY ${
+      ratesHasEffectiveFrom
+        ? `COALESCE(effective_from, CURRENT_DATE) DESC, id DESC`
+        : `id DESC`
+    }
     LIMIT 1
   `;
 
-  const result = await pool.query(
-    query,
-    ratesHasCompany && companyId !== null
-      ? [plantId, partyId, materialId, companyId]
-      : [plantId, partyId, materialId]
-  );
+  const result = await pool.query(query, params);
 
   if (!result.rows[0]) return null;
 
   return {
     ...result.rows[0],
     ratePerTon: Number(result.rows[0].ratePerTon),
+    rateUnitsPerTon: Number(result.rows[0].rateUnitsPerTon || 1),
     royaltyValue: Number(result.rows[0].royaltyValue || 0),
     tonsPerBrass:
       result.rows[0].tonsPerBrass === null || result.rows[0].tonsPerBrass === undefined
         ? null
         : Number(result.rows[0].tonsPerBrass),
     loadingCharge: Number(result.rows[0].loadingCharge || 0),
+    loadingChargeBasis: String(result.rows[0].loadingChargeBasis || "fixed"),
   };
 };
 

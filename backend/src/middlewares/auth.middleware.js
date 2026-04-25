@@ -55,6 +55,7 @@ const authenticate = async (req, res, next) => {
 
     if (req.companyId !== null) {
       const companyAccess = await authModel.findCompanyAccessById(req.companyId);
+      req.companyAccess = companyAccess || null;
 
       if (companyAccess && !companyAccess.isActive) {
         return res.status(403).json({

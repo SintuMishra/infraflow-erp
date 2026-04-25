@@ -27,6 +27,142 @@ const ALL_SOURCE_TYPES = ["Crusher", "Project", "Plant", "Store"];
 const roundMoney = (value) =>
   Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
 
+const getLoadingBasisLabel = (basis) => {
+  if (basis === "none") return "No Loading";
+  if (basis === "per_ton") return "Per Ton";
+  if (basis === "per_brass") return "Per Brass";
+  if (basis === "per_trip") return "Per Trip / Load";
+  return "Fixed Per Dispatch";
+};
+
+const formatLoadingRateLabel = (basis, rate) => {
+  const amount = Number(rate || 0);
+
+  if (basis === "none" || amount <= 0) {
+    return "No loading default";
+  }
+
+  if (basis === "per_ton") {
+    return `${amount.toFixed(2)} / ton`;
+  }
+
+  if (basis === "per_brass") {
+    return `${amount.toFixed(2)} / brass`;
+  }
+
+  if (basis === "per_trip") {
+    return `${amount.toFixed(2)} / trip`;
+  }
+
+  return `${amount.toFixed(2)} / dispatch`;
+};
+
+const calculateBillableRateUnits = ({
+  quantityTons,
+  materialRateUnit,
+  materialRateUnitsPerTon,
+}) => {
+  const quantity = Number(quantityTons || 0);
+  const unitsPerTon = Number(materialRateUnitsPerTon || 1);
+  const rawBillableUnits = quantity * unitsPerTon;
+
+  if (materialRateUnit === "per_trip") {
+    return Math.max(0, Math.ceil(rawBillableUnits - 1e-9));
+  }
+
+  return rawBillableUnits;
+};
+const getRateUnitLabel = (rate) => {
+  const safeRate = rate || {};
+  if (safeRate.rateUnit === "per_cft") return safeRate.rateUnitLabel || "CFT";
+  if (safeRate.rateUnit === "per_metric_ton") return safeRate.rateUnitLabel || "metric ton";
+  if (safeRate.rateUnit === "per_brass") return safeRate.rateUnitLabel || "brass";
+  if (safeRate.rateUnit === "per_cubic_meter") return safeRate.rateUnitLabel || "cubic meter";
+  if (safeRate.rateUnit === "per_trip") return safeRate.rateUnitLabel || "trip";
+  if (safeRate.rateUnit === "other") return safeRate.rateUnitLabel || "custom unit";
+  return safeRate.rateUnitLabel || "ton";
+};
+const isDifferentNumber = (left, right, tolerance = 0.01) =>
+  Math.abs(Number(left || 0) - Number(right || 0)) >= tolerance;
+const toComparableDateOnly = (value) => {
+  const normalized = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null;
+};
+const compareEffectiveRatePriority = (left, right) => {
+  const leftDate = toComparableDateOnly(left?.effectiveFrom) || "";
+  const rightDate = toComparableDateOnly(right?.effectiveFrom) || "";
+
+  if (leftDate !== rightDate) {
+    return rightDate.localeCompare(leftDate);
+  }
+
+  return Number(right?.id || 0) - Number(left?.id || 0);
+};
+const getCommercialRefreshMessage = (report, billingPreview) => {
+  if (!report || !billingPreview?.hasPartyRate) {
+    return "";
+  }
+
+  const differences = [];
+
+  if (
+    String(report.materialRateUnit || "per_ton") !==
+      String(billingPreview.materialRateUnit || "per_ton") ||
+    String(report.materialRateUnitLabel || "ton") !==
+      String(billingPreview.materialRateUnitLabel || "ton") ||
+    isDifferentNumber(report.materialRatePerTon, billingPreview.materialRatePerTon) ||
+    isDifferentNumber(
+      report.materialRateUnitsPerTon ?? 1,
+      billingPreview.materialRateUnitsPerTon ?? 1,
+      0.0001
+    )
+  ) {
+    differences.push(
+      `material ${Number(report.materialRatePerTon || 0).toFixed(2)} / ${
+        report.materialRateUnitLabel || "ton"
+      } -> ${Number(billingPreview.materialRatePerTon || 0).toFixed(2)} / ${
+        billingPreview.materialRateUnitLabel || "ton"
+      }`
+    );
+  }
+
+  if (
+    String(report.royaltyMode || "none") !== String(billingPreview.royaltyMode || "none") ||
+    isDifferentNumber(report.royaltyValue, billingPreview.royaltyValue) ||
+    isDifferentNumber(report.royaltyAmount, billingPreview.royaltyAmount) ||
+    isDifferentNumber(report.royaltyTonsPerBrass, billingPreview.tonsPerBrass, 0.0001)
+  ) {
+    differences.push(
+      `royalty ${String(report.royaltyMode || "none").replace(/_/g, " ")} ${
+        Number(report.royaltyValue || 0).toFixed(2)
+      } -> ${String(billingPreview.royaltyMode || "none").replace(/_/g, " ")} ${
+        Number(billingPreview.royaltyValue || 0).toFixed(2)
+      }`
+    );
+  }
+
+  if (
+    String(report.loadingChargeBasis || "fixed") !==
+      String(billingPreview.loadingChargeBasis || "fixed") ||
+    isDifferentNumber(report.loadingChargeRate, billingPreview.loadingChargeRate) ||
+    isDifferentNumber(report.loadingCharge, billingPreview.loadingCharge)
+  ) {
+    differences.push(
+      `loading ${Number(report.loadingCharge || 0).toFixed(2)} (${String(
+        report.loadingChargeBasis || "fixed"
+      ).replace(/_/g, " ")}) -> ${Number(billingPreview.loadingCharge || 0).toFixed(2)} (${String(
+        billingPreview.loadingChargeBasis || "fixed"
+      ).replace(/_/g, " ")})`
+    );
+  }
+
+  if (!differences.length) {
+    return "";
+  }
+
+  return `Saved dispatch billing is using an older commercial snapshot. Saving now will refresh ${differences.join(" | ")}.`;
+};
+
 const escapeCsvValue = (value) => {
   const stringValue = String(value ?? "");
 
@@ -159,6 +295,8 @@ const createDispatchFormState = () => ({
   invoiceValue: "",
   distanceKm: "",
   otherCharge: "",
+  loadingCharge: "",
+  loadingChargeManual: false,
   billingNotes: "",
 });
 
@@ -539,6 +677,24 @@ function DispatchReportsPage() {
     });
   };
 
+  const handleLoadingChargeChange = (setter) => (e) => {
+    const { value } = e.target;
+
+    setter((prev) => ({
+      ...prev,
+      loadingCharge: value,
+      loadingChargeManual: true,
+    }));
+  };
+
+  const resetLoadingChargeToAuto = (setter) => {
+    setter((prev) => ({
+      ...prev,
+      loadingCharge: "",
+      loadingChargeManual: false,
+    }));
+  };
+
   const vehiclesForPlant = (plantId, searchValue = "") => {
     if (!plantId) return [];
 
@@ -703,12 +859,20 @@ function DispatchReportsPage() {
 
   const getSelectedPartyRate = (payload) => {
     if (!payload.plantId || !payload.materialId || !payload.partyId) return null;
+    const effectiveDispatchDate =
+      toComparableDateOnly(payload.dispatchDate) || getTodayDateValue();
 
-    return activePartyRates.find(
-      (rate) =>
-        String(rate.plantId) === String(payload.plantId) &&
-        String(rate.materialId) === String(payload.materialId) &&
-        String(rate.partyId) === String(payload.partyId)
+    return (
+      activePartyRates
+        .filter(
+          (rate) =>
+            String(rate.plantId) === String(payload.plantId) &&
+            String(rate.materialId) === String(payload.materialId) &&
+            String(rate.partyId) === String(payload.partyId) &&
+            (!toComparableDateOnly(rate.effectiveFrom) ||
+              toComparableDateOnly(rate.effectiveFrom) <= effectiveDispatchDate)
+        )
+        .sort(compareEffectiveRatePriority)[0] || null
     );
   };
 
@@ -741,7 +905,16 @@ function DispatchReportsPage() {
     const hasPartyRate = Boolean(partyRate);
 
     const materialRatePerTon = Number(partyRate?.ratePerTon || 0);
-    const materialAmount = roundMoney(quantity * materialRatePerTon);
+    const materialRateUnit = partyRate?.rateUnit || "per_ton";
+    const materialRateUnitLabel = getRateUnitLabel(partyRate);
+    const materialRateUnitsPerTon = Number(partyRate?.rateUnitsPerTon || 1);
+    const materialAmount = roundMoney(
+      calculateBillableRateUnits({
+        quantityTons: quantity,
+        materialRateUnit,
+        materialRateUnitsPerTon,
+      }) * materialRatePerTon
+    );
 
     const royaltyMode = partyRate?.royaltyMode || "none";
     const royaltyValue = Number(partyRate?.royaltyValue || 0);
@@ -763,7 +936,28 @@ function DispatchReportsPage() {
       royaltyAmount = roundMoney(royaltyValue);
     }
 
-    const loadingCharge = roundMoney(partyRate?.loadingCharge || 0);
+    const loadingChargeBasis = partyRate?.loadingChargeBasis || "fixed";
+    const loadingChargeRate = roundMoney(partyRate?.loadingCharge || 0);
+    let autoLoadingCharge = 0;
+
+    if (loadingChargeBasis === "per_ton") {
+      autoLoadingCharge = quantity * loadingChargeRate;
+    } else if (
+      loadingChargeBasis === "per_brass" &&
+      Number.isFinite(tonsPerBrass) &&
+      tonsPerBrass > 0
+    ) {
+      autoLoadingCharge = (quantity / tonsPerBrass) * loadingChargeRate;
+    } else if (loadingChargeBasis === "none") {
+      autoLoadingCharge = 0;
+    } else {
+      autoLoadingCharge = loadingChargeRate;
+    }
+
+    autoLoadingCharge = roundMoney(autoLoadingCharge);
+    const loadingCharge = payload.loadingChargeManual
+      ? roundMoney(payload.loadingCharge || 0)
+      : autoLoadingCharge;
 
     let transportCost = 0;
     let transportRateType = transportRate?.rateType || null;
@@ -815,11 +1009,19 @@ function DispatchReportsPage() {
       requiresPartyRate,
       transportRate,
       materialRatePerTon,
+      materialRateUnit,
+      materialRateUnitLabel,
+      materialRateUnitsPerTon,
       materialAmount,
       royaltyMode,
       royaltyValue,
+      tonsPerBrass,
       royaltyAmount,
+      loadingChargeBasis,
+      loadingChargeRate,
+      autoLoadingCharge,
       loadingCharge,
+      loadingChargeIsManual: Boolean(payload.loadingChargeManual),
       transportRateType,
       transportRateValue,
       transportCost,
@@ -834,6 +1036,10 @@ function DispatchReportsPage() {
   const formBillingPreview = buildBillingPreview(formData);
 
   const editBillingPreview = buildBillingPreview(editForm);
+  const editCommercialRefreshMessage = useMemo(
+    () => getCommercialRefreshMessage(editRecord, editBillingPreview),
+    [editBillingPreview, editRecord]
+  );
   const formPartyOrder = getSelectedPartyOrder(formData, formData.partyOrderId);
   const editPartyOrder = getSelectedPartyOrder(editForm, editForm.partyOrderId);
 
@@ -994,6 +1200,11 @@ function DispatchReportsPage() {
       return "Other charge must be a valid number of 0 or more";
     }
 
+    const loadingCharge = payload.loadingCharge === "" ? null : Number(payload.loadingCharge);
+    if (loadingCharge !== null && (!Number.isFinite(loadingCharge) || loadingCharge < 0)) {
+      return "Loading charge must be a valid number of 0 or more";
+    }
+
     if (!String(payload.destinationName || "").trim()) {
       return "Destination name is required";
     }
@@ -1086,6 +1297,9 @@ function DispatchReportsPage() {
       payload.invoiceValue === "" ? null : Number(payload.invoiceValue),
     distanceKm: payload.distanceKm === "" ? null : Number(payload.distanceKm),
     otherCharge: payload.otherCharge === "" ? 0 : Number(payload.otherCharge),
+    loadingCharge:
+      payload.loadingCharge === "" ? null : Number(payload.loadingCharge),
+    loadingChargeManual: Boolean(payload.loadingChargeManual),
     billingNotes: payload.billingNotes || "",
   });
 
@@ -1307,6 +1521,13 @@ function DispatchReportsPage() {
         report.otherCharge !== null && report.otherCharge !== undefined
           ? String(report.otherCharge)
           : "",
+      loadingCharge:
+        report.loadingChargeIsManual &&
+        report.loadingCharge !== null &&
+        report.loadingCharge !== undefined
+          ? String(report.loadingCharge)
+          : "",
+      loadingChargeManual: Boolean(report.loadingChargeIsManual),
       billingNotes: report.billingNotes || "",
     });
     setError("");
@@ -1352,6 +1573,18 @@ function DispatchReportsPage() {
     setSuccess(
       "Manual taxable value override cleared. Save the dispatch to restore computed billing."
     );
+    setError("");
+  };
+
+  const handleResetFormLoadingToAuto = () => {
+    resetLoadingChargeToAuto(setFormData);
+    setSuccess("Loading charge reset to the party rate default for this dispatch.");
+    setError("");
+  };
+
+  const handleResetEditLoadingToAuto = () => {
+    resetLoadingChargeToAuto(setEditForm);
+    setSuccess("Loading charge reset to the party rate default for this dispatch.");
     setError("");
   };
 
@@ -1753,10 +1986,18 @@ function DispatchReportsPage() {
 
       <div style={styles.previewGrid}>
         <div style={styles.previewCard}>
-          <span style={styles.previewLabel}>Party Material Rate / Ton</span>
+          <span style={styles.previewLabel}>
+            Party Material Rate / {billingPreview.materialRateUnitLabel || "ton"}
+          </span>
           <strong style={styles.previewValue}>
             {billingPreview.materialRatePerTon || 0}
           </strong>
+          {Number(billingPreview.materialRateUnitsPerTon || 1) !== 1 && (
+            <span style={styles.previewHint}>
+              {billingPreview.materialRateUnitsPerTon}{" "}
+              {billingPreview.materialRateUnitLabel} / ton
+            </span>
+          )}
         </div>
 
         <div style={styles.previewCard}>
@@ -1778,6 +2019,18 @@ function DispatchReportsPage() {
           <strong style={styles.previewValue}>
             {formatCurrency(Number(billingPreview.loadingCharge || 0))}
           </strong>
+          <span style={styles.previewHint}>
+            {billingPreview.loadingChargeIsManual
+              ? `Manual override • Auto ${formatCurrency(
+                  Number(billingPreview.autoLoadingCharge || 0)
+                )}`
+              : `${getLoadingBasisLabel(
+                  billingPreview.loadingChargeBasis
+                )} • ${formatLoadingRateLabel(
+                  billingPreview.loadingChargeBasis,
+                  billingPreview.loadingChargeRate
+                )}`}
+          </span>
         </div>
 
         <div style={styles.previewCard}>
@@ -2429,6 +2682,39 @@ function DispatchReportsPage() {
                     style={styles.input}
                   />
 
+                  <div style={styles.inlineFieldWithAction}>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      name="loadingCharge"
+                      placeholder={
+                        formBillingPreview.loadingChargeIsManual
+                          ? "Manual Loading Charge"
+                          : `Auto Loading • ${getLoadingBasisLabel(
+                              formBillingPreview.loadingChargeBasis
+                            )}`
+                      }
+                      value={
+                        formData.loadingChargeManual
+                          ? formData.loadingCharge
+                          : String(formBillingPreview.loadingCharge || "")
+                      }
+                      onChange={handleLoadingChargeChange(setFormData)}
+                      style={{ ...styles.input, marginBottom: 0 }}
+                      disabled={!formBillingPreview.hasPartyRate}
+                    />
+                    {formData.loadingChargeManual ? (
+                      <button
+                        type="button"
+                        style={styles.secondaryButton}
+                        onClick={handleResetFormLoadingToAuto}
+                      >
+                        Reset Loading
+                      </button>
+                    ) : null}
+                  </div>
+
                   <input
                     name="billingNotes"
                     placeholder="Billing Notes / Commercial remarks"
@@ -2701,6 +2987,12 @@ function DispatchReportsPage() {
                   </span>
                 </div>
                 <WarningList warnings={editWarnings} tone="danger" />
+                {editCommercialRefreshMessage ? (
+                  <div style={styles.overrideWarningCard}>
+                    <strong>Commercial refresh available</strong>
+                    <span>{editCommercialRefreshMessage}</span>
+                  </div>
+                ) : null}
                 {renderBillingPreview(editBillingPreview)}
               </div>
 
@@ -2759,6 +3051,39 @@ function DispatchReportsPage() {
                     onChange={handleChange(setEditForm, editForm)}
                     style={styles.input}
                   />
+
+                  <div style={styles.inlineFieldWithAction}>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      name="loadingCharge"
+                      placeholder={
+                        editBillingPreview.loadingChargeIsManual
+                          ? "Manual Loading Charge"
+                          : `Auto Loading • ${getLoadingBasisLabel(
+                              editBillingPreview.loadingChargeBasis
+                            )}`
+                      }
+                      value={
+                        editForm.loadingChargeManual
+                          ? editForm.loadingCharge
+                          : String(editBillingPreview.loadingCharge || "")
+                      }
+                      onChange={handleLoadingChargeChange(setEditForm)}
+                      style={{ ...styles.input, marginBottom: 0 }}
+                      disabled={!editBillingPreview.hasPartyRate}
+                    />
+                    {editForm.loadingChargeManual ? (
+                      <button
+                        type="button"
+                        style={styles.secondaryButton}
+                        onClick={handleResetEditLoadingToAuto}
+                      >
+                        Reset Loading
+                      </button>
+                    ) : null}
+                  </div>
 
                   <input
                     name="billingNotes"
@@ -3796,6 +4121,12 @@ const styles = {
   fullWidthField: {
     gridColumn: "1 / -1",
   },
+  inlineFieldWithAction: {
+    display: "flex",
+    gap: "10px",
+    alignItems: "stretch",
+    flexWrap: "wrap",
+  },
   input: {
     padding: "12px 14px",
     border: "1px solid #d1d5db",
@@ -3948,6 +4279,11 @@ const styles = {
     color: "#0f172a",
     fontSize: "20px",
     fontWeight: "800",
+  },
+  previewHint: {
+    color: "#64748b",
+    fontSize: "12px",
+    fontWeight: "700",
   },
   button: {
     padding: "12px 16px",

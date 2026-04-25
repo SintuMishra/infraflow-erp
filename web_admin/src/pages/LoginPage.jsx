@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import { getDefaultWorkspacePath } from "../utils/access";
 
 function LoginPage({ loginMode = "default" }) {
   const navigate = useNavigate();
@@ -182,6 +183,17 @@ function LoginPage({ loginMode = "default" }) {
 
       if (
         mode === "owner" &&
+        (!Number.isInteger(platformOwnerCompanyId) || platformOwnerCompanyId <= 0)
+      ) {
+        setError(
+          "Owner login is unavailable until platform owner company scope is configured."
+        );
+        setLoading(false);
+        return;
+      }
+
+      if (
+        mode === "owner" &&
         Number.isInteger(platformOwnerCompanyId) &&
         platformOwnerCompanyId > 0 &&
         Number(user?.companyId || 0) !== platformOwnerCompanyId
@@ -208,7 +220,7 @@ function LoginPage({ loginMode = "default" }) {
       } else if (mode === "owner") {
         navigate("/tenant-onboarding");
       } else {
-        navigate("/dashboard");
+        navigate(getDefaultWorkspacePath(user));
       }
     } catch (err) {
       setError(

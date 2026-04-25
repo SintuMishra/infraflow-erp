@@ -253,6 +253,19 @@ test("onboarding bootstrap validation rejects invalid PAN format", async () => {
   assert.match(res.body.message, /pan/i);
 });
 
+test("onboarding bootstrap validation rejects unsupported enabledModules", async () => {
+  const { res, nextCalled } = runMiddleware(validateBootstrapCompanyInput, {
+    companyName: "Apex Build Infra",
+    ownerFullName: "Amit Sharma",
+    ownerDesignation: "Managing Director",
+    enabledModules: ["accounts", "crm"],
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body.message, /enabledModules/i);
+});
+
 test("project report validation requires plantId for plant-linked reporting", async () => {
   const { res, nextCalled } = runMiddleware(validateProjectReportInput, {
     reportDate: "2026-04-17",
@@ -729,6 +742,51 @@ test("party material rate validation accepts valid per_brass payload", async () 
     royaltyMode: "per_brass",
     royaltyValue: 200,
     tonsPerBrass: 2.83,
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
+});
+
+test("party material rate validation requires units per ton for per_cft rate", async () => {
+  const { res, nextCalled } = runMiddleware(validateCreateRateInput, {
+    plantId: 1,
+    partyId: 1,
+    materialId: 1,
+    ratePerTon: 45,
+    rateUnit: "per_cft",
+    royaltyMode: "none",
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body.message, /rateUnitsPerTon/i);
+});
+
+test("party material rate validation accepts per_cft rate with conversion", async () => {
+  const { res, nextCalled } = runMiddleware(validateCreateRateInput, {
+    plantId: 1,
+    partyId: 1,
+    materialId: 1,
+    ratePerTon: 45,
+    rateUnit: "per_cft",
+    rateUnitsPerTon: 22.5,
+    royaltyMode: "none",
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
+});
+
+test("party material rate validation accepts per_brass selling rate with conversion", async () => {
+  const { res, nextCalled } = runMiddleware(validateCreateRateInput, {
+    plantId: 1,
+    partyId: 1,
+    materialId: 1,
+    ratePerTon: 2800,
+    rateUnit: "per_brass",
+    rateUnitsPerTon: 0.3534,
+    royaltyMode: "none",
   });
 
   assert.equal(nextCalled, true);

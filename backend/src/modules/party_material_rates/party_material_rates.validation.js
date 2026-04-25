@@ -6,6 +6,17 @@ const isPositiveNumber = (value) =>
   Number(value) > 0;
 
 const allowedRoyaltyModes = ["per_ton", "per_brass", "fixed", "none"];
+const allowedLoadingChargeBases = ["none", "fixed", "per_ton", "per_brass", "per_trip"];
+const allowedRateUnits = [
+  "per_ton",
+  "per_metric_ton",
+  "per_cft",
+  "per_brass",
+  "per_cubic_meter",
+  "per_trip",
+  "other",
+];
+const conversionRateUnits = ["per_cft", "per_brass", "per_cubic_meter", "per_trip", "other"];
 
 const validateRatePayload = (req, res, next) => {
   const {
@@ -13,9 +24,13 @@ const validateRatePayload = (req, res, next) => {
     partyId,
     materialId,
     ratePerTon,
+    rateUnit,
+    rateUnitLabel,
+    rateUnitsPerTon,
     royaltyMode,
     royaltyValue,
     loadingCharge,
+    loadingChargeBasis,
     tonsPerBrass,
     effectiveFrom,
   } = req.body || {};
@@ -31,6 +46,41 @@ const validateRatePayload = (req, res, next) => {
     return res.status(400).json({
       success: false,
       message: "ratePerTon must be a valid number greater than 0",
+    });
+  }
+
+  const normalizedRateUnit = String(rateUnit || "per_ton").trim();
+  if (!allowedRateUnits.includes(normalizedRateUnit)) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "rateUnit must be one of per_ton, per_metric_ton, per_cft, per_brass, per_cubic_meter, per_trip, other",
+    });
+  }
+
+  if (normalizedRateUnit === "other" && !String(rateUnitLabel || "").trim()) {
+    return res.status(400).json({
+      success: false,
+      message: "rateUnitLabel is required when rateUnit is other",
+    });
+  }
+
+  if (conversionRateUnits.includes(normalizedRateUnit) && !isPositiveNumber(rateUnitsPerTon)) {
+    return res.status(400).json({
+      success: false,
+      message: "rateUnitsPerTon must be greater than 0 for converted rate units",
+    });
+  }
+
+  if (
+    rateUnitsPerTon !== undefined &&
+    rateUnitsPerTon !== null &&
+    rateUnitsPerTon !== "" &&
+    (Number.isNaN(Number(rateUnitsPerTon)) || Number(rateUnitsPerTon) <= 0)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "rateUnitsPerTon must be greater than 0 when provided",
     });
   }
 
@@ -59,11 +109,22 @@ const validateRatePayload = (req, res, next) => {
     }
   }
 
-  if (String(royaltyMode || "").trim() === "per_brass") {
+  if (!allowedLoadingChargeBases.includes(String(loadingChargeBasis || "fixed").trim())) {
+    return res.status(400).json({
+      success: false,
+      message: "loadingChargeBasis must be one of none, fixed, per_ton, per_brass, per_trip",
+    });
+  }
+
+  if (
+    String(royaltyMode || "").trim() === "per_brass" ||
+    String(loadingChargeBasis || "fixed").trim() === "per_brass"
+  ) {
     if (!isPositiveNumber(tonsPerBrass)) {
       return res.status(400).json({
         success: false,
-        message: "tonsPerBrass must be a valid number greater than 0 when royaltyMode is per_brass",
+        message:
+          "tonsPerBrass must be a valid number greater than 0 when royaltyMode or loadingChargeBasis is per_brass",
       });
     }
   } else if (tonsPerBrass !== undefined && tonsPerBrass !== null && tonsPerBrass !== "") {

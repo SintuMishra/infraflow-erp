@@ -5,12 +5,14 @@ const {
   updateVehicle,
   updateVehicleStatus,
   getEquipmentLogs,
+  getEquipmentLogReadingContext,
   createEquipmentLog,
 } = require("./vehicles.controller");
 const {
   validateCreateVehicleInput,
   validateUpdateVehicleInput,
   validateVehicleStatusUpdate,
+  validateEquipmentLogContextInput,
   validateCreateEquipmentLogInput,
 } = require("./vehicles.validation");
 const { authenticate } = require("../../middlewares/auth.middleware");
@@ -54,6 +56,14 @@ router.get(
   authenticate,
   authorizeRoles("super_admin", "manager", "hr", "crusher_supervisor", "site_engineer"),
   getEquipmentLogs
+);
+
+router.get(
+  "/equipment-logs/context",
+  authenticate,
+  authorizeRoles("super_admin", "manager", "hr", "crusher_supervisor", "site_engineer"),
+  validateEquipmentLogContextInput,
+  getEquipmentLogReadingContext
 );
 
 router.post(

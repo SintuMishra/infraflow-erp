@@ -4,6 +4,12 @@ import AppShell from "../components/layout/AppShell";
 import SectionCard from "../components/dashboard/SectionCard";
 import { useAuth } from "../hooks/useAuth";
 import { api } from "../services/api";
+import {
+  COMPANY_MODULE_OPTIONS,
+  COMPANY_MODULE_PRESETS,
+  DEFAULT_ENABLED_MODULES,
+  normalizeEnabledModules,
+} from "../utils/access";
 
 const ISO_DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -17,6 +23,7 @@ const INITIAL_FORM = {
   bootstrapSecret: "",
   companyName: "",
   branchName: "",
+  enabledModules: [...DEFAULT_ENABLED_MODULES],
   ownerFullName: "",
   ownerMobileNumber: "",
   ownerDesignation: "",
@@ -67,6 +74,61 @@ const escapeHtml = (value) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
+const MODULE_PRESET_OPTIONS = [
+  { key: "full_erp", label: "Full ERP" },
+  { key: "procurement_accounts", label: "Procurement + Accounts" },
+  { key: "procurement_only", label: "Procurement Only" },
+  { key: "accounts_only", label: "Accounts Only" },
+];
+
+const resolvePresetKey = (enabledModules) => {
+  const normalizedSelection = normalizeEnabledModules(enabledModules);
+  const matchedPreset = MODULE_PRESET_OPTIONS.find(({ key }) => {
+    const presetModules = normalizeEnabledModules(COMPANY_MODULE_PRESETS[key] || []);
+
+    return (
+      presetModules.length === normalizedSelection.length &&
+      presetModules.every((moduleKey) => normalizedSelection.includes(moduleKey))
+    );
+  });
+
+  return matchedPreset?.key || "custom";
+};
+
+const formatModuleLabel = (moduleKey) => {
+  const moduleOption = COMPANY_MODULE_OPTIONS.find(
+    (item) => item.key === String(moduleKey || "").trim().toLowerCase()
+  );
+
+  return moduleOption?.label || String(moduleKey || "").trim();
+};
+
+const formatModulePackageLabel = (enabledModules) => {
+  const presetKey = resolvePresetKey(enabledModules);
+
+  if (presetKey === "custom") {
+    return "Custom Selection";
+  }
+
+  return MODULE_PRESET_OPTIONS.find((item) => item.key === presetKey)?.label || "Custom Selection";
+};
+
+const buildTenantHandoverText = (tenant) => {
+  const enabledModules = normalizeEnabledModules(tenant?.company?.enabledModules);
+
+  return [
+    `Client: ${tenant?.company?.companyName || "-"}`,
+    `Company Code: ${tenant?.company?.companyCode || "-"}`,
+    `ERP Package: ${formatModulePackageLabel(enabledModules)}`,
+    `Enabled Modules: ${enabledModules.map(formatModuleLabel).join(", ") || "-"}`,
+    `Owner Username: ${tenant?.owner?.username || "-"}`,
+    `Owner Employee Code: ${tenant?.owner?.employeeCode || "-"}`,
+    `Temporary Password: ${tenant?.owner?.temporaryPassword || "-"}`,
+    `Owner Role: ${tenant?.owner?.role || "-"}`,
+    "Action: Share credentials only through an approved secure internal channel and force password change on first login.",
+  ].join("\n");
+};
+
 function TenantOnboardingPage() {
   const { currentUser, updateSession } = useAuth();
   const [form, setForm] = useState(INITIAL_FORM);
@@ -74,6 +136,7 @@ function TenantOnboardingPage() {
   const [success, setSuccess] = useState("");
   const [createdTenant, setCreatedTenant] = useState(null);
   const [createdTenantRequestId, setCreatedTenantRequestId] = useState("");
+  const [createdTenantHandoverCopied, setCreatedTenantHandoverCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [companyFilter, setCompanyFilter] = useState("");
   const [showInactiveCompanies, setShowInactiveCompanies] = useState(false);
@@ -143,6 +206,32 @@ function TenantOnboardingPage() {
         [name]: value,
       },
     }));
+  };
+
+  const applyBootstrapModulePreset = (presetKey) => {
+    const nextModules = normalizeEnabledModules(
+      COMPANY_MODULE_PRESETS[presetKey] || DEFAULT_ENABLED_MODULES
+    );
+    setForm((prev) => ({
+      ...prev,
+      enabledModules: nextModules,
+    }));
+  };
+
+  const handleBootstrapModuleToggle = (moduleKey) => {
+    setForm((prev) => {
+      const currentModules = normalizeEnabledModules(prev.enabledModules);
+      const nextModules = currentModules.includes(moduleKey)
+        ? currentModules.filter((entry) => entry !== moduleKey)
+        : [...currentModules, moduleKey];
+
+      return {
+        ...prev,
+        enabledModules: normalizeEnabledModules(
+          nextModules.length > 0 ? nextModules : currentModules
+        ),
+      };
+    });
   };
 
   const handleSafetyCheckChange = (event) => {
@@ -230,13 +319,33 @@ function TenantOnboardingPage() {
       return "Complete all operator verification checks before bootstrapping the tenant";
     }
 
+    if (normalizeEnabledModules(form.enabledModules).length === 0) {
+      return "Select at least one ERP module for the client company";
+    }
+
     return "";
   };
 
   const clearSensitiveResult = () => {
     setCreatedTenant(null);
     setCreatedTenantRequestId("");
+    setCreatedTenantHandoverCopied(false);
     setSuccess("");
+  };
+
+  const copyTenantHandover = async () => {
+    const handoverText = buildTenantHandoverText(createdTenant);
+
+    if (!handoverText || typeof navigator === "undefined" || !navigator.clipboard) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(handoverText);
+      setCreatedTenantHandoverCopied(true);
+    } catch {
+      setCreatedTenantHandoverCopied(false);
+    }
   };
 
   const loadSelfProfile = useCallback(async () => {
@@ -272,6 +381,7 @@ function TenantOnboardingPage() {
         branchName: company.branchName || "",
         companyEmail: company.companyEmail || "",
         companyMobile: company.companyMobile || "",
+        enabledModules: normalizeEnabledModules(company.enabledModules),
         billingStatus: String(company.billingStatus || "active").toLowerCase(),
         billingCycle: String(company.billingCycle || "monthly").toLowerCase(),
         customCycleLabel: company.customCycleLabel || "",
@@ -403,6 +513,29 @@ function TenantOnboardingPage() {
     }));
   };
 
+  const applyManagedCompanyModulePreset = (companyId, presetKey) => {
+    handleManagedCompanyEditChange(
+      companyId,
+      "enabledModules",
+      normalizeEnabledModules(COMPANY_MODULE_PRESETS[presetKey] || DEFAULT_ENABLED_MODULES)
+    );
+  };
+
+  const handleManagedCompanyModuleToggle = (companyId, moduleKey) => {
+    const currentModules = normalizeEnabledModules(
+      managedCompanyEdits[companyId]?.enabledModules
+    );
+    const nextModules = currentModules.includes(moduleKey)
+      ? currentModules.filter((entry) => entry !== moduleKey)
+      : [...currentModules, moduleKey];
+
+    handleManagedCompanyEditChange(
+      companyId,
+      "enabledModules",
+      normalizeEnabledModules(nextModules.length > 0 ? nextModules : currentModules)
+    );
+  };
+
   const handleInvoiceDraftChange = (companyId, key, value) => {
     setInvoiceDrafts((prev) => ({
       ...prev,
@@ -423,6 +556,7 @@ function TenantOnboardingPage() {
 
     const normalizedEmail = String(draft.companyEmail || "").trim();
     const normalizedMobile = String(draft.companyMobile || "").trim();
+    const normalizedModules = normalizeEnabledModules(draft.enabledModules);
     if (normalizedEmail && !EMAIL_PATTERN.test(normalizedEmail)) {
       setManagedCompaniesError("Company email must be a valid email address.");
       return;
@@ -430,6 +564,11 @@ function TenantOnboardingPage() {
 
     if (normalizedMobile && !MOBILE_PATTERN.test(normalizedMobile)) {
       setManagedCompaniesError("Company mobile must contain 10-15 digits.");
+      return;
+    }
+
+    if (normalizedModules.length === 0) {
+      setManagedCompaniesError("Select at least one ERP module before saving client profile.");
       return;
     }
 
@@ -444,6 +583,7 @@ function TenantOnboardingPage() {
         branchName: String(draft.branchName || "").trim(),
         companyEmail: normalizedEmail,
         companyMobile: normalizedMobile,
+        enabledModules: normalizedModules,
       });
       await loadManagedCompanies();
       setManagedCompaniesSuccess("Client profile updated successfully.");
@@ -1027,6 +1167,7 @@ function TenantOnboardingPage() {
       const payload = {
         companyName: String(form.companyName || "").trim(),
         branchName: String(form.branchName || "").trim(),
+        enabledModules: normalizeEnabledModules(form.enabledModules),
         ownerFullName: String(form.ownerFullName || "").trim(),
         ownerMobileNumber: String(form.ownerMobileNumber || "").trim(),
         ownerDesignation: String(form.ownerDesignation || "").trim(),
@@ -1048,6 +1189,7 @@ function TenantOnboardingPage() {
 
       setCreatedTenant(response.data?.data || null);
       setCreatedTenantRequestId(response.headers?.["x-request-id"] || "");
+      setCreatedTenantHandoverCopied(false);
       setSuccess(
         "Tenant onboarded successfully. Share the generated owner credentials through a secure internal channel and require an immediate password change on first login."
       );
@@ -1115,6 +1257,50 @@ function TenantOnboardingPage() {
                     required
                   />
                 </label>
+              </div>
+            </div>
+
+            <div>
+              <p style={styles.sectionTitle}>Client Modules</p>
+              <p style={styles.controlHelperText}>
+                Choose the sections this client purchased. Use a preset for common sales combinations or customize below.
+              </p>
+              <div style={styles.clientActions}>
+                {MODULE_PRESET_OPTIONS.map((preset) => {
+                  const isActive = resolvePresetKey(form.enabledModules) === preset.key;
+
+                  return (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      style={{
+                        ...styles.secondaryButton,
+                        ...(isActive ? styles.secondaryButtonActive : {}),
+                      }}
+                      onClick={() => applyBootstrapModulePreset(preset.key)}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={styles.verificationGrid}>
+                {COMPANY_MODULE_OPTIONS.map((moduleOption) => (
+                  <label key={moduleOption.key} style={styles.checkCard}>
+                    <input
+                      type="checkbox"
+                      checked={normalizeEnabledModules(form.enabledModules).includes(
+                        moduleOption.key
+                      )}
+                      onChange={() => handleBootstrapModuleToggle(moduleOption.key)}
+                      style={styles.checkbox}
+                    />
+                    <div>
+                      <span style={styles.checkTitle}>{moduleOption.label}</span>
+                      <p style={styles.checkText}>{moduleOption.description}</p>
+                    </div>
+                  </label>
+                ))}
               </div>
             </div>
 
@@ -1567,6 +1753,8 @@ function TenantOnboardingPage() {
                 const invoices = companyInvoices[company.id] || [];
                 const isExpanded = expandedCompanyCards[company.id] ?? true;
                 const isBusy = managedCompanyActionId === company.id;
+                const enabledModules = normalizeEnabledModules(draft.enabledModules);
+                const modulePresetKey = resolvePresetKey(enabledModules);
 
                 return (
                   <div key={company.id} style={styles.clientCard}>
@@ -1675,6 +1863,61 @@ function TenantOnboardingPage() {
                       <span>Updated: {formatDateTime(company.updatedAt)}</span>
                       <span>Live Mobile: {company.companyMobile || "-"}</span>
                       <span>Live Email: {company.companyEmail || "-"}</span>
+                    </div>
+
+                    <div style={styles.clientBillingGrid}>
+                      <label style={{ ...styles.field, gridColumn: "1 / -1" }}>
+                        <span style={styles.label}>Client Module Package</span>
+                        <div style={styles.clientActions}>
+                          {MODULE_PRESET_OPTIONS.map((preset) => {
+                            const isActive = modulePresetKey === preset.key;
+
+                            return (
+                              <button
+                                key={`${company.id}-${preset.key}`}
+                                type="button"
+                                style={{
+                                  ...styles.secondaryButton,
+                                  ...(isActive ? styles.secondaryButtonActive : {}),
+                                }}
+                                onClick={() =>
+                                  applyManagedCompanyModulePreset(company.id, preset.key)
+                                }
+                              >
+                                {preset.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div style={styles.verificationGrid}>
+                          {COMPANY_MODULE_OPTIONS.map((moduleOption) => (
+                            <label
+                              key={`${company.id}-${moduleOption.key}`}
+                              style={styles.checkCard}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={enabledModules.includes(moduleOption.key)}
+                                onChange={() =>
+                                  handleManagedCompanyModuleToggle(
+                                    company.id,
+                                    moduleOption.key
+                                  )
+                                }
+                                style={styles.checkbox}
+                              />
+                              <div>
+                                <span style={styles.checkTitle}>
+                                  {moduleOption.label}
+                                </span>
+                                <p style={styles.checkText}>
+                                  {moduleOption.description}
+                                </p>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </label>
                     </div>
 
                     <div style={styles.clientBillingGrid}>
@@ -2143,9 +2386,47 @@ function TenantOnboardingPage() {
         {createdTenant ? (
           <SectionCard title="Generated Owner Credentials">
             <div style={styles.credentialsPanel}>
+              <div style={styles.handoverHeader}>
+                <div>
+                  <p style={styles.sectionTitle}>Client Handover Summary</p>
+                  <p style={styles.credentialsNote}>
+                    Provisioning and handover are now linked. Use this summary so the sold package
+                    and delivered access stay exactly aligned.
+                  </p>
+                </div>
+                <div style={styles.clientActions}>
+                  <button
+                    type="button"
+                    onClick={copyTenantHandover}
+                    style={styles.secondaryButton}
+                  >
+                    {createdTenantHandoverCopied ? "Handover Copied" : "Copy Handover Note"}
+                  </button>
+                </div>
+              </div>
+              <div style={styles.handoverCard}>
+                <div style={styles.handoverMetaRow}>
+                  <span style={styles.handoverBadge}>
+                    {formatModulePackageLabel(createdTenant.company?.enabledModules)}
+                  </span>
+                </div>
+                <div style={styles.moduleChipRow}>
+                  {normalizeEnabledModules(createdTenant.company?.enabledModules).map(
+                    (moduleKey) => (
+                      <span key={moduleKey} style={styles.moduleChip}>
+                        {formatModuleLabel(moduleKey)}
+                      </span>
+                    )
+                  )}
+                </div>
+              </div>
               <div style={styles.credentialGrid}>
                 <CredentialItem label="Company" value={createdTenant.company?.companyName} />
                 <CredentialItem label="Company Code" value={createdTenant.company?.companyCode} />
+                <CredentialItem
+                  label="Package"
+                  value={formatModulePackageLabel(createdTenant.company?.enabledModules)}
+                />
                 <CredentialItem label="Owner Employee Code" value={createdTenant.owner?.employeeCode} />
                 <CredentialItem label="Username" value={createdTenant.owner?.username} />
                 <CredentialItem
@@ -2393,6 +2674,55 @@ const styles = {
     background:
       "linear-gradient(160deg, rgba(240,249,255,0.8) 0%, rgba(255,255,255,0.9) 46%, rgba(255,251,235,0.85) 100%)",
   },
+  handoverHeader: {
+    display: "flex",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: "12px",
+    alignItems: "flex-start",
+  },
+  handoverCard: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+    padding: "16px",
+    borderRadius: "18px",
+    background: "rgba(255,255,255,0.84)",
+    border: "1px solid rgba(15, 118, 110, 0.16)",
+  },
+  handoverMetaRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "10px",
+    alignItems: "center",
+  },
+  handoverBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "8px 12px",
+    borderRadius: "999px",
+    background: "rgba(15,118,110,0.10)",
+    color: "#0f766e",
+    fontSize: "12px",
+    fontWeight: "800",
+    letterSpacing: "0.03em",
+  },
+  moduleChipRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "10px",
+  },
+  moduleChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "8px 12px",
+    borderRadius: "999px",
+    background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+    border: "1px solid rgba(14, 116, 144, 0.16)",
+    color: "#0f172a",
+    fontSize: "12px",
+    fontWeight: "700",
+  },
   credentialGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -2449,6 +2779,11 @@ const styles = {
     fontSize: "13px",
     cursor: "pointer",
     boxShadow: "0 8px 18px rgba(15, 23, 42, 0.06)",
+  },
+  secondaryButtonActive: {
+    borderColor: "rgba(13, 148, 136, 0.45)",
+    background: "linear-gradient(180deg, #ecfeff 0%, #ccfbf1 100%)",
+    color: "#115e59",
   },
   auditLink: {
     display: "inline-flex",

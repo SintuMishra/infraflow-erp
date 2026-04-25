@@ -70,6 +70,7 @@ test("bootstrapCompanyOwnerController records an audit event after successful on
         "../src/config/env",
         {
           onboardingBootstrapSecret: "bootstrap-secret",
+          platformOwnerCompanyId: 1,
         },
       ],
       [
@@ -110,6 +111,10 @@ test("bootstrapCompanyOwnerController records an audit event after successful on
         headers: {
           "x-bootstrap-secret": "bootstrap-secret",
         },
+        user: {
+          companyId: 1,
+        },
+        companyId: 1,
         body: {
           companyName: "Apex Build Infra",
         },
@@ -141,6 +146,7 @@ test("bootstrapCompanyOwnerController audits rejected bootstrap secrets without 
         "../src/config/env",
         {
           onboardingBootstrapSecret: "bootstrap-secret",
+          platformOwnerCompanyId: 1,
         },
       ],
       [
@@ -173,6 +179,10 @@ test("bootstrapCompanyOwnerController audits rejected bootstrap secrets without 
         headers: {
           "x-bootstrap-secret": "wrong-secret",
         },
+        user: {
+          companyId: 1,
+        },
+        companyId: 1,
         body: {
           companyName: "Apex Build Infra",
           ownerFullName: "Amit Sharma",
@@ -209,6 +219,7 @@ test("bootstrapCompanyOwnerController audits duplicate-company failures", async 
         "../src/config/env",
         {
           onboardingBootstrapSecret: "bootstrap-secret",
+          platformOwnerCompanyId: 1,
         },
       ],
       [
@@ -241,6 +252,10 @@ test("bootstrapCompanyOwnerController audits duplicate-company failures", async 
         headers: {
           "x-bootstrap-secret": "bootstrap-secret",
         },
+        user: {
+          companyId: 1,
+        },
+        companyId: 1,
         body: {
           companyName: "Apex Build Infra",
           ownerFullName: "Amit Sharma",
@@ -333,6 +348,77 @@ test("bootstrapCompanyOwnerController blocks tenant bootstrap for non-platform-o
   );
 });
 
+test("bootstrapCompanyOwnerController fails closed when platform owner scope is not configured", async () => {
+  const auditPayloads = [];
+
+  await withMockedModules(
+    "../src/modules/onboarding/onboarding.controller.js",
+    [
+      [
+        "../src/config/env",
+        {
+          onboardingBootstrapSecret: "bootstrap-secret",
+          platformOwnerCompanyId: null,
+        },
+      ],
+      [
+        "../src/modules/onboarding/onboarding.service",
+        {
+          bootstrapCompanyOwner: async () => {
+            throw new Error("bootstrap should not be called");
+          },
+        },
+      ],
+      [
+        "../src/utils/audit.util",
+        {
+          recordAuditEvent: async (payload) => {
+            auditPayloads.push(payload);
+          },
+        },
+      ],
+      [
+        "../src/utils/http.util",
+        {
+          sendControllerError: () => {
+            throw new Error("sendControllerError should not be called");
+          },
+        },
+      ],
+    ],
+    async ({ bootstrapCompanyOwnerController }) => {
+      const req = {
+        headers: {
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        user: {
+          companyId: 1,
+        },
+        companyId: 1,
+        body: {
+          companyName: "Apex Build Infra",
+          ownerFullName: "Amit Sharma",
+          ownerDesignation: "Managing Director",
+        },
+      };
+      const res = createResponse();
+
+      await bootstrapCompanyOwnerController(req, res);
+
+      assert.equal(res.statusCode, 503);
+      assert.equal(
+        res.body.message,
+        "Platform owner scope is not configured on this environment. Set platform owner company id before using tenant onboarding."
+      );
+      assert.equal(auditPayloads.length, 1);
+      assert.equal(
+        auditPayloads[0].action,
+        "onboarding.bootstrap_failed_owner_scope_unconfigured"
+      );
+    }
+  );
+});
+
 test("listManagedCompaniesController forwards server-side filter params", async () => {
   let capturedArgs = null;
 
@@ -398,6 +484,61 @@ test("listManagedCompaniesController forwards server-side filter params", async 
         billingStatus: "overdue",
       });
       assert.deepEqual(res.body?.data, []);
+    }
+  );
+});
+
+test("listManagedCompaniesController fails closed when platform owner scope is not configured", async () => {
+  await withMockedModules(
+    "../src/modules/onboarding/onboarding.controller.js",
+    [
+      [
+        "../src/config/env",
+        {
+          onboardingBootstrapSecret: "bootstrap-secret",
+          platformOwnerCompanyId: null,
+        },
+      ],
+      [
+        "../src/modules/onboarding/onboarding.service",
+        {
+          listManagedCompanies: async () => {
+            throw new Error("listManagedCompanies should not be called");
+          },
+        },
+      ],
+      [
+        "../src/utils/audit.util",
+        {
+          recordAuditEvent: async () => {},
+        },
+      ],
+      [
+        "../src/utils/http.util",
+        {
+          sendControllerError: () => {
+            throw new Error("sendControllerError should not be called");
+          },
+        },
+      ],
+    ],
+    async ({ listManagedCompaniesController }) => {
+      const req = {
+        user: {
+          companyId: 1,
+        },
+        companyId: 1,
+        query: {},
+      };
+      const res = createResponse();
+
+      await listManagedCompaniesController(req, res);
+
+      assert.equal(res.statusCode, 503);
+      assert.equal(
+        res.body.message,
+        "Platform owner scope is not configured on this environment. Set platform owner company id before using tenant onboarding."
+      );
     }
   );
 });

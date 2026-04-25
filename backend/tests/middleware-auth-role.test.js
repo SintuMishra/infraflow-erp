@@ -11,11 +11,16 @@ process.env.DB_PASSWORD = process.env.DB_PASSWORD || "postgres";
 const env = require("../src/config/env");
 const authModel = require("../src/modules/auth/auth.model");
 const { authenticate } = require("../src/middlewares/auth.middleware");
-const { authorizeRoles } = require("../src/middlewares/role.middleware");
+const {
+  authorizeAnyCompanyModules,
+  authorizeRoles,
+  authorizeCompanyModules,
+} = require("../src/middlewares/role.middleware");
 
 authModel.findCompanyAccessById = async () => ({
   id: 1,
   isActive: true,
+  enabledModules: ["operations", "commercial", "procurement", "accounts"],
 });
 
 const createResponse = () => {
@@ -290,4 +295,90 @@ test("authorizeRoles normalizes super admin role aliases", async () => {
     assert.equal(nextCalled, true);
     assert.equal(res.body, null);
   }
+});
+
+test("authorizeCompanyModules blocks client access when a module is disabled", async () => {
+  const req = {
+    user: {
+      role: "manager",
+    },
+    companyId: 9,
+    companyAccess: {
+      enabledModules: ["procurement"],
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  authorizeCompanyModules("accounts")(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body.code, "COMPANY_MODULE_DISABLED");
+});
+
+test("authorizeCompanyModules allows enabled client modules", async () => {
+  const req = {
+    user: {
+      role: "manager",
+    },
+    companyId: 9,
+    companyAccess: {
+      enabledModules: ["procurement", "accounts"],
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  authorizeCompanyModules("accounts")(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
+});
+
+test("authorizeAnyCompanyModules allows access when one candidate module is enabled", async () => {
+  const req = {
+    user: {
+      role: "manager",
+    },
+    companyId: 9,
+    companyAccess: {
+      enabledModules: ["procurement"],
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  authorizeAnyCompanyModules("operations", "procurement")(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
+});
+
+test("authorizeAnyCompanyModules blocks access when all candidate modules are disabled", async () => {
+  const req = {
+    user: {
+      role: "manager",
+    },
+    companyId: 9,
+    companyAccess: {
+      enabledModules: ["accounts"],
+    },
+  };
+  const res = createResponse();
+  let nextCalled = false;
+
+  authorizeAnyCompanyModules("operations", "procurement")(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body.code, "COMPANY_MODULE_DISABLED");
 });

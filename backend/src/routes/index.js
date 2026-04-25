@@ -30,6 +30,11 @@ const purchaseOrdersRoutes = require("../modules/purchase_orders");
 const goodsReceiptsRoutes = require("../modules/goods_receipts");
 const purchaseInvoicesRoutes = require("../modules/purchase_invoices");
 const { checkDbHealth } = require("../config/db");
+const { authenticate } = require("../middlewares/auth.middleware");
+const {
+  authorizeAnyCompanyModules,
+  authorizeCompanyModules,
+} = require("../middlewares/role.middleware");
 
 const router = express.Router();
 
@@ -70,34 +75,164 @@ router.get("/ready", async (req, res, next) => {
 
 router.use("/auth", authRoutes);
 router.use("/employees", employeesRoutes);
-router.use("/crusher-reports", crusherRoutes);
-router.use("/plant-unit-reports", crusherRoutes);
-router.use("/project-reports", projectsRoutes);
-router.use("/dispatch-reports", dispatchRoutes);
-router.use("/dashboard", dashboardRoutes);
-router.use("/vehicles", vehiclesRoutes);
-router.use("/masters", mastersRoutes);
-router.use("/vendors", vendorsRoutes);
-router.use("/plants", plantsRoutes);
-router.use("/transport-rates", transportRatesRoutes);
-router.use("/party-material-rates", partyMaterialRates);
+router.use(
+  "/crusher-reports",
+  authenticate,
+  authorizeCompanyModules("operations"),
+  crusherRoutes
+);
+router.use(
+  "/plant-unit-reports",
+  authenticate,
+  authorizeCompanyModules("operations"),
+  crusherRoutes
+);
+router.use(
+  "/project-reports",
+  authenticate,
+  authorizeCompanyModules("operations"),
+  projectsRoutes
+);
+router.use(
+  "/dispatch-reports",
+  authenticate,
+  authorizeCompanyModules("operations"),
+  dispatchRoutes
+);
+router.use(
+  "/dashboard",
+  authenticate,
+  authorizeAnyCompanyModules("operations", "commercial"),
+  dashboardRoutes
+);
+router.use(
+  "/vehicles",
+  authenticate,
+  authorizeCompanyModules("operations"),
+  vehiclesRoutes
+);
+router.use(
+  "/masters",
+  authenticate,
+  authorizeCompanyModules("operations"),
+  mastersRoutes
+);
+router.use(
+  "/vendors",
+  authenticate,
+  authorizeAnyCompanyModules("operations", "procurement"),
+  vendorsRoutes
+);
+router.use(
+  "/plants",
+  authenticate,
+  authorizeAnyCompanyModules("operations", "commercial", "procurement"),
+  plantsRoutes
+);
+router.use(
+  "/transport-rates",
+  authenticate,
+  authorizeCompanyModules("operations"),
+  transportRatesRoutes
+);
+router.use(
+  "/party-material-rates",
+  authenticate,
+  authorizeCompanyModules("commercial"),
+  partyMaterialRates
+);
 router.use("/company-profile", companyProfileRoutes);
-router.use("/parties", partiesRoutes);
-router.use("/party-orders", partyOrdersRoutes);
+router.use(
+  "/parties",
+  authenticate,
+  authorizeCompanyModules("commercial"),
+  partiesRoutes
+);
+router.use(
+  "/party-orders",
+  authenticate,
+  authorizeCompanyModules("commercial"),
+  partyOrdersRoutes
+);
 router.use("/audit-logs", auditLogsRoutes);
 router.use("/onboarding", onboardingRoutes);
-router.use("/accounts/masters", accountsMastersRoutes);
-router.use("/accounts/general-ledger", generalLedgerRoutes);
-router.use("/accounts/journal-vouchers", journalVouchersRoutes);
-router.use("/accounts/receivables", accountsReceivableRoutes);
-router.use("/accounts/payables", accountsPayableRoutes);
-router.use("/accounts/cash-bank", cashBankRoutes);
-router.use("/accounts/posting-rules", financePostingRulesRoutes);
-router.use("/accounts/reports", financialReportsRoutes);
-router.use("/boulder-reports", boulderReportsRoutes);
-router.use("/purchase-requests", purchaseRequestsRoutes);
-router.use("/purchase-orders", purchaseOrdersRoutes);
-router.use("/goods-receipts", goodsReceiptsRoutes);
-router.use("/purchase-invoices", purchaseInvoicesRoutes);
+router.use(
+  "/accounts/masters",
+  authenticate,
+  authorizeCompanyModules("accounts"),
+  accountsMastersRoutes
+);
+router.use(
+  "/accounts/general-ledger",
+  authenticate,
+  authorizeCompanyModules("accounts"),
+  generalLedgerRoutes
+);
+router.use(
+  "/accounts/journal-vouchers",
+  authenticate,
+  authorizeCompanyModules("accounts"),
+  journalVouchersRoutes
+);
+router.use(
+  "/accounts/receivables",
+  authenticate,
+  authorizeCompanyModules("accounts"),
+  accountsReceivableRoutes
+);
+router.use(
+  "/accounts/payables",
+  authenticate,
+  authorizeCompanyModules("accounts"),
+  accountsPayableRoutes
+);
+router.use(
+  "/accounts/cash-bank",
+  authenticate,
+  authorizeCompanyModules("accounts"),
+  cashBankRoutes
+);
+router.use(
+  "/accounts/posting-rules",
+  authenticate,
+  authorizeCompanyModules("accounts"),
+  financePostingRulesRoutes
+);
+router.use(
+  "/accounts/reports",
+  authenticate,
+  authorizeCompanyModules("accounts"),
+  financialReportsRoutes
+);
+router.use(
+  "/boulder-reports",
+  authenticate,
+  authorizeCompanyModules("operations"),
+  boulderReportsRoutes
+);
+router.use(
+  "/purchase-requests",
+  authenticate,
+  authorizeCompanyModules("procurement"),
+  purchaseRequestsRoutes
+);
+router.use(
+  "/purchase-orders",
+  authenticate,
+  authorizeCompanyModules("procurement"),
+  purchaseOrdersRoutes
+);
+router.use(
+  "/goods-receipts",
+  authenticate,
+  authorizeCompanyModules("procurement"),
+  goodsReceiptsRoutes
+);
+router.use(
+  "/purchase-invoices",
+  authenticate,
+  authorizeCompanyModules("procurement"),
+  purchaseInvoicesRoutes
+);
 
 module.exports = router;

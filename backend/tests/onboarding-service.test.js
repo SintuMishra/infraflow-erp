@@ -177,6 +177,115 @@ test("bootstrapCompanyOwner creates company, profile, owner employee, and super 
   );
 });
 
+test("bootstrapCompanyOwner stores selected enabledModules when company entitlements are configured", async () => {
+  let insertedModules = null;
+
+  await withMockedModules(
+    "../src/modules/onboarding/onboarding.service.js",
+    [
+      [
+        "../src/config/db",
+        {
+          pool: { query: async () => ({ rows: [] }) },
+          withTransaction: async (work) =>
+            work({
+              query: async (query, params) => {
+                if (/FROM companies\s+WHERE LOWER\(BTRIM\(company_name\)\)/i.test(query)) {
+                  return { rows: [] };
+                }
+
+                if (/SELECT id FROM companies/i.test(query)) {
+                  return { rows: [] };
+                }
+
+                if (/INSERT INTO companies/i.test(query)) {
+                  insertedModules = params[2] || null;
+                  return {
+                    rows: [
+                      {
+                        id: 55,
+                        companyCode: "NEXA_PROCURE",
+                        companyName: "Nexa Procure",
+                        isActive: true,
+                        enabledModules: ["procurement", "accounts"],
+                      },
+                    ],
+                  };
+                }
+
+                return { rows: [] };
+              },
+            }),
+        },
+      ],
+      [
+        "../src/utils/companyScope.util",
+        {
+          hasColumn: async (tableName, columnName) =>
+            (tableName === "employees" || tableName === "users") &&
+              columnName === "company_id"
+              ? true
+              : tableName === "companies" && columnName === "enabled_modules",
+          tableExists: async (tableName) => tableName === "companies",
+        },
+      ],
+      [
+        "../src/modules/employees/employees.service",
+        {
+          createEmployeeRecord: async (payload) => ({
+            id: 77,
+            employeeCode: "ADM0077",
+            fullName: payload.fullName,
+          }),
+        },
+      ],
+      [
+        "../src/modules/auth/auth.model",
+        {
+          createUser: async (payload) => ({
+            username: payload.username,
+            role: payload.role,
+            mustChangePassword: true,
+          }),
+        },
+      ],
+      [
+        "../src/modules/company_profile/company_profile.service",
+        {
+          saveCompanyProfile: async (payload) => ({
+            id: 12,
+            companyName: payload.companyName,
+          }),
+        },
+      ],
+      [
+        "../src/utils/loginCredentials.util",
+        {
+          buildUsernameFromEmployeeCode: (employeeCode) => `${employeeCode}2026`,
+          generateTemporaryPassword: () => "Temp!Pass123",
+        },
+      ],
+      [
+        "bcryptjs",
+        {
+          hash: async (value) => `hashed:${value}`,
+        },
+      ],
+    ],
+    async ({ bootstrapCompanyOwner }) => {
+      const response = await bootstrapCompanyOwner({
+        companyName: "Nexa Procure",
+        ownerFullName: "Riya Mehta",
+        ownerDesignation: "Director",
+        enabledModules: ["procurement", "accounts"],
+      });
+
+      assert.equal(insertedModules, JSON.stringify(["procurement", "accounts"]));
+      assert.deepEqual(response.company.enabledModules, ["procurement", "accounts"]);
+    }
+  );
+});
+
 test("bootstrapCompanyOwner rejects duplicate company names before creating owner records", async () => {
   let employeeCreated = false;
 

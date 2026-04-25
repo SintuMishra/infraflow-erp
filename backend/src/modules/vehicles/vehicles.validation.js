@@ -1,6 +1,17 @@
 const allowedOwnershipTypes = ["company", "attached_private", "transporter"];
 const allowedStatuses = ["active", "in_use", "inactive", "maintenance"];
 
+const isBlank = (value) =>
+  value === undefined || value === null || String(value).trim() === "";
+
+const isInvalidNonNegativeNumber = (value, { required = false } = {}) => {
+  if (isBlank(value)) {
+    return required;
+  }
+
+  return Number.isNaN(Number(value)) || Number(value) < 0;
+};
+
 const validateVehiclePayload = (req, res, next) => {
   const {
     vehicleNumber,
@@ -95,27 +106,42 @@ const validateVehicleStatusUpdate = (req, res, next) => {
   next();
 };
 
+const validateEquipmentLogContextInput = (req, res, next) => {
+  const { equipmentName, equipmentType, plantId } = req.query;
+
+  if (isBlank(equipmentName) || isBlank(equipmentType) || isBlank(plantId)) {
+    return res.status(400).json({
+      success: false,
+      message: "equipmentName, equipmentType, and plantId are required",
+    });
+  }
+
+  if (Number.isNaN(Number(plantId)) || Number(plantId) <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "plantId must be a valid positive number",
+    });
+  }
+
+  next();
+};
+
 const validateCreateEquipmentLogInput = (req, res, next) => {
   const {
     usageDate,
     equipmentName,
     equipmentType,
-    usageHours,
+    siteName,
+    openingMeterReading,
+    closingMeterReading,
     fuelUsed,
     plantId,
   } = req.body;
 
-  if (
-    !usageDate ||
-    !equipmentName ||
-    !equipmentType ||
-    usageHours === undefined ||
-    fuelUsed === undefined
-  ) {
+  if (!usageDate || !equipmentName || !equipmentType || !siteName) {
     return res.status(400).json({
       success: false,
-      message:
-        "usageDate, equipmentName, equipmentType, usageHours, and fuelUsed are required",
+      message: "usageDate, equipmentName, equipmentType, and siteName are required",
     });
   }
 
@@ -133,6 +159,29 @@ const validateCreateEquipmentLogInput = (req, res, next) => {
     });
   }
 
+  if (isInvalidNonNegativeNumber(closingMeterReading, { required: true })) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "closingMeterReading must be a valid number greater than or equal to 0",
+    });
+  }
+
+  if (isInvalidNonNegativeNumber(openingMeterReading, { required: false })) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "openingMeterReading must be a valid number greater than or equal to 0",
+    });
+  }
+
+  if (isInvalidNonNegativeNumber(fuelUsed, { required: true })) {
+    return res.status(400).json({
+      success: false,
+      message: "fuelUsed must be a valid number greater than or equal to 0",
+    });
+  }
+
   next();
 };
 
@@ -140,5 +189,6 @@ module.exports = {
   validateCreateVehicleInput,
   validateUpdateVehicleInput,
   validateVehicleStatusUpdate,
+  validateEquipmentLogContextInput,
   validateCreateEquipmentLogInput,
 };
