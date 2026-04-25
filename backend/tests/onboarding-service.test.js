@@ -98,8 +98,9 @@ test("bootstrapCompanyOwner creates company, profile, owner employee, and super 
         "../src/utils/companyScope.util",
         {
           hasColumn: async (tableName, columnName) =>
-            (tableName === "employees" || tableName === "users") &&
-            columnName === "company_id",
+            ((tableName === "employees" || tableName === "users") &&
+              columnName === "company_id") ||
+            (tableName === "companies" && columnName === "enabled_modules"),
           tableExists: async (tableName) => tableName === "companies",
         },
       ],
@@ -286,6 +287,184 @@ test("bootstrapCompanyOwner stores selected enabledModules when company entitlem
   );
 });
 
+test("bootstrapCompanyOwner fails clearly when company module migration is missing", async () => {
+  await withMockedModules(
+    "../src/modules/onboarding/onboarding.service.js",
+    [
+      [
+        "../src/config/db",
+        {
+          pool: { query: async () => ({ rows: [] }) },
+          withTransaction: async (work) =>
+            work({
+              query: async (query) => {
+                if (/FROM companies\s+WHERE LOWER\(BTRIM\(company_name\)\)/i.test(query)) {
+                  return { rows: [] };
+                }
+
+                if (/SELECT id FROM companies/i.test(query)) {
+                  return { rows: [] };
+                }
+
+                if (
+                  /^SAVEPOINT /i.test(query) ||
+                  /^ROLLBACK TO SAVEPOINT /i.test(query) ||
+                  /^RELEASE SAVEPOINT /i.test(query)
+                ) {
+                  return { rows: [] };
+                }
+
+                throw new Error(`Unexpected query during migration-missing test: ${query}`);
+              },
+            }),
+        },
+      ],
+      [
+        "../src/utils/companyScope.util",
+        {
+          hasColumn: async (tableName, columnName) =>
+            (tableName === "employees" || tableName === "users") &&
+            columnName === "company_id",
+          tableExists: async (tableName) => tableName === "companies",
+        },
+      ],
+      [
+        "../src/modules/employees/employees.service",
+        {
+          createEmployeeRecord: async () => {
+            throw new Error("createEmployeeRecord should not be called");
+          },
+        },
+      ],
+      [
+        "../src/modules/auth/auth.model",
+        {
+          createUser: async () => {
+            throw new Error("createUser should not be called");
+          },
+        },
+      ],
+      [
+        "../src/modules/company_profile/company_profile.service",
+        {
+          saveCompanyProfile: async () => {
+            throw new Error("saveCompanyProfile should not be called");
+          },
+        },
+      ],
+      [
+        "../src/utils/loginCredentials.util",
+        {
+          buildUsernameFromEmployeeCode: (employeeCode) => `${employeeCode}2026`,
+          generateTemporaryPassword: () => "Temp!Pass123",
+        },
+      ],
+      [
+        "bcryptjs",
+        {
+          hash: async (value) => `hashed:${value}`,
+        },
+      ],
+    ],
+    async ({ bootstrapCompanyOwner }) => {
+      await assert.rejects(
+        bootstrapCompanyOwner({
+          companyName: "Nexa Procure",
+          ownerFullName: "Riya Mehta",
+          ownerDesignation: "Director",
+          enabledModules: ["procurement", "accounts"],
+        }),
+        /COMPANY_MODULES_MIGRATION_MISSING/
+      );
+    }
+  );
+});
+
+test("updateManagedCompanyProfile rejects package updates when company module migration is missing", async () => {
+  await withMockedModules(
+    "../src/modules/onboarding/onboarding.service.js",
+    [
+      [
+        "../src/config/db",
+        {
+          pool: {
+            query: async (query) => {
+              if (/FROM companies\s+WHERE id = \$1/i.test(query)) {
+                return {
+                  rows: [
+                    {
+                      id: 41,
+                      companyCode: "NEXA_PROCURE",
+                      companyName: "Nexa Procure",
+                      isActive: true,
+                      enabledModules: ["operations", "commercial", "procurement", "accounts"],
+                    },
+                  ],
+                };
+              }
+
+              throw new Error(`Unexpected pool query during update migration-missing test: ${query}`);
+            },
+          },
+          withTransaction: async (work) =>
+            work({
+              query: async (query) => {
+                if (/FROM companies\s+WHERE id = \$1/i.test(query)) {
+                  return {
+                    rows: [
+                      {
+                        id: 41,
+                        companyCode: "NEXA_PROCURE",
+                        companyName: "Nexa Procure",
+                        isActive: true,
+                        enabledModules: ["operations", "commercial", "procurement", "accounts"],
+                      },
+                    ],
+                  };
+                }
+
+                throw new Error(`Unexpected transaction query during update migration-missing test: ${query}`);
+              },
+            }),
+        },
+      ],
+      [
+        "../src/utils/companyScope.util",
+        {
+          hasColumn: async (tableName, columnName) =>
+            ((tableName === "employees" ||
+              tableName === "users" ||
+              tableName === "company_profile") &&
+              columnName === "company_id"),
+          tableExists: async (tableName) => tableName === "companies",
+        },
+      ],
+      [
+        "../src/modules/company_profile/company_profile.service",
+        {
+          getCompanyProfile: async () => ({
+            companyName: "Nexa Procure",
+            branchName: "Head Office",
+          }),
+          saveCompanyProfile: async () => {
+            throw new Error("saveCompanyProfile should not be called");
+          },
+        },
+      ],
+    ],
+    async ({ updateManagedCompanyProfile }) => {
+      await assert.rejects(
+        updateManagedCompanyProfile({
+          companyId: 41,
+          companyName: "Nexa Procure",
+          enabledModules: ["accounts"],
+        }),
+        /COMPANY_MODULES_MIGRATION_MISSING/
+      );
+    }
+  );
+});
+
 test("bootstrapCompanyOwner rejects duplicate company names before creating owner records", async () => {
   let employeeCreated = false;
 
@@ -321,8 +500,9 @@ test("bootstrapCompanyOwner rejects duplicate company names before creating owne
         "../src/utils/companyScope.util",
         {
           hasColumn: async (tableName, columnName) =>
-            (tableName === "employees" || tableName === "users") &&
-            columnName === "company_id",
+            ((tableName === "employees" || tableName === "users") &&
+              columnName === "company_id") ||
+            (tableName === "companies" && columnName === "enabled_modules"),
           tableExists: async (tableName) => tableName === "companies",
         },
       ],
@@ -420,8 +600,9 @@ test("bootstrapCompanyOwner maps database duplicate-name conflicts to COMPANY_AL
         "../src/utils/companyScope.util",
         {
           hasColumn: async (tableName, columnName) =>
-            (tableName === "employees" || tableName === "users") &&
-            columnName === "company_id",
+            ((tableName === "employees" || tableName === "users") &&
+              columnName === "company_id") ||
+            (tableName === "companies" && columnName === "enabled_modules"),
           tableExists: async (tableName) => tableName === "companies",
         },
       ],
@@ -541,8 +722,9 @@ test("bootstrapCompanyOwner retries when company_code collides during insert", a
         "../src/utils/companyScope.util",
         {
           hasColumn: async (tableName, columnName) =>
-            (tableName === "employees" || tableName === "users") &&
-            columnName === "company_id",
+            ((tableName === "employees" || tableName === "users") &&
+              columnName === "company_id") ||
+            (tableName === "companies" && columnName === "enabled_modules"),
           tableExists: async (tableName) => tableName === "companies",
         },
       ],

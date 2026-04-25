@@ -542,3 +542,115 @@ test("listManagedCompaniesController fails closed when platform owner scope is n
     }
   );
 });
+
+test("listManagedCompaniesController returns a clear migration message when module packages are not configured", async () => {
+  await withMockedModules(
+    "../src/modules/onboarding/onboarding.controller.js",
+    [
+      [
+        "../src/config/env",
+        {
+          onboardingBootstrapSecret: "bootstrap-secret",
+          platformOwnerCompanyId: 1,
+        },
+      ],
+      [
+        "../src/modules/onboarding/onboarding.service",
+        {
+          listManagedCompanies: async () => {
+            throw new Error("COMPANY_MODULES_MIGRATION_MISSING");
+          },
+        },
+      ],
+      [
+        "../src/utils/audit.util",
+        {
+          recordAuditEvent: async () => {},
+        },
+      ],
+      [
+        "../src/utils/http.util",
+        {
+          sendControllerError: () => {
+            throw new Error("sendControllerError should not be called");
+          },
+        },
+      ],
+    ],
+    async ({ listManagedCompaniesController }) => {
+      const req = {
+        user: {
+          companyId: 1,
+        },
+        companyId: 1,
+        query: {},
+      };
+      const res = createResponse();
+
+      await listManagedCompaniesController(req, res);
+
+      assert.equal(res.statusCode, 503);
+      assert.match(res.body.message, /latest backend migrations/i);
+      assert.match(res.body.message, /refresh the owner console/i);
+    }
+  );
+});
+
+test("updateManagedCompanyController returns a clear migration message when package persistence is unavailable", async () => {
+  await withMockedModules(
+    "../src/modules/onboarding/onboarding.controller.js",
+    [
+      [
+        "../src/config/env",
+        {
+          onboardingBootstrapSecret: "bootstrap-secret",
+          platformOwnerCompanyId: 1,
+        },
+      ],
+      [
+        "../src/modules/onboarding/onboarding.service",
+        {
+          updateManagedCompanyProfile: async () => {
+            throw new Error("COMPANY_MODULES_MIGRATION_MISSING");
+          },
+        },
+      ],
+      [
+        "../src/utils/audit.util",
+        {
+          recordAuditEvent: async () => {},
+        },
+      ],
+      [
+        "../src/utils/http.util",
+        {
+          sendControllerError: () => {
+            throw new Error("sendControllerError should not be called");
+          },
+        },
+      ],
+    ],
+    async ({ updateManagedCompanyController }) => {
+      const req = {
+        user: {
+          companyId: 1,
+        },
+        companyId: 1,
+        params: {
+          companyId: "41",
+        },
+        body: {
+          companyName: "Nexa Procure",
+          enabledModules: ["accounts"],
+        },
+      };
+      const res = createResponse();
+
+      await updateManagedCompanyController(req, res);
+
+      assert.equal(res.statusCode, 503);
+      assert.match(res.body.message, /latest backend migrations/i);
+      assert.match(res.body.message, /package changes/i);
+    }
+  );
+});

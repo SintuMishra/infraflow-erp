@@ -161,6 +161,19 @@ const bootstrapCompanyOwnerController = async (req, res) => {
       });
     }
 
+    if (error.message === "COMPANY_MODULES_MIGRATION_MISSING") {
+      await recordOnboardingAudit({
+        action: "onboarding.bootstrap_failed_modules_migration_missing",
+        req,
+      });
+
+      return res.status(503).json({
+        success: false,
+        message:
+          "Client module packages are not configured on this environment yet. Run the latest backend migrations and retry tenant onboarding.",
+      });
+    }
+
     if (error.message === "INVALID_ONBOARDING_PAYLOAD") {
       await recordOnboardingAudit({
         action: "onboarding.bootstrap_failed_invalid_payload",
@@ -273,6 +286,14 @@ const listManagedCompaniesController = async (req, res) => {
       return sendPlatformOwnerScopeUnavailable(res);
     }
 
+    if (error.message === "COMPANY_MODULES_MIGRATION_MISSING") {
+      return res.status(503).json({
+        success: false,
+        message:
+          "Client module packages are not configured on this environment yet. Run the latest backend migrations and refresh the owner console.",
+      });
+    }
+
     return sendControllerError(req, res, error, "Failed to load managed client companies");
   }
 };
@@ -341,6 +362,14 @@ const updateManagedCompanyController = async (req, res) => {
         success: false,
         message:
           "A company with this legal name already exists. Use a distinct company name.",
+      });
+    }
+
+    if (error.message === "COMPANY_MODULES_MIGRATION_MISSING") {
+      return res.status(503).json({
+        success: false,
+        message:
+          "Client module packages are not configured on this environment yet. Run the latest backend migrations before saving package changes.",
       });
     }
 

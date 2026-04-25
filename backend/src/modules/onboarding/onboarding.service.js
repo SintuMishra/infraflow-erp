@@ -118,6 +118,14 @@ const ensureOnboardingFoundation = async () => {
   }
 };
 
+const ensureCompanyModuleEntitlementsConfigured = async (db = pool) => {
+  const companiesHasEnabledModules = await hasColumn("companies", "enabled_modules", db);
+
+  if (!companiesHasEnabledModules) {
+    throw new Error("COMPANY_MODULES_MIGRATION_MISSING");
+  }
+};
+
 const findCompanyByName = async (companyName, db = pool) => {
   const result = await db.query(
     `
@@ -140,7 +148,7 @@ const createCompany = async (
   { companyName, companyCode, enabledModules = DEFAULT_COMPANY_MODULES },
   db = pool
 ) => {
-  const companiesHasEnabledModules = await hasColumn("companies", "enabled_modules", db);
+  await ensureCompanyModuleEntitlementsConfigured(db);
   const normalizedEnabledModules = normalizeCompanyModules(
     enabledModules,
     DEFAULT_COMPANY_MODULES
@@ -152,26 +160,20 @@ const createCompany = async (
       INSERT INTO companies (
         company_code,
         company_name,
-        is_active
-        ${companiesHasEnabledModules ? ", enabled_modules" : ""}
+        is_active,
+        enabled_modules
       )
-      VALUES ($1, $2, TRUE${companiesHasEnabledModules ? ", $3::jsonb" : ""})
+      VALUES ($1, $2, TRUE, $3::jsonb)
       RETURNING
         id,
         company_code AS "companyCode",
         company_name AS "companyName",
         is_active AS "isActive",
-        ${
-          companiesHasEnabledModules
-            ? `enabled_modules AS "enabledModules",`
-            : `NULL AS "enabledModules",`
-        }
+        enabled_modules AS "enabledModules",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       `,
-      companiesHasEnabledModules
-        ? [companyCode, companyName, JSON.stringify(normalizedEnabledModules)]
-        : [companyCode, companyName]
+      [companyCode, companyName, JSON.stringify(normalizedEnabledModules)]
     );
 
     return {
@@ -192,11 +194,12 @@ const createCompany = async (
 
 const getCompanyById = async (companyId, db = pool) => {
   const normalizedCompanyId = Number(companyId || 0) || null;
-  const companiesHasEnabledModules = await hasColumn("companies", "enabled_modules", db);
 
   if (!normalizedCompanyId) {
     return null;
   }
+
+  await ensureCompanyModuleEntitlementsConfigured(db);
 
   const result = await db.query(
     `
@@ -205,11 +208,7 @@ const getCompanyById = async (companyId, db = pool) => {
       company_code AS "companyCode",
       company_name AS "companyName",
       is_active AS "isActive",
-      ${
-        companiesHasEnabledModules
-          ? `enabled_modules AS "enabledModules",`
-          : `NULL AS "enabledModules",`
-      }
+      enabled_modules AS "enabledModules",
       created_at AS "createdAt",
       updated_at AS "updatedAt"
     FROM companies
@@ -371,7 +370,7 @@ const listManagedCompanies = async ({
   const employeesHasCompany = await hasColumn("employees", "company_id");
   const profileHasCompany = await hasColumn("company_profile", "company_id");
   const billingControlsExists = await tableExists("company_billing_controls");
-  const companiesHasEnabledModules = await hasColumn("companies", "enabled_modules");
+  await ensureCompanyModuleEntitlementsConfigured();
   const platformOwnerCompanyId =
     Number.isInteger(env.platformOwnerCompanyId) && env.platformOwnerCompanyId > 0
       ? env.platformOwnerCompanyId
@@ -477,11 +476,7 @@ const listManagedCompanies = async ({
       c.company_code AS "companyCode",
       c.company_name AS "companyName",
       c.is_active AS "isActive",
-      ${
-        companiesHasEnabledModules
-          ? `c.enabled_modules AS "enabledModules",`
-          : `NULL AS "enabledModules",`
-      }
+      c.enabled_modules AS "enabledModules",
       c.created_at AS "createdAt",
       c.updated_at AS "updatedAt",
       cp.branch_name AS "branchName",
@@ -574,11 +569,12 @@ const updateManagedCompanyProfile = async ({
 
   return await withTransaction(async (db) => {
     const existingCompany = await getCompanyById(normalizedCompanyId, db);
-    const companiesHasEnabledModules = await hasColumn("companies", "enabled_modules", db);
 
     if (!existingCompany) {
       throw new Error("COMPANY_NOT_FOUND");
     }
+
+    await ensureCompanyModuleEntitlementsConfigured(db);
 
     try {
       await db.query(
@@ -586,17 +582,15 @@ const updateManagedCompanyProfile = async ({
         UPDATE companies
         SET
           company_name = $1,
-          ${companiesHasEnabledModules ? `enabled_modules = $2::jsonb,` : ""}
+          enabled_modules = $2::jsonb,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = $${companiesHasEnabledModules ? 3 : 2}
+        WHERE id = $3
         `,
-        companiesHasEnabledModules
-          ? [
-              normalizedCompanyName,
-              JSON.stringify(normalizedEnabledModules),
-              normalizedCompanyId,
-            ]
-          : [normalizedCompanyName, normalizedCompanyId]
+        [
+          normalizedCompanyName,
+          JSON.stringify(normalizedEnabledModules),
+          normalizedCompanyId,
+        ]
       );
     } catch (error) {
       if (isCompanyNameConflict(error)) {
