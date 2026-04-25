@@ -1086,3 +1086,56 @@ test(
     );
   }
 );
+
+test(
+  "getCommercialExceptions queries audit logs with correct parameter numbering when company scope is active",
+  { concurrency: false },
+  async () => {
+    const capturedAuditQueries = [];
+
+    await withDashboardCommercialMocks(
+      {
+        db: {
+          query: async (query, params) => {
+            capturedAuditQueries.push({ query, params });
+            return { rows: [] };
+          },
+        },
+        companyScope: {
+          tableExists: async (tableName) => tableName === "audit_logs",
+          hasColumn: async () => true,
+        },
+        partyOrders: {
+          getAllPartyOrders: async () => [],
+        },
+        dispatch: {
+          findAllDispatchReports: async () => [],
+        },
+        rates: {
+          getAllRates: async () => [],
+        },
+        parties: {
+          getAllParties: async () => [],
+        },
+      },
+      async ({ getCommercialExceptions }) => {
+        const result = await getCommercialExceptions(77, {
+          includeReviewed: true,
+          assignedEmployeeId: 2,
+        });
+
+        assert.equal(result.summary.total, 0);
+      }
+    );
+
+    assert.equal(capturedAuditQueries.length, 2);
+    assert.match(capturedAuditQueries[0].query, /a\.action = \$1/);
+    assert.match(capturedAuditQueries[0].query, /a\.target_type = \$2/);
+    assert.match(capturedAuditQueries[0].query, /a\.company_id = \$3/);
+    assert.deepEqual(capturedAuditQueries[0].params, [
+      "commercial_exception.reviewed",
+      "commercial_exception",
+      77,
+    ]);
+  }
+);

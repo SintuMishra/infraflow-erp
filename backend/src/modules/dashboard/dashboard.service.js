@@ -474,15 +474,12 @@ const getCommercialExceptionAuditQueryState = async (companyId = null) => {
     return null;
   }
 
-  const values = [];
-  const conditions = [];
-
-  values.push("commercial_exception");
-  conditions.push(`a.target_type = $${values.length}`);
+  const values = ["commercial_exception"];
+  const conditions = ["a.target_type = $2"];
 
   if (auditHasCompany && companyId !== null) {
     values.push(companyId);
-    conditions.push(`a.company_id = $${values.length}`);
+    conditions.push(`a.company_id = $3`);
   }
 
   return {
