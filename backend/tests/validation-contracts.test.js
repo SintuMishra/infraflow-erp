@@ -164,6 +164,42 @@ test("dispatch edit validation rejects non-numeric otherCharge", async () => {
   assert.match(res.body.message, /otherCharge/i);
 });
 
+test("dispatch edit validation rejects invalid trip_estimate enteredQuantity", async () => {
+  const { res, nextCalled } = runMiddleware(validateDispatchEditInput, {
+    dispatchDate: "2026-04-15",
+    sourceType: "Plant",
+    plantId: 1,
+    materialId: 1,
+    vehicleId: 1,
+    partyId: 1,
+    destinationName: "Site A",
+    quantitySource: "trip_estimate",
+    enteredQuantity: 0,
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body.message, /enteredQuantity/i);
+});
+
+test("dispatch edit validation rejects invalid vehicle_capacity enteredUnitId when provided", async () => {
+  const { res, nextCalled } = runMiddleware(validateDispatchEditInput, {
+    dispatchDate: "2026-04-15",
+    sourceType: "Plant",
+    plantId: 1,
+    materialId: 1,
+    vehicleId: 1,
+    partyId: 1,
+    destinationName: "Site A",
+    quantitySource: "vehicle_capacity",
+    enteredUnitId: 0,
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body.message, /enteredUnitId/i);
+});
+
 test("onboarding bootstrap validation requires company and owner identity", async () => {
   const { res, nextCalled } = runMiddleware(validateBootstrapCompanyInput, {
     companyName: "Apex Build Infra",
@@ -787,6 +823,45 @@ test("party material rate validation accepts per_brass selling rate with convers
     rateUnit: "per_brass",
     rateUnitsPerTon: 0.3534,
     royaltyMode: "none",
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.body, null);
+});
+
+test("party material rate validation requires unit and price for per_unit billing", async () => {
+  const { res, nextCalled } = runMiddleware(validateCreateRateInput, {
+    plantId: 1,
+    partyId: 1,
+    materialId: 1,
+    billingBasis: "per_unit",
+    ratePerTon: 10,
+    rateUnit: "per_ton",
+    rateUnitsPerTon: 1,
+    royaltyMode: "none",
+    loadingChargeBasis: "fixed",
+    effectiveFrom: "2026-04-26",
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body.message, /rateUnitId/i);
+});
+
+test("party material rate validation accepts unit-aware per_unit billing payload", async () => {
+  const { res, nextCalled } = runMiddleware(validateCreateRateInput, {
+    plantId: 1,
+    partyId: 1,
+    materialId: 1,
+    billingBasis: "per_unit",
+    rateUnitId: 12,
+    pricePerUnit: 38,
+    ratePerTon: 38,
+    rateUnit: "per_cft",
+    rateUnitsPerTon: 22.5,
+    royaltyMode: "none",
+    loadingChargeBasis: "fixed",
+    effectiveFrom: "2026-04-26",
   });
 
   assert.equal(nextCalled, true);

@@ -17,6 +17,7 @@ const allowedRateUnits = [
   "other",
 ];
 const conversionRateUnits = ["per_cft", "per_brass", "per_cubic_meter", "per_trip", "other"];
+const allowedBillingBases = ["per_unit", "per_ton", "per_trip", "fixed"];
 
 const validateRatePayload = (req, res, next) => {
   const {
@@ -24,6 +25,10 @@ const validateRatePayload = (req, res, next) => {
     partyId,
     materialId,
     ratePerTon,
+    billingBasis,
+    rateUnitId,
+    pricePerUnit,
+    conversionId,
     rateUnit,
     rateUnitLabel,
     rateUnitsPerTon,
@@ -42,10 +47,72 @@ const validateRatePayload = (req, res, next) => {
     });
   }
 
-  if (!isPositiveNumber(ratePerTon)) {
+  const normalizedBillingBasis =
+    billingBasis === undefined || billingBasis === null || billingBasis === ""
+      ? null
+      : String(billingBasis).trim();
+
+  if (normalizedBillingBasis && !allowedBillingBases.includes(normalizedBillingBasis)) {
     return res.status(400).json({
       success: false,
-      message: "ratePerTon must be a valid number greater than 0",
+      message: "billingBasis must be one of per_unit, per_ton, per_trip, fixed",
+    });
+  }
+
+  const hasValidRatePerTon = isPositiveNumber(ratePerTon);
+  const hasValidPricePerUnit = isPositiveNumber(pricePerUnit);
+
+  if (!hasValidRatePerTon && !hasValidPricePerUnit) {
+    return res.status(400).json({
+      success: false,
+      message: "ratePerTon or pricePerUnit must be a valid number greater than 0",
+    });
+  }
+
+  if (
+    pricePerUnit !== undefined &&
+    pricePerUnit !== null &&
+    pricePerUnit !== "" &&
+    (Number.isNaN(Number(pricePerUnit)) || Number(pricePerUnit) <= 0)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "pricePerUnit must be a valid number greater than 0",
+    });
+  }
+
+  if (normalizedBillingBasis === "per_unit") {
+    if (!isPositiveNumber(rateUnitId)) {
+      return res.status(400).json({
+        success: false,
+        message: "rateUnitId must be a valid positive number when billingBasis is per_unit",
+      });
+    }
+
+    if (!hasValidPricePerUnit) {
+      return res.status(400).json({
+        success: false,
+        message: "pricePerUnit must be a valid number greater than 0 when billingBasis is per_unit",
+      });
+    }
+  }
+
+  if (normalizedBillingBasis === "per_ton" && !hasValidRatePerTon && !hasValidPricePerUnit) {
+    return res.status(400).json({
+      success: false,
+      message: "pricePerUnit or ratePerTon must be provided when billingBasis is per_ton",
+    });
+  }
+
+  if (
+    conversionId !== undefined &&
+    conversionId !== null &&
+    conversionId !== "" &&
+    !isPositiveNumber(conversionId)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "conversionId must be a valid positive number when provided",
     });
   }
 

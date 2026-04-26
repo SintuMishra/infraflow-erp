@@ -21,6 +21,46 @@ const formatRateType = (value) => {
     .join(" ");
 };
 
+const BILLING_BASIS_OPTIONS = [
+  { value: "per_trip", label: "Per Trip" },
+  { value: "per_ton", label: "Per Ton" },
+  { value: "per_km", label: "Per KM" },
+  { value: "per_day", label: "Per Day" },
+  { value: "per_unit", label: "Per Unit" },
+];
+
+const LEGACY_RATE_TYPE_BY_BILLING_BASIS = {
+  per_trip: "per_trip",
+  per_ton: "per_ton",
+  per_km: "per_km",
+  per_day: "per_day",
+  per_unit: "per_ton",
+};
+
+const getBillingBasisLabel = (value) =>
+  BILLING_BASIS_OPTIONS.find((option) => option.value === value)?.label ||
+  formatRateType(value);
+
+const getUnitCode = (units, rateUnitId) =>
+  units.find((unit) => String(unit.id) === String(rateUnitId))?.unitCode || "unit";
+
+const getPerUnitCompatibilityNote = (rate, units) => {
+  if (rate.billingBasis !== "per_unit") {
+    return "";
+  }
+
+  return `Unit-aware transport rate stored as ${formatCurrency(rate.rateValue)} / ${getUnitCode(
+    units,
+    rate.rateUnitId
+  )}. Legacy dispatch costing still follows ${formatRateType(rate.rateType)} until dispatch integration is completed.`;
+};
+
+const getListData = (response) =>
+  Array.isArray(response?.data?.data) ? response.data.data : [];
+
+const getMaterialsData = (response) =>
+  Array.isArray(response?.data?.data?.materials) ? response.data.data.materials : [];
+
 function TransportRatesPage() {
   const { currentUser } = useAuth();
   const canManageTransportRates = ["super_admin", "manager"].includes(
@@ -30,9 +70,11 @@ function TransportRatesPage() {
   const [vendors, setVendors] = useState([]);
   const [plants, setPlants] = useState([]);
   const [materials, setMaterials] = useState([]);
+  const [units, setUnits] = useState([]);
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [unitsWarning, setUnitsWarning] = useState("");
 
   const [search, setSearch] = useState("");
   const [plantFilter, setPlantFilter] = useState("");
@@ -46,6 +88,9 @@ function TransportRatesPage() {
     plantId: "",
     vendorId: "",
     materialId: "",
+    billingBasis: "per_trip",
+    rateUnitId: "",
+    minimumCharge: "",
     rateType: "",
     rateValue: "",
     distanceKm: "",
@@ -56,6 +101,9 @@ function TransportRatesPage() {
     plantId: "",
     vendorId: "",
     materialId: "",
+    billingBasis: "per_trip",
+    rateUnitId: "",
+    minimumCharge: "",
     rateType: "",
     rateValue: "",
     distanceKm: "",
@@ -73,19 +121,41 @@ function TransportRatesPage() {
 
   async function loadAll() {
     try {
-      const [ratesRes, vendorsRes, plantsRes, mastersRes] = await Promise.all([
+      const [ratesRes, vendorsRes, plantsRes, mastersRes, unitsRes] = await Promise.allSettled([
         api.get("/transport-rates"),
         api.get("/vendors"),
         api.get("/plants"),
         api.get("/masters"),
+        api.get("/masters/units"),
       ]);
 
-      setRates(ratesRes.data?.data || []);
-      setVendors(vendorsRes.data?.data || []);
-      setPlants(plantsRes.data?.data || []);
-      setMaterials(mastersRes.data?.data?.materials || []);
+      const requiredResponses = [ratesRes, vendorsRes, plantsRes, mastersRes];
+      const failedRequiredResponse = requiredResponses.find(
+        (response) => response.status !== "fulfilled"
+      );
+
+      if (failedRequiredResponse) {
+        throw failedRequiredResponse.reason;
+      }
+
+      setRates(getListData(ratesRes.value));
+      setVendors(getListData(vendorsRes.value));
+      setPlants(getListData(plantsRes.value));
+      setMaterials(getMaterialsData(mastersRes.value));
+
+      if (unitsRes.status === "fulfilled") {
+        setUnits(getListData(unitsRes.value));
+        setUnitsWarning("");
+      } else {
+        setUnits([]);
+        setUnitsWarning(
+          "Unit master data could not be loaded. Legacy transport rates are still available, but unit labels may be incomplete."
+        );
+      }
+
       setError("");
     } catch {
+      setUnitsWarning("");
       setError("Failed to load transport rate data");
     }
   }
@@ -106,7 +176,8 @@ function TransportRatesPage() {
         rate.vendorName?.toLowerCase().includes(q) ||
         rate.materialName?.toLowerCase().includes(q) ||
         rate.plantName?.toLowerCase().includes(q) ||
-        rate.rateType?.toLowerCase().includes(q);
+        rate.rateType?.toLowerCase().includes(q) ||
+        rate.billingBasis?.toLowerCase().includes(q);
 
       const matchesPlant = plantFilter
         ? String(rate.plantId) === String(plantFilter)
@@ -132,7 +203,7 @@ function TransportRatesPage() {
       total: rates.length,
       active: rates.filter((r) => r.isActive).length,
       inactive: rates.filter((r) => !r.isActive).length,
-      perTrip: rates.filter((r) => r.rateType === "per_trip").length,
+      perTrip: rates.filter((r) => (r.billingBasis || r.rateType) === "per_trip").length,
     };
   }, [rates]);
 
@@ -148,7 +219,7 @@ function TransportRatesPage() {
       activeVisible: activeRates.length,
       averageRate:
         activeRates.length > 0 ? totalRateValue / activeRates.length : 0,
-      perKmVisible: filteredRates.filter((rate) => rate.rateType === "per_km")
+      perKmVisible: filteredRates.filter((rate) => (rate.billingBasis || rate.rateType) === "per_km")
         .length,
     };
   }, [filteredRates]);
@@ -191,9 +262,9 @@ function TransportRatesPage() {
         tone: filteredSummary.activeVisible > 0 ? "strong" : "attention",
       },
       {
-        label: "Average Rate",
+        label: "Average Stored Rate Value",
         value: formatCurrency(filteredSummary.averageRate),
-        note: "Average active transport rate in view",
+        note: "Average of the stored rate value across active visible records. Compare only within matching billing bases.",
         tone: filteredSummary.averageRate > 0 ? "strong" : "calm",
       },
       {
@@ -249,6 +320,59 @@ function TransportRatesPage() {
     }));
   };
 
+  const handleBillingBasisChange = (setter) => (e) => {
+    const nextBasis = e.target.value;
+    setter((prev) => ({
+      ...prev,
+      billingBasis: nextBasis,
+      rateType: LEGACY_RATE_TYPE_BY_BILLING_BASIS[nextBasis] || prev.rateType,
+      ...(nextBasis === "per_unit" ? {} : { rateUnitId: "" }),
+      ...(nextBasis === "per_km" ? {} : { distanceKm: "" }),
+    }));
+  };
+
+  const validateTransportRateForm = (data) => {
+    if (!data.plantId || !data.vendorId || !data.materialId || !data.billingBasis || !data.rateValue) {
+      setError("Plant, vendor, material, billing basis, and rate value are required");
+      return false;
+    }
+
+    if (Number(data.rateValue) <= 0) {
+      setError("Rate value must be greater than 0");
+      return false;
+    }
+
+    if (data.billingBasis === "per_unit" && !data.rateUnitId) {
+      setError("Unit is required for per unit billing");
+      return false;
+    }
+
+    if (data.billingBasis === "per_km" && !data.distanceKm) {
+      setError("Distance is required for per KM rates");
+      return false;
+    }
+
+    if (
+      data.minimumCharge !== "" &&
+      (Number.isNaN(Number(data.minimumCharge)) || Number(data.minimumCharge) < 0)
+    ) {
+      setError("Minimum charge must be 0 or more");
+      return false;
+    }
+
+    return true;
+  };
+
+  const normalizePayload = (data) => ({
+    ...data,
+    billingBasis: data.billingBasis,
+    rateType: LEGACY_RATE_TYPE_BY_BILLING_BASIS[data.billingBasis] || data.rateType,
+    rateUnitId: data.rateUnitId === "" ? null : Number(data.rateUnitId),
+    rateValue: Number(data.rateValue),
+    minimumCharge: data.minimumCharge === "" ? null : Number(data.minimumCharge),
+    distanceKm: data.distanceKm === "" ? null : Number(data.distanceKm),
+  });
+
   const renderCountBadge = (count) => (
     <span style={styles.countBadge}>{count} records</span>
   );
@@ -269,28 +393,21 @@ function TransportRatesPage() {
     setError("");
     setSuccess("");
 
-    if (!form.plantId || !form.vendorId || !form.materialId || !form.rateType || !form.rateValue) {
-      setError("Plant, vendor, material, rate type, and rate value are required");
-      return;
-    }
-
-    if (form.rateType === "per_km" && !form.distanceKm) {
-      setError("Distance is required for per KM rates");
+    if (!validateTransportRateForm(form)) {
       return;
     }
 
     try {
-      await api.post("/transport-rates", {
-        ...form,
-        rateValue: Number(form.rateValue),
-        distanceKm: form.distanceKm === "" ? null : Number(form.distanceKm),
-      });
+      await api.post("/transport-rates", normalizePayload(form));
 
       setSuccess("Transport rate added successfully");
       setForm({
         plantId: "",
         vendorId: "",
         materialId: "",
+        billingBasis: "per_trip",
+        rateUnitId: "",
+        minimumCharge: "",
         rateType: "",
         rateValue: "",
         distanceKm: "",
@@ -309,7 +426,16 @@ function TransportRatesPage() {
       plantId: String(rate.plantId || ""),
       vendorId: String(rate.vendorId || ""),
       materialId: String(rate.materialId || ""),
-      rateType: rate.rateType || "",
+      billingBasis: rate.billingBasis || rate.rateType || "per_trip",
+      rateUnitId:
+        rate.rateUnitId !== null && rate.rateUnitId !== undefined
+          ? String(rate.rateUnitId)
+          : "",
+      minimumCharge:
+        rate.minimumCharge !== null && rate.minimumCharge !== undefined
+          ? String(rate.minimumCharge)
+          : "",
+      rateType: rate.rateType || LEGACY_RATE_TYPE_BY_BILLING_BASIS[rate.billingBasis] || "",
       rateValue:
         rate.rateValue !== null && rate.rateValue !== undefined
           ? String(rate.rateValue)
@@ -329,29 +455,12 @@ function TransportRatesPage() {
 
     if (!editItem) return;
 
-    if (
-      !editForm.plantId ||
-      !editForm.vendorId ||
-      !editForm.materialId ||
-      !editForm.rateType ||
-      !editForm.rateValue
-    ) {
-      setError("Plant, vendor, material, rate type, and rate value are required");
-      return;
-    }
-
-    if (editForm.rateType === "per_km" && !editForm.distanceKm) {
-      setError("Distance is required for per KM rates");
+    if (!validateTransportRateForm(editForm)) {
       return;
     }
 
     try {
-      await api.patch(`/transport-rates/${editItem.id}`, {
-        ...editForm,
-        rateValue: Number(editForm.rateValue),
-        distanceKm:
-          editForm.distanceKm === "" ? null : Number(editForm.distanceKm),
-      });
+      await api.patch(`/transport-rates/${editItem.id}`, normalizePayload(editForm));
 
       setSuccess("Transport rate updated successfully");
       setEditItem(null);
@@ -420,6 +529,7 @@ function TransportRatesPage() {
 
         {error && <div style={styles.messageError}>{error}</div>}
         {success && <div style={styles.messageSuccess}>{success}</div>}
+        {unitsWarning && <div style={styles.messageWarning}>{unitsWarning}</div>}
 
         <div
           style={{
@@ -655,6 +765,12 @@ function TransportRatesPage() {
               the vendor agreement.
             </p>
             <p style={styles.logicText}>
+              Unit-aware transport rates can be configured now, but live dispatch
+              costing still uses the legacy transport type until dispatch integration
+              is implemented. Minimum charge is stored for later use and is not applied
+              automatically in this phase.
+            </p>
+            <p style={styles.logicText}>
               Material selling price belongs in Party Material Rates. Keeping
               those two layers separate makes total dispatch costing more reliable
               for real production usage.
@@ -739,7 +855,7 @@ function TransportRatesPage() {
                         <th style={styles.th}>Plant</th>
                         <th style={styles.th}>Vendor</th>
                         <th style={styles.th}>Material</th>
-                        <th style={styles.th}>Rate Type</th>
+                        <th style={styles.th}>Billing Basis</th>
                         <th style={styles.th}>Rate Value</th>
                         <th style={styles.th}>Distance KM</th>
                         <th style={styles.th}>Status</th>
@@ -753,9 +869,31 @@ function TransportRatesPage() {
                           <td style={styles.td}>{rate.plantName}</td>
                           <td style={styles.td}>{rate.vendorName}</td>
                           <td style={styles.td}>{rate.materialName}</td>
-                          <td style={styles.td}>{formatRateType(rate.rateType)}</td>
+                          <td style={styles.td}>
+                            <div>{getBillingBasisLabel(rate.billingBasis || rate.rateType)}</div>
+                            {rate.billingBasis === "per_unit" && rate.rateUnitId ? (
+                              <div style={styles.tdSubtle}>
+                                Unit: {getUnitCode(units, rate.rateUnitId)}
+                              </div>
+                            ) : null}
+                            {getPerUnitCompatibilityNote(rate, units) ? (
+                              <div style={styles.tdSubtle}>
+                                {getPerUnitCompatibilityNote(rate, units)}
+                              </div>
+                            ) : null}
+                            {rate.billingBasis && rate.billingBasis !== rate.rateType ? (
+                              <div style={styles.tdSubtle}>
+                                Legacy dispatch type placeholder: {formatRateType(rate.rateType)}
+                              </div>
+                            ) : null}
+                          </td>
                           <td style={styles.td}>
                             {formatCurrency(rate.rateValue)}
+                            {rate.minimumCharge !== null && rate.minimumCharge !== undefined ? (
+                              <div style={styles.tdSubtle}>
+                                Min charge: {formatCurrency(rate.minimumCharge)}
+                              </div>
+                            ) : null}
                           </td>
                           <td style={styles.td}>{rate.distanceKm || "-"}</td>
                           <td style={styles.td}>
@@ -802,6 +940,11 @@ function TransportRatesPage() {
               <p style={styles.blockSubtitle}>
                 Create a plant-wise vendor rate for a specific material and charging method.
               </p>
+              <p style={styles.logicText}>
+                Per unit transport rates are saved as unit-aware records now, but live
+                dispatch costing will continue using the legacy transport type until the
+                dispatch integration phase is implemented.
+              </p>
 
               <form onSubmit={handleSubmit} style={styles.form}>
                 <select
@@ -847,37 +990,67 @@ function TransportRatesPage() {
                 </select>
 
                 <select
-                  name="rateType"
-                  value={form.rateType}
-                  onChange={handleChange(setForm)}
+                  name="billingBasis"
+                  value={form.billingBasis}
+                  onChange={handleBillingBasisChange(setForm)}
                   style={styles.input}
                 >
-                  <option value="">Select Rate Type</option>
-                  <option value="per_trip">Per Trip</option>
-                  <option value="per_ton">Per Ton</option>
-                  <option value="per_km">Per KM</option>
-                  <option value="per_day">Per Day</option>
+                  {BILLING_BASIS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
+
+                {form.billingBasis === "per_unit" && (
+                  <select
+                    name="rateUnitId"
+                    value={form.rateUnitId}
+                    onChange={handleChange(setForm)}
+                    style={styles.input}
+                  >
+                    <option value="">Select Billing Unit</option>
+                    {units.map((unit) => (
+                      <option key={unit.id} value={unit.id}>
+                        {unit.unitCode} - {unit.unitName}
+                      </option>
+                    ))}
+                  </select>
+                )}
 
                 <input
                   name="rateValue"
                   type="number"
                   step="0.01"
-                  placeholder="Rate Value"
+                  placeholder={
+                    form.billingBasis === "per_unit" ? "Price Per Unit" : "Rate Value"
+                  }
                   value={form.rateValue}
                   onChange={handleChange(setForm)}
                   style={styles.input}
                 />
 
                 <input
-                  name="distanceKm"
+                  name="minimumCharge"
                   type="number"
                   step="0.01"
-                  placeholder="Distance KM (only for per KM if needed)"
-                  value={form.distanceKm}
+                  placeholder="Minimum Charge (optional)"
+                  value={form.minimumCharge}
                   onChange={handleChange(setForm)}
                   style={styles.input}
                 />
+
+                {form.billingBasis === "per_km" && (
+                  <input
+                    name="distanceKm"
+                    type="number"
+                    step="0.01"
+                    placeholder="Distance KM"
+                    value={form.distanceKm}
+                    onChange={handleChange(setForm)}
+                    style={styles.input}
+                  />
+                )}
 
                 <button type="submit" style={styles.button}>
                   Save Rate
@@ -893,6 +1066,11 @@ function TransportRatesPage() {
               <h3 style={styles.editTitle}>Update selected rate</h3>
               <p style={styles.editSubtitle}>
                 Edit this transport rate carefully and save the changes.
+              </p>
+              <p style={styles.logicText}>
+                Unit-aware transport pricing is stored safely here, while live dispatch
+                costing still follows the legacy transport type until the dispatch
+                integration phase is completed.
               </p>
             </div>
 
@@ -940,37 +1118,67 @@ function TransportRatesPage() {
               </select>
 
               <select
-                name="rateType"
-                value={editForm.rateType}
-                onChange={handleChange(setEditForm)}
+                name="billingBasis"
+                value={editForm.billingBasis}
+                onChange={handleBillingBasisChange(setEditForm)}
                 style={styles.input}
               >
-                <option value="">Select Rate Type</option>
-                <option value="per_trip">Per Trip</option>
-                <option value="per_ton">Per Ton</option>
-                <option value="per_km">Per KM</option>
-                <option value="per_day">Per Day</option>
+                {BILLING_BASIS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
+
+              {editForm.billingBasis === "per_unit" && (
+                <select
+                  name="rateUnitId"
+                  value={editForm.rateUnitId}
+                  onChange={handleChange(setEditForm)}
+                  style={styles.input}
+                >
+                  <option value="">Select Billing Unit</option>
+                  {units.map((unit) => (
+                    <option key={unit.id} value={unit.id}>
+                      {unit.unitCode} - {unit.unitName}
+                    </option>
+                  ))}
+                </select>
+              )}
 
               <input
                 name="rateValue"
                 type="number"
                 step="0.01"
-                placeholder="Rate Value"
+                placeholder={
+                  editForm.billingBasis === "per_unit" ? "Price Per Unit" : "Rate Value"
+                }
                 value={editForm.rateValue}
                 onChange={handleChange(setEditForm)}
                 style={styles.input}
               />
 
               <input
-                name="distanceKm"
+                name="minimumCharge"
                 type="number"
                 step="0.01"
-                placeholder="Distance KM"
-                value={editForm.distanceKm}
+                placeholder="Minimum Charge (optional)"
+                value={editForm.minimumCharge}
                 onChange={handleChange(setEditForm)}
                 style={styles.input}
               />
+
+              {editForm.billingBasis === "per_km" && (
+                <input
+                  name="distanceKm"
+                  type="number"
+                  step="0.01"
+                  placeholder="Distance KM"
+                  value={editForm.distanceKm}
+                  onChange={handleChange(setEditForm)}
+                  style={styles.input}
+                />
+              )}
             </div>
 
             <div style={styles.editActions}>
@@ -1201,6 +1409,15 @@ const styles = {
     borderRadius: "16px",
     fontSize: "14px",
     boxShadow: "0 10px 24px rgba(16,185,129,0.08)",
+  },
+  messageWarning: {
+    background: "linear-gradient(135deg, #fff7ed 0%, #fffbeb 100%)",
+    color: "#9a3412",
+    border: "1px solid #fdba74",
+    padding: "14px 16px",
+    borderRadius: "16px",
+    fontSize: "14px",
+    boxShadow: "0 10px 24px rgba(245,158,11,0.08)",
   },
   summaryGrid: {
     display: "grid",

@@ -163,6 +163,14 @@ const getSuggestedRateUnitsPerTon = (rateUnit) => {
 const formatRateValue = (item) =>
   `${formatCurrency(item.ratePerTon)} / ${getRateUnitLabel(item)}`;
 
+const getCompatibilityRateNote = (item) => {
+  if (item.billingBasis !== "per_unit" || !item.pricePerUnit) {
+    return "";
+  }
+
+  return `Legacy compatibility field mirrors ${formatCurrency(item.pricePerUnit)} / ${getRateUnitLabel(item)} for older dispatch billing screens.`;
+};
+
 const hasLinkedDispatches = (order) =>
   Number(order?.plannedQuantityTons || 0) > 0;
 
@@ -1839,6 +1847,11 @@ function PartyCommercialProfilePage() {
                         {item.effectiveFrom && (
                           <div style={styles.tdSubtle}>
                             Effective {formatDisplayDate(item.effectiveFrom)}
+                          </div>
+                        )}
+                        {getCompatibilityRateNote(item) && (
+                          <div style={styles.tdSubtle}>
+                            {getCompatibilityRateNote(item)}
                           </div>
                         )}
                         {Number(item.rateUnitsPerTon || 1) !== 1 && (

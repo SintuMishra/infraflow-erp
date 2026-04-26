@@ -66,6 +66,8 @@ test("migration files are ordered and include production hardening migrations", 
     "047_equipment_log_meter_readings.sql",
     "048_equipment_log_manual_vehicle_and_operator.sql",
     "049_equipment_log_meter_unit.sql",
+    "050_unit_conversion_dispatch_foundation.sql",
+    "051_unit_master_seed_data.sql",
   ]);
 });
 
@@ -509,4 +511,35 @@ test("equipment log meter unit migration supports hours and km tracking", async 
   assert.match(sql, /ADD COLUMN IF NOT EXISTS meter_unit VARCHAR\(20\)/i);
   assert.match(sql, /CHECK \(meter_unit IN \('hours', 'km'\)\)/i);
   assert.match(sql, /CREATE INDEX IF NOT EXISTS idx_equipment_logs_meter_unit/i);
+});
+
+test("unit conversion foundation migration adds additive unit, conversion, and dispatch snapshot schema", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/050_unit_conversion_dispatch_foundation.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS public\.unit_master/i);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS public\.material_unit_conversions/i);
+  assert.match(sql, /ALTER TABLE public\.dispatch_reports/i);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS entered_quantity NUMERIC\(18,3\) NULL/i);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS rate_unit_id BIGINT NULL REFERENCES public\.unit_master\(id\)/i);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS billing_basis_snapshot VARCHAR\(30\) NULL/i);
+  assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS uq_unit_master_company_code/i);
+  assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS uq_material_unit_conversion_effective/i);
+});
+
+test("unit master seed migration inserts standard material and transport units idempotently", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/051_unit_master_seed_data.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /INSERT INTO public\.unit_master/i);
+  assert.match(sql, /'TON'/i);
+  assert.match(sql, /'BRASS'/i);
+  assert.match(sql, /'TRIP'/i);
+  assert.match(sql, /ON CONFLICT/i);
 });

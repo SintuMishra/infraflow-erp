@@ -262,6 +262,215 @@ test("createMaterial prefers configurable HSN auto-rules when a matching rule ex
   assert.equal(insertedPayload.hsnSacCode, "2505");
 });
 
+test("getUnits forwards company scope to unit lookup", async () => {
+  const calls = [];
+
+  await withMastersServiceMocks(
+    {
+      model: {
+        findCrusherUnits: async () => [],
+        findMaterials: async () => [],
+        findShifts: async () => [],
+        findVehicleTypes: async () => [],
+        findConfigOptions: async () => [],
+        findUnits: async (companyId) => {
+          calls.push(companyId);
+          return [{ id: 12, unitCode: "TON", unitName: "Ton", isActive: true }];
+        },
+      },
+    },
+    async ({ getUnits }) => {
+      const rows = await getUnits(44);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].unitCode, "TON");
+    }
+  );
+
+  assert.deepEqual(calls, [44]);
+});
+
+test("getUnits returns empty list when unit master schema is unavailable", async () => {
+  await withMastersServiceMocks(
+    {
+      model: {
+        findCrusherUnits: async () => [],
+        findMaterials: async () => [],
+        findShifts: async () => [],
+        findVehicleTypes: async () => [],
+        findConfigOptions: async () => [],
+        findUnits: async () => {
+          const error = new Error('relation "public.unit_master" does not exist');
+          error.code = "42P01";
+          throw error;
+        },
+      },
+    },
+    async ({ getUnits }) => {
+      const rows = await getUnits(44);
+      assert.deepEqual(rows, []);
+    }
+  );
+});
+
+test("getUnits rethrows non-schema unit lookup errors", async () => {
+  await withMastersServiceMocks(
+    {
+      model: {
+        findCrusherUnits: async () => [],
+        findMaterials: async () => [],
+        findShifts: async () => [],
+        findVehicleTypes: async () => [],
+        findConfigOptions: async () => [],
+        findUnits: async () => {
+          const error = new Error('column "unexpected_runtime_bug" does not exist');
+          error.code = "42703";
+          throw error;
+        },
+      },
+    },
+    async ({ getUnits }) => {
+      await assert.rejects(
+        () => getUnits(44),
+        (error) => {
+          assert.equal(error.code, "42703");
+          assert.match(error.message, /unexpected_runtime_bug/i);
+          return true;
+        }
+      );
+    }
+  );
+});
+
+test("createUnitMaster normalizes unit payload and preserves company scope", async () => {
+  let insertedPayload = null;
+
+  await withMastersServiceMocks(
+    {
+      model: {
+        findCrusherUnits: async () => [],
+        findMaterials: async () => [],
+        findShifts: async () => [],
+        findVehicleTypes: async () => [],
+        findConfigOptions: async () => [],
+        findUnits: async () => [],
+        insertUnit: async (payload) => {
+          insertedPayload = payload;
+          return { id: 91, ...payload };
+        },
+      },
+    },
+    async ({ createUnitMaster }) => {
+      await createUnitMaster({
+        unitCode: " cft ",
+        unitName: " Cubic Feet ",
+        dimensionType: " volume ",
+        precisionScale: "3",
+        isBaseUnit: false,
+        isActive: true,
+        companyId: 44,
+      });
+    }
+  );
+
+  assert.equal(insertedPayload.unitCode, "CFT");
+  assert.equal(insertedPayload.unitName, "Cubic Feet");
+  assert.equal(insertedPayload.dimensionType, "volume");
+  assert.equal(insertedPayload.precisionScale, 3);
+  assert.equal(insertedPayload.companyId, 44);
+  assert.equal(insertedPayload.isActive, true);
+});
+
+test("createMaterialUnitConversionMaster rejects overlapping active conversions", async () => {
+  await withMastersServiceMocks(
+    {
+      model: {
+        findCrusherUnits: async () => [],
+        findMaterials: async () => [],
+        findShifts: async () => [],
+        findVehicleTypes: async () => [],
+        findConfigOptions: async () => [],
+        findMaterialById: async () => ({ id: 7, materialName: "Stone Dust", isActive: true }),
+        findUnitByIdForScope: async (id) => ({
+          id,
+          unitCode: id === 1 ? "TON" : "CFT",
+          isActive: true,
+        }),
+        findOverlappingActiveMaterialUnitConversion: async () => ({ id: 501 }),
+      },
+    },
+    async ({ createMaterialUnitConversionMaster }) => {
+      await assert.rejects(
+        () =>
+          createMaterialUnitConversionMaster({
+            materialId: 7,
+            fromUnitId: 2,
+            toUnitId: 1,
+            conversionFactor: 0.044444,
+            conversionMethod: "density_based",
+            effectiveFrom: "2026-04-26",
+            companyId: 44,
+          }),
+        (error) => {
+          assert.equal(error.statusCode, 409);
+          assert.match(error.message, /overlapping conversion/i);
+          return true;
+        }
+      );
+    }
+  );
+});
+
+test("createMaterialUnitConversionMaster validates referenced material and units before insert", async () => {
+  let insertedPayload = null;
+
+  await withMastersServiceMocks(
+    {
+      model: {
+        findCrusherUnits: async () => [],
+        findMaterials: async () => [],
+        findShifts: async () => [],
+        findVehicleTypes: async () => [],
+        findConfigOptions: async () => [],
+        findMaterialById: async () => ({ id: 7, materialName: "Stone Dust", isActive: true }),
+        findUnitByIdForScope: async (id) => ({
+          id,
+          unitCode: id === 1 ? "TON" : "CFT",
+          isActive: true,
+        }),
+        findOverlappingActiveMaterialUnitConversion: async () => null,
+        insertMaterialUnitConversion: async (payload) => {
+          insertedPayload = payload;
+          return { id: 88, ...payload };
+        },
+      },
+    },
+    async ({ createMaterialUnitConversionMaster }) => {
+      await createMaterialUnitConversionMaster({
+        materialId: 7,
+        fromUnitId: 2,
+        toUnitId: 1,
+        conversionFactor: "0.044444",
+        conversionMethod: "density_based",
+        effectiveFrom: "2026-04-26",
+        effectiveTo: "",
+        notes: " 22.5 cft per ton ",
+        isActive: true,
+        companyId: 44,
+      });
+    }
+  );
+
+  assert.equal(insertedPayload.materialId, 7);
+  assert.equal(insertedPayload.fromUnitId, 2);
+  assert.equal(insertedPayload.toUnitId, 1);
+  assert.equal(insertedPayload.conversionFactor, 0.044444);
+  assert.equal(insertedPayload.conversionMethod, "density_based");
+  assert.equal(insertedPayload.effectiveFrom, "2026-04-26");
+  assert.equal(insertedPayload.effectiveTo, null);
+  assert.equal(insertedPayload.notes, "22.5 cft per ton");
+  assert.equal(insertedPayload.companyId, 44);
+});
+
 test("createCrusherUnit normalizes plant-linked unit payload for typed reporting", async () => {
   let insertedPayload = null;
 

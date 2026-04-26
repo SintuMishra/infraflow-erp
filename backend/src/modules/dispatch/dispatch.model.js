@@ -18,6 +18,17 @@ const formatDispatchRow = (row) => {
   return {
     ...formatted,
     quantityTons: toNumberOrNull(formatted.quantityTons),
+    enteredQuantity: toNumberOrNull(formatted.enteredQuantity),
+    enteredUnitId: toNumberOrNull(formatted.enteredUnitId),
+    conversionFactorToTon: toNumberOrNull(formatted.conversionFactorToTon),
+    conversionId: toNumberOrNull(formatted.conversionId),
+    sourceVehicleCapacityTons: toNumberOrNull(formatted.sourceVehicleCapacityTons),
+    sourceVehicleCapacityUnitId: toNumberOrNull(formatted.sourceVehicleCapacityUnitId),
+    billingUnitIdSnapshot: toNumberOrNull(formatted.billingUnitIdSnapshot),
+    billedQuantitySnapshot: toNumberOrNull(formatted.billedQuantitySnapshot),
+    billedRateSnapshot: toNumberOrNull(formatted.billedRateSnapshot),
+    transportUnitIdSnapshot: toNumberOrNull(formatted.transportUnitIdSnapshot),
+    transportQuantitySnapshot: toNumberOrNull(formatted.transportQuantitySnapshot),
     invoiceValue: toNumberOrNull(formatted.invoiceValue),
     distanceKm: toNumberOrNull(formatted.distanceKm),
     materialRatePerTon: toNumberOrNull(formatted.materialRatePerTon),
@@ -59,6 +70,22 @@ const getDispatchSchemaCapabilities = async (db = pool) => {
     hasLoadingChargeBasis,
     hasLoadingChargeRate,
     hasLoadingChargeIsManual,
+    hasEnteredQuantity,
+    hasEnteredUnitId,
+    hasQuantitySource,
+    hasConversionFactorToTon,
+    hasConversionId,
+    hasConversionMethodSnapshot,
+    hasSourceVehicleCapacityTons,
+    hasSourceVehicleCapacityUnitId,
+    hasBillingBasisSnapshot,
+    hasBillingUnitIdSnapshot,
+    hasBilledQuantitySnapshot,
+    hasBilledRateSnapshot,
+    hasTransportBasisSnapshot,
+    hasTransportUnitIdSnapshot,
+    hasTransportQuantitySnapshot,
+    hasConversionNotesSnapshot,
   ] = await Promise.all([
     hasColumn("dispatch_reports", "company_id", db),
     hasColumn("dispatch_reports", "party_order_id", db),
@@ -77,6 +104,22 @@ const getDispatchSchemaCapabilities = async (db = pool) => {
     hasColumn("dispatch_reports", "loading_charge_basis", db),
     hasColumn("dispatch_reports", "loading_charge_rate", db),
     hasColumn("dispatch_reports", "loading_charge_is_manual", db),
+    hasColumn("dispatch_reports", "entered_quantity", db),
+    hasColumn("dispatch_reports", "entered_unit_id", db),
+    hasColumn("dispatch_reports", "quantity_source", db),
+    hasColumn("dispatch_reports", "conversion_factor_to_ton", db),
+    hasColumn("dispatch_reports", "conversion_id", db),
+    hasColumn("dispatch_reports", "conversion_method_snapshot", db),
+    hasColumn("dispatch_reports", "source_vehicle_capacity_tons", db),
+    hasColumn("dispatch_reports", "source_vehicle_capacity_unit_id", db),
+    hasColumn("dispatch_reports", "billing_basis_snapshot", db),
+    hasColumn("dispatch_reports", "billing_unit_id_snapshot", db),
+    hasColumn("dispatch_reports", "billed_quantity_snapshot", db),
+    hasColumn("dispatch_reports", "billed_rate_snapshot", db),
+    hasColumn("dispatch_reports", "transport_basis_snapshot", db),
+    hasColumn("dispatch_reports", "transport_unit_id_snapshot", db),
+    hasColumn("dispatch_reports", "transport_quantity_snapshot", db),
+    hasColumn("dispatch_reports", "conversion_notes_snapshot", db),
   ]);
 
   return {
@@ -98,6 +141,22 @@ const getDispatchSchemaCapabilities = async (db = pool) => {
     hasLoadingChargeBasis,
     hasLoadingChargeRate,
     hasLoadingChargeIsManual,
+    hasEnteredQuantity,
+    hasEnteredUnitId,
+    hasQuantitySource,
+    hasConversionFactorToTon,
+    hasConversionId,
+    hasConversionMethodSnapshot,
+    hasSourceVehicleCapacityTons,
+    hasSourceVehicleCapacityUnitId,
+    hasBillingBasisSnapshot,
+    hasBillingUnitIdSnapshot,
+    hasBilledQuantitySnapshot,
+    hasBilledRateSnapshot,
+    hasTransportBasisSnapshot,
+    hasTransportUnitIdSnapshot,
+    hasTransportQuantitySnapshot,
+    hasConversionNotesSnapshot,
   };
 };
 
@@ -233,6 +292,22 @@ const buildBaseDispatchSelect = async (db = pool, schemaCapabilities = null) => 
     hasLoadingChargeBasis,
     hasLoadingChargeRate,
     hasLoadingChargeIsManual,
+    hasEnteredQuantity,
+    hasEnteredUnitId,
+    hasQuantitySource,
+    hasConversionFactorToTon,
+    hasConversionId,
+    hasConversionMethodSnapshot,
+    hasSourceVehicleCapacityTons,
+    hasSourceVehicleCapacityUnitId,
+    hasBillingBasisSnapshot,
+    hasBillingUnitIdSnapshot,
+    hasBilledQuantitySnapshot,
+    hasBilledRateSnapshot,
+    hasTransportBasisSnapshot,
+    hasTransportUnitIdSnapshot,
+    hasTransportQuantitySnapshot,
+    hasConversionNotesSnapshot,
   } = capabilities;
 
   return `
@@ -245,6 +320,22 @@ const buildBaseDispatchSelect = async (db = pool, schemaCapabilities = null) => 
       dr.vehicle_number AS "vehicleNumber",
       dr.destination_name AS "destinationName",
       dr.quantity_tons AS "quantityTons",
+      ${hasEnteredQuantity ? `dr.entered_quantity AS "enteredQuantity",` : `NULL AS "enteredQuantity",`}
+      ${hasEnteredUnitId ? `dr.entered_unit_id AS "enteredUnitId",` : `NULL AS "enteredUnitId",`}
+      ${hasQuantitySource ? `dr.quantity_source AS "quantitySource",` : `NULL AS "quantitySource",`}
+      ${hasConversionFactorToTon ? `dr.conversion_factor_to_ton AS "conversionFactorToTon",` : `NULL AS "conversionFactorToTon",`}
+      ${hasConversionId ? `dr.conversion_id AS "conversionId",` : `NULL AS "conversionId",`}
+      ${hasConversionMethodSnapshot ? `dr.conversion_method_snapshot AS "conversionMethodSnapshot",` : `NULL AS "conversionMethodSnapshot",`}
+      ${hasSourceVehicleCapacityTons ? `dr.source_vehicle_capacity_tons AS "sourceVehicleCapacityTons",` : `NULL AS "sourceVehicleCapacityTons",`}
+      ${hasSourceVehicleCapacityUnitId ? `dr.source_vehicle_capacity_unit_id AS "sourceVehicleCapacityUnitId",` : `NULL AS "sourceVehicleCapacityUnitId",`}
+      ${hasBillingBasisSnapshot ? `dr.billing_basis_snapshot AS "billingBasisSnapshot",` : `NULL AS "billingBasisSnapshot",`}
+      ${hasBillingUnitIdSnapshot ? `dr.billing_unit_id_snapshot AS "billingUnitIdSnapshot",` : `NULL AS "billingUnitIdSnapshot",`}
+      ${hasBilledQuantitySnapshot ? `dr.billed_quantity_snapshot AS "billedQuantitySnapshot",` : `NULL AS "billedQuantitySnapshot",`}
+      ${hasBilledRateSnapshot ? `dr.billed_rate_snapshot AS "billedRateSnapshot",` : `NULL AS "billedRateSnapshot",`}
+      ${hasTransportBasisSnapshot ? `dr.transport_basis_snapshot AS "transportBasisSnapshot",` : `NULL AS "transportBasisSnapshot",`}
+      ${hasTransportUnitIdSnapshot ? `dr.transport_unit_id_snapshot AS "transportUnitIdSnapshot",` : `NULL AS "transportUnitIdSnapshot",`}
+      ${hasTransportQuantitySnapshot ? `dr.transport_quantity_snapshot AS "transportQuantitySnapshot",` : `NULL AS "transportQuantitySnapshot",`}
+      ${hasConversionNotesSnapshot ? `dr.conversion_notes_snapshot AS "conversionNotesSnapshot",` : `NULL AS "conversionNotesSnapshot",`}
       dr.remarks,
       dr.status,
       dr.ewb_number AS "ewbNumber",
@@ -447,6 +538,22 @@ const insertDispatchReport = async ({
   vehicleNumber,
   destinationName,
   quantityTons,
+  enteredQuantity,
+  enteredUnitId,
+  quantitySource,
+  conversionFactorToTon,
+  conversionId,
+  conversionMethodSnapshot,
+  sourceVehicleCapacityTons,
+  sourceVehicleCapacityUnitId,
+  billingBasisSnapshot,
+  billingUnitIdSnapshot,
+  billedQuantitySnapshot,
+  billedRateSnapshot,
+  transportBasisSnapshot,
+  transportUnitIdSnapshot,
+  transportQuantitySnapshot,
+  conversionNotesSnapshot,
   remarks,
   createdBy,
   plantId,
@@ -500,6 +607,42 @@ const insertDispatchReport = async ({
   const hasLoadingChargeBasis = await hasColumn("dispatch_reports", "loading_charge_basis", db);
   const hasLoadingChargeRate = await hasColumn("dispatch_reports", "loading_charge_rate", db);
   const hasLoadingChargeIsManual = await hasColumn("dispatch_reports", "loading_charge_is_manual", db);
+  const hasEnteredQuantity = await hasColumn("dispatch_reports", "entered_quantity", db);
+  const hasEnteredUnitId = await hasColumn("dispatch_reports", "entered_unit_id", db);
+  const hasQuantitySource = await hasColumn("dispatch_reports", "quantity_source", db);
+  const hasConversionFactorToTon = await hasColumn("dispatch_reports", "conversion_factor_to_ton", db);
+  const hasConversionId = await hasColumn("dispatch_reports", "conversion_id", db);
+  const hasConversionMethodSnapshot = await hasColumn("dispatch_reports", "conversion_method_snapshot", db);
+  const hasSourceVehicleCapacityTons = await hasColumn("dispatch_reports", "source_vehicle_capacity_tons", db);
+  const hasSourceVehicleCapacityUnitId = await hasColumn("dispatch_reports", "source_vehicle_capacity_unit_id", db);
+  const hasBillingBasisSnapshot = await hasColumn("dispatch_reports", "billing_basis_snapshot", db);
+  const hasBillingUnitIdSnapshot = await hasColumn("dispatch_reports", "billing_unit_id_snapshot", db);
+  const hasBilledQuantitySnapshot = await hasColumn("dispatch_reports", "billed_quantity_snapshot", db);
+  const hasBilledRateSnapshot = await hasColumn("dispatch_reports", "billed_rate_snapshot", db);
+  const hasTransportBasisSnapshot = await hasColumn("dispatch_reports", "transport_basis_snapshot", db);
+  const hasTransportUnitIdSnapshot = await hasColumn("dispatch_reports", "transport_unit_id_snapshot", db);
+  const hasTransportQuantitySnapshot = await hasColumn("dispatch_reports", "transport_quantity_snapshot", db);
+  const hasConversionNotesSnapshot = await hasColumn("dispatch_reports", "conversion_notes_snapshot", db);
+  const optionalQuantityColumns = [
+    hasEnteredQuantity ? "entered_quantity" : null,
+    hasEnteredUnitId ? "entered_unit_id" : null,
+    hasQuantitySource ? "quantity_source" : null,
+    hasConversionFactorToTon ? "conversion_factor_to_ton" : null,
+    hasConversionId ? "conversion_id" : null,
+    hasConversionMethodSnapshot ? "conversion_method_snapshot" : null,
+    hasSourceVehicleCapacityTons ? "source_vehicle_capacity_tons" : null,
+    hasSourceVehicleCapacityUnitId ? "source_vehicle_capacity_unit_id" : null,
+  ].filter(Boolean);
+  const optionalQuantityValues = [
+    ...(hasEnteredQuantity ? [enteredQuantity ?? null] : []),
+    ...(hasEnteredUnitId ? [enteredUnitId ?? null] : []),
+    ...(hasQuantitySource ? [quantitySource || null] : []),
+    ...(hasConversionFactorToTon ? [conversionFactorToTon ?? null] : []),
+    ...(hasConversionId ? [conversionId ?? null] : []),
+    ...(hasConversionMethodSnapshot ? [conversionMethodSnapshot || null] : []),
+    ...(hasSourceVehicleCapacityTons ? [sourceVehicleCapacityTons ?? null] : []),
+    ...(hasSourceVehicleCapacityUnitId ? [sourceVehicleCapacityUnitId ?? null] : []),
+  ];
   const optionalRateUnitColumns = [
     hasMaterialRateUnit ? "material_rate_unit" : null,
     hasMaterialRateUnitLabel ? "material_rate_unit_label" : null,
@@ -526,13 +669,39 @@ const insertDispatchReport = async ({
     ...(hasLoadingChargeRate ? [loadingChargeRate ?? loadingCharge ?? null] : []),
     ...(hasLoadingChargeIsManual ? [Boolean(loadingChargeIsManual)] : []),
   ];
-  const rateUnitStartIndex = dispatchHasPartyOrder ? 27 : 26;
+  const optionalBillingSnapshotColumns = [
+    hasBillingBasisSnapshot ? "billing_basis_snapshot" : null,
+    hasBillingUnitIdSnapshot ? "billing_unit_id_snapshot" : null,
+    hasBilledQuantitySnapshot ? "billed_quantity_snapshot" : null,
+    hasBilledRateSnapshot ? "billed_rate_snapshot" : null,
+    hasTransportBasisSnapshot ? "transport_basis_snapshot" : null,
+    hasTransportUnitIdSnapshot ? "transport_unit_id_snapshot" : null,
+    hasTransportQuantitySnapshot ? "transport_quantity_snapshot" : null,
+    hasConversionNotesSnapshot ? "conversion_notes_snapshot" : null,
+  ].filter(Boolean);
+  const optionalBillingSnapshotValues = [
+    ...(hasBillingBasisSnapshot ? [billingBasisSnapshot || null] : []),
+    ...(hasBillingUnitIdSnapshot ? [billingUnitIdSnapshot ?? null] : []),
+    ...(hasBilledQuantitySnapshot ? [billedQuantitySnapshot ?? null] : []),
+    ...(hasBilledRateSnapshot ? [billedRateSnapshot ?? null] : []),
+    ...(hasTransportBasisSnapshot ? [transportBasisSnapshot || null] : []),
+    ...(hasTransportUnitIdSnapshot ? [transportUnitIdSnapshot ?? null] : []),
+    ...(hasTransportQuantitySnapshot ? [transportQuantitySnapshot ?? null] : []),
+    ...(hasConversionNotesSnapshot ? [conversionNotesSnapshot || null] : []),
+  ];
+  const quantityStartIndex = dispatchHasPartyOrder ? 27 : 26;
+  const quantityPlaceholders = optionalQuantityValues.map((_, index) => `$${quantityStartIndex + index}`);
+  const billingSnapshotStartIndex = quantityStartIndex + optionalQuantityValues.length;
+  const billingSnapshotPlaceholders = optionalBillingSnapshotValues.map((_, index) => `$${billingSnapshotStartIndex + index}`);
+  const rateUnitStartIndex = billingSnapshotStartIndex + optionalBillingSnapshotValues.length;
   const rateUnitPlaceholders = optionalRateUnitValues.map((_, index) => `$${rateUnitStartIndex + index}`);
   const royaltyStartIndex = rateUnitStartIndex + optionalRateUnitValues.length;
   const royaltyPlaceholders = optionalRoyaltyValues.map((_, index) => `$${royaltyStartIndex + index}`);
   const loadingStartIndex = royaltyStartIndex + optionalRoyaltyValues.length;
   const loadingPlaceholders = optionalLoadingValues.map((_, index) => `$${loadingStartIndex + index}`);
   const offset =
+    optionalQuantityValues.length +
+    optionalBillingSnapshotValues.length +
     optionalRateUnitValues.length +
     optionalRoyaltyValues.length +
     optionalLoadingValues.length;
@@ -564,6 +733,8 @@ const insertDispatchReport = async ({
       transport_rate_id,
       ${dispatchHasPartyOrder ? `party_order_id,` : ""}
       material_rate_per_ton,
+      ${optionalQuantityColumns.length ? `${optionalQuantityColumns.join(",\n      ")},` : ""}
+      ${optionalBillingSnapshotColumns.length ? `${optionalBillingSnapshotColumns.join(",\n      ")},` : ""}
       ${optionalRateUnitColumns.length ? `${optionalRateUnitColumns.join(",\n      ")},` : ""}
       ${optionalRoyaltyColumns.length ? `${optionalRoyaltyColumns.join(",\n      ")},` : ""}
       ${optionalLoadingColumns.length ? `${optionalLoadingColumns.join(",\n      ")},` : ""}
@@ -591,6 +762,8 @@ const insertDispatchReport = async ({
       $19, $20, $21, $22, $23, $24
       ${dispatchHasPartyOrder ? `, $25` : ""}
       , $${dispatchHasPartyOrder ? 26 : 25}
+      ${quantityPlaceholders.length ? `, ${quantityPlaceholders.join(", ")}` : ""}
+      ${billingSnapshotPlaceholders.length ? `, ${billingSnapshotPlaceholders.join(", ")}` : ""}
       ${rateUnitPlaceholders.length ? `, ${rateUnitPlaceholders.join(", ")}` : ""}
       ${royaltyPlaceholders.length ? `, ${royaltyPlaceholders.join(", ")}` : ""}
       ${loadingPlaceholders.length ? `, ${loadingPlaceholders.join(", ")}` : ""}
@@ -628,6 +801,8 @@ const insertDispatchReport = async ({
     transportRateId || null,
     ...(dispatchHasPartyOrder ? [partyOrderId || null] : []),
     materialRatePerTon ?? null,
+    ...optionalQuantityValues,
+    ...optionalBillingSnapshotValues,
     ...optionalRateUnitValues,
     ...optionalRoyaltyValues,
     ...optionalLoadingValues,
@@ -663,6 +838,22 @@ const updateDispatchReportById = async ({
   vehicleNumber,
   destinationName,
   quantityTons,
+  enteredQuantity,
+  enteredUnitId,
+  quantitySource,
+  conversionFactorToTon,
+  conversionId,
+  conversionMethodSnapshot,
+  sourceVehicleCapacityTons,
+  sourceVehicleCapacityUnitId,
+  billingBasisSnapshot,
+  billingUnitIdSnapshot,
+  billedQuantitySnapshot,
+  billedRateSnapshot,
+  transportBasisSnapshot,
+  transportUnitIdSnapshot,
+  transportQuantitySnapshot,
+  conversionNotesSnapshot,
   remarks,
   plantId,
   materialId,
@@ -714,6 +905,92 @@ const updateDispatchReportById = async ({
   const hasLoadingChargeBasis = await hasColumn("dispatch_reports", "loading_charge_basis", db);
   const hasLoadingChargeRate = await hasColumn("dispatch_reports", "loading_charge_rate", db);
   const hasLoadingChargeIsManual = await hasColumn("dispatch_reports", "loading_charge_is_manual", db);
+  const hasEnteredQuantity = await hasColumn("dispatch_reports", "entered_quantity", db);
+  const hasEnteredUnitId = await hasColumn("dispatch_reports", "entered_unit_id", db);
+  const hasQuantitySource = await hasColumn("dispatch_reports", "quantity_source", db);
+  const hasConversionFactorToTon = await hasColumn("dispatch_reports", "conversion_factor_to_ton", db);
+  const hasConversionId = await hasColumn("dispatch_reports", "conversion_id", db);
+  const hasConversionMethodSnapshot = await hasColumn("dispatch_reports", "conversion_method_snapshot", db);
+  const hasSourceVehicleCapacityTons = await hasColumn("dispatch_reports", "source_vehicle_capacity_tons", db);
+  const hasSourceVehicleCapacityUnitId = await hasColumn("dispatch_reports", "source_vehicle_capacity_unit_id", db);
+  const hasBillingBasisSnapshot = await hasColumn("dispatch_reports", "billing_basis_snapshot", db);
+  const hasBillingUnitIdSnapshot = await hasColumn("dispatch_reports", "billing_unit_id_snapshot", db);
+  const hasBilledQuantitySnapshot = await hasColumn("dispatch_reports", "billed_quantity_snapshot", db);
+  const hasBilledRateSnapshot = await hasColumn("dispatch_reports", "billed_rate_snapshot", db);
+  const hasTransportBasisSnapshot = await hasColumn("dispatch_reports", "transport_basis_snapshot", db);
+  const hasTransportUnitIdSnapshot = await hasColumn("dispatch_reports", "transport_unit_id_snapshot", db);
+  const hasTransportQuantitySnapshot = await hasColumn("dispatch_reports", "transport_quantity_snapshot", db);
+  const hasConversionNotesSnapshot = await hasColumn("dispatch_reports", "conversion_notes_snapshot", db);
+  const optionalQuantityValues = [
+    ...(hasEnteredQuantity ? [enteredQuantity ?? null] : []),
+    ...(hasEnteredUnitId ? [enteredUnitId ?? null] : []),
+    ...(hasQuantitySource ? [quantitySource || null] : []),
+    ...(hasConversionFactorToTon ? [conversionFactorToTon ?? null] : []),
+    ...(hasConversionId ? [conversionId ?? null] : []),
+    ...(hasConversionMethodSnapshot ? [conversionMethodSnapshot || null] : []),
+    ...(hasSourceVehicleCapacityTons ? [sourceVehicleCapacityTons ?? null] : []),
+    ...(hasSourceVehicleCapacityUnitId ? [sourceVehicleCapacityUnitId ?? null] : []),
+  ];
+  const quantityStartIndex = dispatchHasPartyOrder ? 25 : 24;
+  const optionalQuantityAssignments = [
+    hasEnteredQuantity ? `entered_quantity = $${quantityStartIndex}` : null,
+    hasEnteredUnitId
+      ? `entered_unit_id = $${quantityStartIndex + (hasEnteredQuantity ? 1 : 0)}`
+      : null,
+    hasQuantitySource
+      ? `quantity_source = $${quantityStartIndex + (hasEnteredQuantity ? 1 : 0) + (hasEnteredUnitId ? 1 : 0)}`
+      : null,
+    hasConversionFactorToTon
+      ? `conversion_factor_to_ton = $${quantityStartIndex + (hasEnteredQuantity ? 1 : 0) + (hasEnteredUnitId ? 1 : 0) + (hasQuantitySource ? 1 : 0)}`
+      : null,
+    hasConversionId
+      ? `conversion_id = $${quantityStartIndex + (hasEnteredQuantity ? 1 : 0) + (hasEnteredUnitId ? 1 : 0) + (hasQuantitySource ? 1 : 0) + (hasConversionFactorToTon ? 1 : 0)}`
+      : null,
+    hasConversionMethodSnapshot
+      ? `conversion_method_snapshot = $${quantityStartIndex + (hasEnteredQuantity ? 1 : 0) + (hasEnteredUnitId ? 1 : 0) + (hasQuantitySource ? 1 : 0) + (hasConversionFactorToTon ? 1 : 0) + (hasConversionId ? 1 : 0)}`
+      : null,
+    hasSourceVehicleCapacityTons
+      ? `source_vehicle_capacity_tons = $${quantityStartIndex + (hasEnteredQuantity ? 1 : 0) + (hasEnteredUnitId ? 1 : 0) + (hasQuantitySource ? 1 : 0) + (hasConversionFactorToTon ? 1 : 0) + (hasConversionId ? 1 : 0) + (hasConversionMethodSnapshot ? 1 : 0)}`
+      : null,
+    hasSourceVehicleCapacityUnitId
+      ? `source_vehicle_capacity_unit_id = $${quantityStartIndex + (hasEnteredQuantity ? 1 : 0) + (hasEnteredUnitId ? 1 : 0) + (hasQuantitySource ? 1 : 0) + (hasConversionFactorToTon ? 1 : 0) + (hasConversionId ? 1 : 0) + (hasConversionMethodSnapshot ? 1 : 0) + (hasSourceVehicleCapacityTons ? 1 : 0)}`
+      : null,
+  ].filter(Boolean);
+  const optionalBillingSnapshotValues = [
+    ...(hasBillingBasisSnapshot ? [billingBasisSnapshot || null] : []),
+    ...(hasBillingUnitIdSnapshot ? [billingUnitIdSnapshot ?? null] : []),
+    ...(hasBilledQuantitySnapshot ? [billedQuantitySnapshot ?? null] : []),
+    ...(hasBilledRateSnapshot ? [billedRateSnapshot ?? null] : []),
+    ...(hasTransportBasisSnapshot ? [transportBasisSnapshot || null] : []),
+    ...(hasTransportUnitIdSnapshot ? [transportUnitIdSnapshot ?? null] : []),
+    ...(hasTransportQuantitySnapshot ? [transportQuantitySnapshot ?? null] : []),
+    ...(hasConversionNotesSnapshot ? [conversionNotesSnapshot || null] : []),
+  ];
+  const billingSnapshotStartIndex = quantityStartIndex + optionalQuantityValues.length;
+  const optionalBillingSnapshotAssignments = [
+    hasBillingBasisSnapshot ? `billing_basis_snapshot = $${billingSnapshotStartIndex}` : null,
+    hasBillingUnitIdSnapshot
+      ? `billing_unit_id_snapshot = $${billingSnapshotStartIndex + (hasBillingBasisSnapshot ? 1 : 0)}`
+      : null,
+    hasBilledQuantitySnapshot
+      ? `billed_quantity_snapshot = $${billingSnapshotStartIndex + (hasBillingBasisSnapshot ? 1 : 0) + (hasBillingUnitIdSnapshot ? 1 : 0)}`
+      : null,
+    hasBilledRateSnapshot
+      ? `billed_rate_snapshot = $${billingSnapshotStartIndex + (hasBillingBasisSnapshot ? 1 : 0) + (hasBillingUnitIdSnapshot ? 1 : 0) + (hasBilledQuantitySnapshot ? 1 : 0)}`
+      : null,
+    hasTransportBasisSnapshot
+      ? `transport_basis_snapshot = $${billingSnapshotStartIndex + (hasBillingBasisSnapshot ? 1 : 0) + (hasBillingUnitIdSnapshot ? 1 : 0) + (hasBilledQuantitySnapshot ? 1 : 0) + (hasBilledRateSnapshot ? 1 : 0)}`
+      : null,
+    hasTransportUnitIdSnapshot
+      ? `transport_unit_id_snapshot = $${billingSnapshotStartIndex + (hasBillingBasisSnapshot ? 1 : 0) + (hasBillingUnitIdSnapshot ? 1 : 0) + (hasBilledQuantitySnapshot ? 1 : 0) + (hasBilledRateSnapshot ? 1 : 0) + (hasTransportBasisSnapshot ? 1 : 0)}`
+      : null,
+    hasTransportQuantitySnapshot
+      ? `transport_quantity_snapshot = $${billingSnapshotStartIndex + (hasBillingBasisSnapshot ? 1 : 0) + (hasBillingUnitIdSnapshot ? 1 : 0) + (hasBilledQuantitySnapshot ? 1 : 0) + (hasBilledRateSnapshot ? 1 : 0) + (hasTransportBasisSnapshot ? 1 : 0) + (hasTransportUnitIdSnapshot ? 1 : 0)}`
+      : null,
+    hasConversionNotesSnapshot
+      ? `conversion_notes_snapshot = $${billingSnapshotStartIndex + (hasBillingBasisSnapshot ? 1 : 0) + (hasBillingUnitIdSnapshot ? 1 : 0) + (hasBilledQuantitySnapshot ? 1 : 0) + (hasBilledRateSnapshot ? 1 : 0) + (hasTransportBasisSnapshot ? 1 : 0) + (hasTransportUnitIdSnapshot ? 1 : 0) + (hasTransportQuantitySnapshot ? 1 : 0)}`
+      : null,
+  ].filter(Boolean);
   const optionalRateUnitValues = [
     ...(hasMaterialRateUnit ? [materialRateUnit || "per_ton"] : []),
     ...(hasMaterialRateUnitLabel ? [materialRateUnitLabel || "ton"] : []),
@@ -727,7 +1004,7 @@ const updateDispatchReportById = async ({
     ...(hasLoadingChargeRate ? [loadingChargeRate ?? loadingCharge ?? null] : []),
     ...(hasLoadingChargeIsManual ? [Boolean(loadingChargeIsManual)] : []),
   ];
-  const rateUnitStartIndex = dispatchHasPartyOrder ? 25 : 24;
+  const rateUnitStartIndex = billingSnapshotStartIndex + optionalBillingSnapshotValues.length;
   const optionalRateUnitAssignments = [
     hasMaterialRateUnit ? `material_rate_unit = $${rateUnitStartIndex}` : null,
     hasMaterialRateUnitLabel ? `material_rate_unit_label = $${rateUnitStartIndex + (hasMaterialRateUnit ? 1 : 0)}` : null,
@@ -748,6 +1025,8 @@ const updateDispatchReportById = async ({
       : null,
   ].filter(Boolean);
   const offset =
+    optionalQuantityValues.length +
+    optionalBillingSnapshotValues.length +
     optionalRateUnitValues.length +
     optionalRoyaltyValues.length +
     optionalLoadingValues.length;
@@ -778,6 +1057,8 @@ const updateDispatchReportById = async ({
       transport_rate_id = $22,
       ${dispatchHasPartyOrder ? `party_order_id = $23,` : ""}
       material_rate_per_ton = $${dispatchHasPartyOrder ? 24 : 23},
+      ${optionalQuantityAssignments.length ? `${optionalQuantityAssignments.join(",\n      ")},` : ""}
+      ${optionalBillingSnapshotAssignments.length ? `${optionalBillingSnapshotAssignments.join(",\n      ")},` : ""}
       ${optionalRateUnitAssignments.length ? `${optionalRateUnitAssignments.join(",\n      ")},` : ""}
       ${optionalRoyaltyAssignments.length ? `${optionalRoyaltyAssignments.join(",\n      ")},` : ""}
       ${optionalLoadingAssignments.length ? `${optionalLoadingAssignments.join(",\n      ")},` : ""}
@@ -828,6 +1109,8 @@ const updateDispatchReportById = async ({
     transportRateId || null,
     ...(dispatchHasPartyOrder ? [partyOrderId || null] : []),
     materialRatePerTon ?? null,
+    ...optionalQuantityValues,
+    ...optionalBillingSnapshotValues,
     ...optionalRateUnitValues,
     ...optionalRoyaltyValues,
     ...optionalLoadingValues,

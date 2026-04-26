@@ -39,9 +39,10 @@ const createTransportRate = async (req, res) => {
       targetId: data.id,
       companyId: req.companyId || null,
       details: {
-        fromLocation: data.fromLocation || req.body.fromLocation || null,
-        toLocation: data.toLocation || req.body.toLocation || null,
-        ratePerTon: data.ratePerTon || req.body.ratePerTon || null,
+        billingBasis: data.billingBasis || req.body.billingBasis || null,
+        rateType: data.rateType || req.body.rateType || null,
+        rateUnitId: data.rateUnitId || req.body.rateUnitId || null,
+        minimumCharge: data.minimumCharge || req.body.minimumCharge || null,
       },
     });
 
@@ -75,9 +76,10 @@ const updateTransportRateController = async (req, res) => {
       targetId: data.id || req.params.id,
       companyId: req.companyId || null,
       details: {
-        fromLocation: data.fromLocation || req.body.fromLocation || null,
-        toLocation: data.toLocation || req.body.toLocation || null,
-        ratePerTon: data.ratePerTon || req.body.ratePerTon || null,
+        billingBasis: data.billingBasis || req.body.billingBasis || null,
+        rateType: data.rateType || req.body.rateType || null,
+        rateUnitId: data.rateUnitId || req.body.rateUnitId || null,
+        minimumCharge: data.minimumCharge || req.body.minimumCharge || null,
       },
     });
 

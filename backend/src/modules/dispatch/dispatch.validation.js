@@ -1,4 +1,11 @@
 const allowedStatuses = ["pending", "completed", "cancelled"];
+const allowedQuantitySources = [
+  "weighbridge",
+  "manual_weight",
+  "manual_volume",
+  "vehicle_capacity",
+  "trip_estimate",
+];
 const isProvided = (value) => value !== undefined && value !== null && value !== "";
 const parseOptionalNumber = (value) => {
   if (!isProvided(value)) {
@@ -90,6 +97,9 @@ const validateDispatchReportInput = (req, res, next) => {
     partyId,
     destinationName,
     quantityTons,
+    enteredQuantity,
+    enteredUnitId,
+    quantitySource,
   } = req.body;
 
   if (
@@ -99,22 +109,82 @@ const validateDispatchReportInput = (req, res, next) => {
     !materialId ||
     !vehicleId ||
     !partyId ||
-    !destinationName ||
-    quantityTons === undefined
+    !destinationName
   ) {
     return res.status(400).json({
       success: false,
       message:
-        "dispatchDate, sourceType, plantId, materialId, vehicleId, partyId, destinationName, and quantityTons are required",
+        "dispatchDate, sourceType, plantId, materialId, vehicleId, partyId, and destinationName are required",
     });
   }
 
+  const hasNewQuantityFields =
+    isProvided(quantitySource) || isProvided(enteredQuantity) || isProvided(enteredUnitId);
+
   const parsedQuantityTons = parseOptionalNumber(quantityTons);
-  if (!Number.isFinite(parsedQuantityTons) || parsedQuantityTons <= 0) {
-    return res.status(400).json({
-      success: false,
-      message: "quantityTons must be a valid number greater than 0",
-    });
+  const parsedEnteredQuantity = parseOptionalNumber(enteredQuantity);
+  const parsedEnteredUnitId = parseOptionalNumber(enteredUnitId);
+
+  if (!hasNewQuantityFields) {
+    if (!Number.isFinite(parsedQuantityTons) || parsedQuantityTons <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "quantityTons must be a valid number greater than 0",
+      });
+    }
+  } else {
+    if (!allowedQuantitySources.includes(String(quantitySource || "").trim())) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "quantitySource must be one of weighbridge, manual_weight, manual_volume, vehicle_capacity, trip_estimate",
+      });
+    }
+
+    if (
+      (quantitySource === "weighbridge" || quantitySource === "manual_weight") &&
+      (!Number.isFinite(parsedQuantityTons) || parsedQuantityTons <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "quantityTons must be a valid number greater than 0 for weighbridge or manual_weight",
+      });
+    }
+
+    if (
+      quantitySource === "manual_volume" &&
+      (!Number.isFinite(parsedEnteredQuantity) ||
+        parsedEnteredQuantity <= 0 ||
+        !Number.isFinite(parsedEnteredUnitId) ||
+        parsedEnteredUnitId <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "enteredQuantity and enteredUnitId are required for manual_volume",
+      });
+    }
+
+    if (
+      quantitySource === "vehicle_capacity" &&
+      isProvided(enteredUnitId) &&
+      (!Number.isFinite(parsedEnteredUnitId) || parsedEnteredUnitId <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "enteredUnitId must be a valid positive number when provided",
+      });
+    }
+
+    if (
+      quantitySource === "trip_estimate" &&
+      isProvided(enteredQuantity) &&
+      (!Number.isFinite(parsedEnteredQuantity) || parsedEnteredQuantity <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "enteredQuantity must be a valid number greater than 0 when provided",
+      });
+    }
   }
 
   const parsedInvoiceValue = parseOptionalNumber(req.body.invoiceValue);
@@ -208,6 +278,9 @@ const validateDispatchEditInput = (req, res, next) => {
     partyId,
     destinationName,
     quantityTons,
+    enteredQuantity,
+    enteredUnitId,
+    quantitySource,
   } = req.body;
 
   if (
@@ -217,22 +290,82 @@ const validateDispatchEditInput = (req, res, next) => {
     !materialId ||
     !vehicleId ||
     !partyId ||
-    !destinationName ||
-    quantityTons === undefined
+    !destinationName
   ) {
     return res.status(400).json({
       success: false,
       message:
-        "dispatchDate, sourceType, plantId, materialId, vehicleId, partyId, destinationName, and quantityTons are required",
+        "dispatchDate, sourceType, plantId, materialId, vehicleId, partyId, and destinationName are required",
     });
   }
 
+  const hasNewQuantityFields =
+    isProvided(quantitySource) || isProvided(enteredQuantity) || isProvided(enteredUnitId);
+
   const parsedQuantityTons = parseOptionalNumber(quantityTons);
-  if (!Number.isFinite(parsedQuantityTons) || parsedQuantityTons <= 0) {
-    return res.status(400).json({
-      success: false,
-      message: "quantityTons must be a valid number greater than 0",
-    });
+  const parsedEnteredQuantity = parseOptionalNumber(enteredQuantity);
+  const parsedEnteredUnitId = parseOptionalNumber(enteredUnitId);
+
+  if (!hasNewQuantityFields) {
+    if (!Number.isFinite(parsedQuantityTons) || parsedQuantityTons <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "quantityTons must be a valid number greater than 0",
+      });
+    }
+  } else {
+    if (!allowedQuantitySources.includes(String(quantitySource || "").trim())) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "quantitySource must be one of weighbridge, manual_weight, manual_volume, vehicle_capacity, trip_estimate",
+      });
+    }
+
+    if (
+      (quantitySource === "weighbridge" || quantitySource === "manual_weight") &&
+      (!Number.isFinite(parsedQuantityTons) || parsedQuantityTons <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "quantityTons must be a valid number greater than 0 for weighbridge or manual_weight",
+      });
+    }
+
+    if (
+      quantitySource === "manual_volume" &&
+      (!Number.isFinite(parsedEnteredQuantity) ||
+        parsedEnteredQuantity <= 0 ||
+        !Number.isFinite(parsedEnteredUnitId) ||
+        parsedEnteredUnitId <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "enteredQuantity and enteredUnitId are required for manual_volume",
+      });
+    }
+
+    if (
+      quantitySource === "vehicle_capacity" &&
+      isProvided(enteredUnitId) &&
+      (!Number.isFinite(parsedEnteredUnitId) || parsedEnteredUnitId <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "enteredUnitId must be a valid positive number when provided",
+      });
+    }
+
+    if (
+      quantitySource === "trip_estimate" &&
+      isProvided(enteredQuantity) &&
+      (!Number.isFinite(parsedEnteredQuantity) || parsedEnteredQuantity <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "enteredQuantity must be a valid number greater than 0 when provided",
+      });
+    }
   }
 
   const parsedInvoiceValue = parseOptionalNumber(req.body.invoiceValue);

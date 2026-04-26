@@ -9,6 +9,10 @@ const getRateSchemaFlags = async () => {
     ratesHasRateUnit,
     ratesHasRateUnitLabel,
     ratesHasRateUnitsPerTon,
+    ratesHasRateUnitId,
+    ratesHasBillingBasis,
+    ratesHasConversionId,
+    ratesHasPricePerUnit,
   ] = await Promise.all([
     hasColumn("party_material_rates", "company_id"),
     hasColumn("party_material_rates", "effective_from"),
@@ -16,6 +20,10 @@ const getRateSchemaFlags = async () => {
     hasColumn("party_material_rates", "rate_unit"),
     hasColumn("party_material_rates", "rate_unit_label"),
     hasColumn("party_material_rates", "rate_units_per_ton"),
+    hasColumn("party_material_rates", "rate_unit_id"),
+    hasColumn("party_material_rates", "billing_basis"),
+    hasColumn("party_material_rates", "conversion_id"),
+    hasColumn("party_material_rates", "price_per_unit"),
   ]);
 
   return {
@@ -25,6 +33,10 @@ const getRateSchemaFlags = async () => {
     ratesHasRateUnit,
     ratesHasRateUnitLabel,
     ratesHasRateUnitsPerTon,
+    ratesHasRateUnitId,
+    ratesHasBillingBasis,
+    ratesHasConversionId,
+    ratesHasPricePerUnit,
   };
 };
 
@@ -34,6 +46,10 @@ const buildBaseQuery = ({
   ratesHasRateUnit,
   ratesHasRateUnitLabel,
   ratesHasRateUnitsPerTon,
+  ratesHasRateUnitId,
+  ratesHasBillingBasis,
+  ratesHasConversionId,
+  ratesHasPricePerUnit,
 }) => `
 SELECT
   pmr.id,
@@ -58,6 +74,26 @@ SELECT
     ratesHasRateUnitsPerTon
       ? `COALESCE(pmr.rate_units_per_ton, 1) AS "rateUnitsPerTon",`
       : `1::numeric AS "rateUnitsPerTon",`
+  }
+  ${
+    ratesHasBillingBasis
+      ? `pmr.billing_basis AS "billingBasis",`
+      : `NULL::text AS "billingBasis",`
+  }
+  ${
+    ratesHasRateUnitId
+      ? `pmr.rate_unit_id AS "rateUnitId",`
+      : `NULL::bigint AS "rateUnitId",`
+  }
+  ${
+    ratesHasPricePerUnit
+      ? `pmr.price_per_unit AS "pricePerUnit",`
+      : `NULL::numeric AS "pricePerUnit",`
+  }
+  ${
+    ratesHasConversionId
+      ? `pmr.conversion_id AS "conversionId",`
+      : `NULL::bigint AS "conversionId",`
   }
   pmr.royalty_mode AS "royaltyMode",
   pmr.royalty_value AS "royaltyValue",
@@ -157,6 +193,10 @@ const insertRate = async (data) => {
     rateUnit,
     rateUnitLabel,
     rateUnitsPerTon,
+    billingBasis,
+    rateUnitId,
+    pricePerUnit,
+    conversionId,
     royaltyMode,
     royaltyValue,
     tonsPerBrass,
@@ -204,6 +244,22 @@ const insertRate = async (data) => {
     insertColumns.push("rate_units_per_ton");
     values.push(rateUnitsPerTon);
   }
+  if (schema.ratesHasBillingBasis) {
+    insertColumns.push("billing_basis");
+    values.push(billingBasis);
+  }
+  if (schema.ratesHasRateUnitId) {
+    insertColumns.push("rate_unit_id");
+    values.push(rateUnitId);
+  }
+  if (schema.ratesHasPricePerUnit) {
+    insertColumns.push("price_per_unit");
+    values.push(pricePerUnit);
+  }
+  if (schema.ratesHasConversionId) {
+    insertColumns.push("conversion_id");
+    values.push(conversionId);
+  }
   if (schema.ratesHasLoadingChargeBasis) {
     insertColumns.push("loading_charge_basis");
     values.push(loadingChargeBasis);
@@ -247,6 +303,10 @@ const updateRate = async (id, data) => {
     rateUnit,
     rateUnitLabel,
     rateUnitsPerTon,
+    billingBasis,
+    rateUnitId,
+    pricePerUnit,
+    conversionId,
     royaltyMode,
     royaltyValue,
     tonsPerBrass,
@@ -278,6 +338,22 @@ const updateRate = async (id, data) => {
   if (schema.ratesHasRateUnitsPerTon) {
     assignments.push(`rate_units_per_ton=$${values.length + 1}`);
     values.push(rateUnitsPerTon);
+  }
+  if (schema.ratesHasBillingBasis) {
+    assignments.push(`billing_basis=$${values.length + 1}`);
+    values.push(billingBasis);
+  }
+  if (schema.ratesHasRateUnitId) {
+    assignments.push(`rate_unit_id=$${values.length + 1}`);
+    values.push(rateUnitId);
+  }
+  if (schema.ratesHasPricePerUnit) {
+    assignments.push(`price_per_unit=$${values.length + 1}`);
+    values.push(pricePerUnit);
+  }
+  if (schema.ratesHasConversionId) {
+    assignments.push(`conversion_id=$${values.length + 1}`);
+    values.push(conversionId);
   }
 
   assignments.push(`royalty_mode=$${values.length + 1}`);

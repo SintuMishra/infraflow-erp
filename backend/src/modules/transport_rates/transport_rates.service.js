@@ -9,12 +9,23 @@ const {
 } = require("./transport_rates.model");
 
 const allowedRateTypes = ["per_trip", "per_ton", "per_km", "per_day"];
+const allowedBillingBases = [...allowedRateTypes, "per_unit"];
+
+const buildValidationError = (message, statusCode = 400) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
 
 const validateRateType = (rateType) => {
   if (!allowedRateTypes.includes(rateType)) {
-    const error = new Error("Invalid rate type");
-    error.statusCode = 400;
-    throw error;
+    throw buildValidationError("Invalid rate type");
+  }
+};
+
+const validateBillingBasis = (billingBasis) => {
+  if (!allowedBillingBases.includes(billingBasis)) {
+    throw buildValidationError("Invalid billingBasis");
   }
 };
 
@@ -26,14 +37,12 @@ const validatePositiveRateValue = (rateValue) => {
     Number.isNaN(Number(rateValue)) ||
     Number(rateValue) <= 0
   ) {
-    const error = new Error("rateValue must be greater than 0");
-    error.statusCode = 400;
-    throw error;
+    throw buildValidationError("rateValue must be greater than 0");
   }
 };
 
-const validateDistanceIfNeeded = (rateType, distanceKm) => {
-  if (rateType === "per_km") {
+const validateDistanceIfNeeded = (billingBasis, distanceKm) => {
+  if (billingBasis === "per_km") {
     if (
       distanceKm === undefined ||
       distanceKm === null ||
@@ -41,9 +50,7 @@ const validateDistanceIfNeeded = (rateType, distanceKm) => {
       Number.isNaN(Number(distanceKm)) ||
       Number(distanceKm) <= 0
     ) {
-      const error = new Error("distanceKm is required for per_km rate type");
-      error.statusCode = 400;
-      throw error;
+      throw buildValidationError("distanceKm is required for per_km billing basis");
     }
   }
 
@@ -53,10 +60,67 @@ const validateDistanceIfNeeded = (rateType, distanceKm) => {
     distanceKm !== "" &&
     (Number.isNaN(Number(distanceKm)) || Number(distanceKm) < 0)
   ) {
-    const error = new Error("distanceKm must be 0 or more");
-    error.statusCode = 400;
-    throw error;
+    throw buildValidationError("distanceKm must be 0 or more");
   }
+};
+
+const validateRateUnitIfNeeded = (billingBasis, rateUnitId) => {
+  if (billingBasis !== "per_unit") {
+    return;
+  }
+
+  if (
+    rateUnitId === undefined ||
+    rateUnitId === null ||
+    rateUnitId === "" ||
+    Number.isNaN(Number(rateUnitId)) ||
+    Number(rateUnitId) <= 0
+  ) {
+    throw buildValidationError("rateUnitId is required for per_unit billing basis");
+  }
+};
+
+const validateMinimumCharge = (minimumCharge) => {
+  if (
+    minimumCharge !== undefined &&
+    minimumCharge !== null &&
+    minimumCharge !== "" &&
+    (Number.isNaN(Number(minimumCharge)) || Number(minimumCharge) < 0)
+  ) {
+    throw buildValidationError("minimumCharge must be 0 or more");
+  }
+};
+
+const normalizeTransportRatePayload = (data = {}) => {
+  const billingBasis = String(data.billingBasis || data.rateType || "").trim();
+  const normalizedLegacyRateType =
+    billingBasis === "per_unit" ? "per_ton" : billingBasis;
+  const rateType = String(data.rateType || normalizedLegacyRateType || "").trim();
+
+  return {
+    plantId: data.plantId,
+    vendorId: data.vendorId,
+    materialId: data.materialId,
+    billingBasis,
+    rateType,
+    rateValue:
+      data.rateValue === undefined || data.rateValue === null || data.rateValue === ""
+        ? null
+        : Number(data.rateValue),
+    distanceKm:
+      data.distanceKm === undefined || data.distanceKm === null || data.distanceKm === ""
+        ? null
+        : Number(data.distanceKm),
+    rateUnitId:
+      data.rateUnitId === undefined || data.rateUnitId === null || data.rateUnitId === ""
+        ? null
+        : Number(data.rateUnitId),
+    minimumCharge:
+      data.minimumCharge === undefined || data.minimumCharge === null || data.minimumCharge === ""
+        ? null
+        : Number(data.minimumCharge),
+    companyId: data.companyId || null,
+  };
 };
 
 const validateLinkedRecords = async ({
@@ -95,23 +159,31 @@ const getTransportRatesList = async (companyId = null) => {
 };
 
 const createTransportRateRecord = async ({
-  plantId,
-  vendorId,
-  materialId,
-  rateType,
-  rateValue,
-  distanceKm,
-  companyId,
+  ...payload
 }) => {
+  const {
+    plantId,
+    vendorId,
+    materialId,
+    billingBasis,
+    rateType,
+    rateValue,
+    distanceKm,
+    rateUnitId,
+    minimumCharge,
+    companyId,
+  } = normalizeTransportRatePayload(payload);
+
   if (!plantId || !vendorId || !materialId) {
-    const error = new Error("plantId, vendorId, and materialId are required");
-    error.statusCode = 400;
-    throw error;
+    throw buildValidationError("plantId, vendorId, and materialId are required");
   }
 
+  validateBillingBasis(billingBasis);
   validateRateType(rateType);
   validatePositiveRateValue(rateValue);
-  validateDistanceIfNeeded(rateType, distanceKm);
+  validateDistanceIfNeeded(billingBasis, distanceKm);
+  validateRateUnitIfNeeded(billingBasis, rateUnitId);
+  validateMinimumCharge(minimumCharge);
   await validateLinkedRecords({ plantId, vendorId, materialId, companyId });
 
   return await insertTransportRate({
@@ -119,34 +191,42 @@ const createTransportRateRecord = async ({
     vendorId: Number(vendorId),
     materialId: Number(materialId),
     rateType,
+    billingBasis,
     rateValue: Number(rateValue),
-    distanceKm:
-      distanceKm === undefined || distanceKm === null || distanceKm === ""
-        ? null
-        : Number(distanceKm),
+    distanceKm,
+    rateUnitId,
+    minimumCharge,
     companyId: companyId || null,
   });
 };
 
 const updateTransportRateRecord = async ({
   rateId,
-  plantId,
-  vendorId,
-  materialId,
-  rateType,
-  rateValue,
-  distanceKm,
-  companyId,
+  ...payload
 }) => {
+  const {
+    plantId,
+    vendorId,
+    materialId,
+    billingBasis,
+    rateType,
+    rateValue,
+    distanceKm,
+    rateUnitId,
+    minimumCharge,
+    companyId,
+  } = normalizeTransportRatePayload(payload);
+
   if (!plantId || !vendorId || !materialId) {
-    const error = new Error("plantId, vendorId, and materialId are required");
-    error.statusCode = 400;
-    throw error;
+    throw buildValidationError("plantId, vendorId, and materialId are required");
   }
 
+  validateBillingBasis(billingBasis);
   validateRateType(rateType);
   validatePositiveRateValue(rateValue);
-  validateDistanceIfNeeded(rateType, distanceKm);
+  validateDistanceIfNeeded(billingBasis, distanceKm);
+  validateRateUnitIfNeeded(billingBasis, rateUnitId);
+  validateMinimumCharge(minimumCharge);
   await validateLinkedRecords({ plantId, vendorId, materialId, companyId });
 
   return await updateTransportRate({
@@ -155,11 +235,11 @@ const updateTransportRateRecord = async ({
     vendorId: Number(vendorId),
     materialId: Number(materialId),
     rateType,
+    billingBasis,
     rateValue: Number(rateValue),
-    distanceKm:
-      distanceKm === undefined || distanceKm === null || distanceKm === ""
-        ? null
-        : Number(distanceKm),
+    distanceKm,
+    rateUnitId,
+    minimumCharge,
     companyId: companyId || null,
   });
 };
@@ -177,4 +257,5 @@ module.exports = {
   createTransportRateRecord,
   updateTransportRateRecord,
   changeTransportRateStatusRecord,
+  normalizeTransportRatePayload,
 };

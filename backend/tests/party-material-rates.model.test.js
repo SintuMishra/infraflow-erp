@@ -112,3 +112,24 @@ test("getAllRates stays compatible when rate unit columns are missing", async ()
     }
   );
 });
+
+test("getAllRates selects new unit-aware billing fields when schema columns exist", async () => {
+  const capturedQueries = [];
+
+  await withMockedRateModel(
+    {
+      queryImpl: async (query) => {
+        capturedQueries.push(query);
+        return { rows: [] };
+      },
+      hasColumnImpl: async () => true,
+    },
+    async ({ getAllRates }) => {
+      await getAllRates(2);
+      assert.match(capturedQueries[0], /pmr\.billing_basis AS "billingBasis"/);
+      assert.match(capturedQueries[0], /pmr\.rate_unit_id AS "rateUnitId"/);
+      assert.match(capturedQueries[0], /pmr\.price_per_unit AS "pricePerUnit"/);
+      assert.match(capturedQueries[0], /pmr\.conversion_id AS "conversionId"/);
+    }
+  );
+});

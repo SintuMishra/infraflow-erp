@@ -4,6 +4,15 @@ const {
   findShifts,
   findVehicleTypes,
   findConfigOptions,
+  findUnits,
+  findUnitByIdForScope,
+  insertUnit,
+  updateUnit,
+  findMaterialById,
+  findMaterialUnitConversions,
+  insertMaterialUnitConversion,
+  updateMaterialUnitConversion,
+  findOverlappingActiveMaterialUnitConversion,
   insertConfigOption,
   updateConfigOption,
   setConfigOptionStatus,
@@ -26,6 +35,8 @@ const {
   getShiftUsageSummary,
 } = require("./masters.model");
 const { inferMaterialHsnSacCode } = require("../../utils/materialHsn.util");
+const { normalizeCompanyId } = require("../../utils/companyScope.util");
+const logger = require("../../utils/logger");
 
 const allowedConfigTypes = [
   "plant_type",
@@ -176,6 +187,198 @@ const normalizeSortOrder = (value) => {
   }
 
   return sortOrder;
+};
+
+const normalizeBoolean = (value, fieldName, defaultValue = null) => {
+  if (value === undefined || value === null || value === "") {
+    return defaultValue;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (value === "true") return true;
+  if (value === "false") return false;
+
+  throw createHttpError(400, `${fieldName} must be true or false`);
+};
+
+const normalizePositiveInteger = (value, fieldName) => {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric <= 0) {
+    throw createHttpError(400, `${fieldName} must be a valid positive integer`);
+  }
+  return numeric;
+};
+
+const normalizeDateOnly = (value, fieldName) => {
+  const normalized = normalizeRequiredText(value, `${fieldName} is required`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    throw createHttpError(400, `${fieldName} must be in YYYY-MM-DD format`);
+  }
+  const parsed = new Date(`${normalized}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    throw createHttpError(400, `${fieldName} must be a valid date`);
+  }
+  return normalized;
+};
+
+const normalizeOptionalDateOnly = (value, fieldName) => {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  return normalizeDateOnly(value, fieldName);
+};
+
+const allowedUnitDimensionTypes = ["weight", "volume", "count", "distance", "time", "custom"];
+const allowedConversionMethods = [
+  "standard",
+  "density_based",
+  "vehicle_capacity_based",
+  "manual_defined",
+];
+
+const normalizeUnitPayload = (payload) => {
+  const unitCode = normalizeRequiredText(payload.unitCode, "unitCode is required").toUpperCase();
+  const unitName = normalizeRequiredText(payload.unitName, "unitName is required");
+  const dimensionType = normalizeRequiredText(
+    payload.dimensionType,
+    "dimensionType is required"
+  ).toLowerCase();
+  const precisionScale = Number(payload.precisionScale);
+
+  if (!/^[A-Z0-9_]{2,40}$/.test(unitCode)) {
+    throw createHttpError(
+      400,
+      "unitCode must be 2-40 characters using uppercase letters, numbers, or underscores only"
+    );
+  }
+
+  if (!allowedUnitDimensionTypes.includes(dimensionType)) {
+    throw createHttpError(400, "Invalid dimensionType");
+  }
+
+  if (!Number.isInteger(precisionScale) || precisionScale < 0 || precisionScale > 6) {
+    throw createHttpError(400, "precisionScale must be an integer between 0 and 6");
+  }
+
+  return {
+    id: payload.id ? normalizePositiveInteger(payload.id, "id") : undefined,
+    companyId: normalizeCompanyId(payload.companyId),
+    unitCode,
+    unitName,
+    dimensionType,
+    precisionScale,
+    isBaseUnit: normalizeBoolean(payload.isBaseUnit, "isBaseUnit", false),
+    isActive: normalizeBoolean(payload.isActive, "isActive", true),
+  };
+};
+
+const normalizeMaterialUnitConversionPayload = (payload) => {
+  const materialId = normalizePositiveInteger(payload.materialId, "materialId");
+  const fromUnitId = normalizePositiveInteger(payload.fromUnitId, "fromUnitId");
+  const toUnitId = normalizePositiveInteger(payload.toUnitId, "toUnitId");
+  const conversionFactor = Number(payload.conversionFactor);
+  const conversionMethod = normalizeRequiredText(
+    payload.conversionMethod,
+    "conversionMethod is required"
+  ).toLowerCase();
+  const effectiveFrom = normalizeDateOnly(payload.effectiveFrom, "effectiveFrom");
+  const effectiveTo = normalizeOptionalDateOnly(payload.effectiveTo, "effectiveTo");
+
+  if (fromUnitId === toUnitId) {
+    throw createHttpError(400, "fromUnitId and toUnitId must be different");
+  }
+
+  if (!Number.isFinite(conversionFactor) || conversionFactor <= 0) {
+    throw createHttpError(400, "conversionFactor must be greater than 0");
+  }
+
+  if (!allowedConversionMethods.includes(conversionMethod)) {
+    throw createHttpError(400, "Invalid conversionMethod");
+  }
+
+  if (effectiveTo && effectiveTo < effectiveFrom) {
+    throw createHttpError(400, "effectiveTo cannot be earlier than effectiveFrom");
+  }
+
+  return {
+    id: payload.id ? normalizePositiveInteger(payload.id, "id") : undefined,
+    companyId: normalizeCompanyId(payload.companyId),
+    materialId,
+    fromUnitId,
+    toUnitId,
+    conversionFactor,
+    conversionMethod,
+    effectiveFrom,
+    effectiveTo,
+    notes: normalizeOptionalText(payload.notes),
+    isActive: normalizeBoolean(payload.isActive, "isActive", true),
+  };
+};
+
+const ensureUniqueUnitField = async ({ companyId, accessor, value, idToIgnore = null, message }) => {
+  const rows = await findUnits(companyId);
+  ensureUniqueMasterField({
+    rows: rows.filter((row) => String(row.companyId || "") === String(companyId || "")),
+    accessor,
+    value,
+    idToIgnore,
+    message,
+  });
+};
+
+const ensureUnitCanBeUsedForConversion = async ({ unitId, companyId, fieldName }) => {
+  const unit = await findUnitByIdForScope(unitId, companyId);
+  if (!unit) {
+    throw createHttpError(404, `${fieldName} does not exist`);
+  }
+  if (!unit.isActive) {
+    throw createHttpError(400, `${fieldName} is inactive`);
+  }
+  return unit;
+};
+
+const ensureMaterialExistsForConversion = async ({ materialId, companyId }) => {
+  const material = await findMaterialById(materialId, companyId);
+  if (!material) {
+    throw createHttpError(404, "materialId does not exist");
+  }
+  return material;
+};
+
+const ensureNoActiveOverlappingConversion = async ({
+  idToIgnore = null,
+  materialId,
+  fromUnitId,
+  toUnitId,
+  effectiveFrom,
+  effectiveTo,
+  companyId,
+  isActive,
+}) => {
+  if (!isActive) {
+    return;
+  }
+
+  const conflict = await findOverlappingActiveMaterialUnitConversion({
+    idToIgnore,
+    materialId,
+    fromUnitId,
+    toUnitId,
+    effectiveFrom,
+    effectiveTo,
+    companyId,
+  });
+
+  if (conflict) {
+    throw createHttpError(
+      409,
+      "An active overlapping conversion already exists for this material and unit pair"
+    );
+  }
 };
 
 const normalizeShiftPayload = (payload) => {
@@ -433,6 +636,141 @@ const createVehicleType = async (payload) => {
   });
 
   return await insertVehicleType(normalized);
+};
+
+const isMissingUnitsSchemaError = (error) => {
+  if (!error) {
+    return false;
+  }
+
+  const message = String(error.message || "").toLowerCase();
+  const detail = String(error.detail || "").toLowerCase();
+  const combined = `${message} ${detail}`;
+
+  return (
+    (error.code === "42P01" &&
+      (combined.includes('relation "public.unit_master" does not exist') ||
+        combined.includes('relation "unit_master" does not exist') ||
+        (combined.includes("unit_master") && combined.includes("does not exist")))) ||
+    (error.code === "42703" &&
+      combined.includes("unit_master") &&
+      (combined.includes("unit_code") ||
+        combined.includes("unit_name") ||
+        combined.includes("dimension_type") ||
+        combined.includes("precision_scale") ||
+        combined.includes("is_base_unit") ||
+        combined.includes("is_active") ||
+        combined.includes("company_id")))
+  );
+};
+
+const getUnits = async (companyId = null) => {
+  try {
+    return await findUnits(normalizeCompanyId(companyId));
+  } catch (error) {
+    if (isMissingUnitsSchemaError(error)) {
+      logger.warn("Unit master schema is unavailable; returning empty units list fallback", {
+        companyId: normalizeCompanyId(companyId),
+        code: error.code || null,
+        message: error.message || null,
+      });
+      return [];
+    }
+
+    throw error;
+  }
+};
+
+const createUnitMaster = async (payload) => {
+  const normalized = normalizeUnitPayload(payload);
+  await ensureUniqueUnitField({
+    companyId: normalized.companyId,
+    accessor: (row) => row.unitCode,
+    value: normalized.unitCode,
+    message: "A unit with this code already exists",
+  });
+  await ensureUniqueUnitField({
+    companyId: normalized.companyId,
+    accessor: (row) => row.unitName,
+    value: normalized.unitName,
+    message: "A unit with this name already exists",
+  });
+
+  return await insertUnit(normalized);
+};
+
+const editUnitMaster = async (payload) => {
+  const normalized = normalizeUnitPayload(payload);
+  await ensureUniqueUnitField({
+    companyId: normalized.companyId,
+    accessor: (row) => row.unitCode,
+    value: normalized.unitCode,
+    idToIgnore: normalized.id,
+    message: "Another unit with this code already exists",
+  });
+  await ensureUniqueUnitField({
+    companyId: normalized.companyId,
+    accessor: (row) => row.unitName,
+    value: normalized.unitName,
+    idToIgnore: normalized.id,
+    message: "Another unit with this name already exists",
+  });
+
+  return await updateUnit(normalized);
+};
+
+const getMaterialUnitConversions = async (companyId = null) =>
+  await findMaterialUnitConversions(normalizeCompanyId(companyId));
+
+const createMaterialUnitConversionMaster = async (payload) => {
+  const normalized = normalizeMaterialUnitConversionPayload(payload);
+
+  await Promise.all([
+    ensureMaterialExistsForConversion({
+      materialId: normalized.materialId,
+      companyId: normalized.companyId,
+    }),
+    ensureUnitCanBeUsedForConversion({
+      unitId: normalized.fromUnitId,
+      companyId: normalized.companyId,
+      fieldName: "fromUnitId",
+    }),
+    ensureUnitCanBeUsedForConversion({
+      unitId: normalized.toUnitId,
+      companyId: normalized.companyId,
+      fieldName: "toUnitId",
+    }),
+  ]);
+
+  await ensureNoActiveOverlappingConversion(normalized);
+  return await insertMaterialUnitConversion(normalized);
+};
+
+const editMaterialUnitConversionMaster = async (payload) => {
+  const normalized = normalizeMaterialUnitConversionPayload(payload);
+
+  await Promise.all([
+    ensureMaterialExistsForConversion({
+      materialId: normalized.materialId,
+      companyId: normalized.companyId,
+    }),
+    ensureUnitCanBeUsedForConversion({
+      unitId: normalized.fromUnitId,
+      companyId: normalized.companyId,
+      fieldName: "fromUnitId",
+    }),
+    ensureUnitCanBeUsedForConversion({
+      unitId: normalized.toUnitId,
+      companyId: normalized.companyId,
+      fieldName: "toUnitId",
+    }),
+  ]);
+
+  await ensureNoActiveOverlappingConversion({
+    ...normalized,
+    idToIgnore: normalized.id,
+  });
+  return await updateMaterialUnitConversion(normalized);
 };
 
 const editCrusherUnit = async (payload) => {
@@ -788,8 +1126,14 @@ const autoFillMissingMaterialHsnSac = async (companyId = null) => {
 
 module.exports = {
   getMasterData,
+  getUnits,
+  getMaterialUnitConversions,
   createConfigOption,
+  createUnitMaster,
+  createMaterialUnitConversionMaster,
   editConfigOption,
+  editUnitMaster,
+  editMaterialUnitConversionMaster,
   toggleConfigOption,
   createCrusherUnit,
   createMaterial,

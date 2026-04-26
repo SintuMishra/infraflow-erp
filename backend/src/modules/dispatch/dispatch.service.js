@@ -20,9 +20,21 @@ const {
   getAllPartyOrders,
   getPartyOrderById,
 } = require("../party_orders/party_orders.model");
+const {
+  convertToTon,
+  convertFromTon,
+  getUnitById,
+} = require("../material_unit_conversions/material_unit_conversions.service");
 
 const allowedSourceTypes = ["Crusher", "Project", "Plant", "Store"];
 const allowedStatuses = ["pending", "completed", "cancelled"];
+const allowedQuantitySources = [
+  "weighbridge",
+  "manual_weight",
+  "manual_volume",
+  "vehicle_capacity",
+  "trip_estimate",
+];
 
 const buildDispatchSummary = (summaryRow = {}) => ({
   totalDispatches: Number(summaryRow.totalDispatches || 0),
@@ -117,6 +129,7 @@ const roundMoney = (value) =>
   Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
 const roundMetric = (value, fractionDigits = 4) =>
   Number(Number(value || 0).toFixed(fractionDigits));
+const isProvided = (value) => value !== undefined && value !== null && value !== "";
 const hasExplicitInvoiceOverride = (invoiceValue, computedSubtotal) => {
   if (invoiceValue === undefined || invoiceValue === null || invoiceValue === "") {
     return false;
@@ -185,23 +198,87 @@ const calculateDispatchTax = ({ amount, material, company, party }) => {
   };
 };
 
-const calculateTransportCost = ({ transportRate, quantityTons, distanceKm }) => {
+const calculateTransportCost = async ({
+  transportRate,
+  quantityTons,
+  distanceKm,
+  materialId,
+  companyId,
+  dispatchDate,
+}) => {
   if (!transportRate) {
     return {
       transportRateType: null,
       transportRateValue: null,
       transportCost: 0,
+      transportBasisSnapshot: null,
+      transportUnitIdSnapshot: null,
+      transportQuantitySnapshot: null,
     };
   }
 
   const quantity = Number(quantityTons || 0);
   const rateValue = Number(transportRate.rateValue || 0);
+  const minimumCharge = Number(transportRate.minimumCharge || 0);
   const appliedDistance =
     Number(distanceKm || 0) > 0
       ? Number(distanceKm)
       : Number(transportRate.distanceKm || 0);
+  const hasUnitAwareBilling = Boolean(String(transportRate.billingBasis || "").trim());
 
   let transportCost = 0;
+  let transportBasisSnapshot = transportRate.billingBasis || transportRate.rateType;
+  let transportUnitIdSnapshot = transportRate.rateUnitId || null;
+  let transportQuantitySnapshot = null;
+
+  if (hasUnitAwareBilling) {
+    const billingBasis = String(transportRate.billingBasis || "").trim();
+
+    if (billingBasis === "per_unit") {
+      if (!Number.isInteger(Number(transportRate.rateUnitId)) || Number(transportRate.rateUnitId) <= 0) {
+        throw buildValidationError("Selected transport rate is missing billing unit");
+      }
+
+      const conversion = await convertFromTon(
+        Number(materialId),
+        quantity,
+        Number(transportRate.rateUnitId),
+        companyId || null,
+        dispatchDate || null
+      );
+      transportCost = Number(conversion.calculatedQuantity) * rateValue;
+      transportBasisSnapshot = "per_unit";
+      transportUnitIdSnapshot = Number(transportRate.rateUnitId);
+      transportQuantitySnapshot = roundMetric(Number(conversion.calculatedQuantity), 4);
+    } else if (billingBasis === "per_ton") {
+      transportCost = quantity * rateValue;
+      transportBasisSnapshot = "per_ton";
+      transportUnitIdSnapshot = null;
+      transportQuantitySnapshot = roundMetric(quantity, 3);
+    } else if (billingBasis === "per_trip" || billingBasis === "per_day") {
+      transportCost = rateValue;
+      transportBasisSnapshot = billingBasis;
+      transportQuantitySnapshot = 1;
+    } else if (billingBasis === "per_km") {
+      transportCost = appliedDistance * rateValue;
+      transportBasisSnapshot = "per_km";
+      transportUnitIdSnapshot = null;
+      transportQuantitySnapshot = roundMetric(appliedDistance, 3);
+    }
+
+    if (minimumCharge > 0) {
+      transportCost = Math.max(transportCost, minimumCharge);
+    }
+
+    return {
+      transportRateType: transportRate.rateType,
+      transportRateValue: roundMoney(rateValue),
+      transportCost: roundMoney(transportCost),
+      transportBasisSnapshot,
+      transportUnitIdSnapshot,
+      transportQuantitySnapshot,
+    };
+  }
 
   if (
     transportRate.rateType === "per_trip" ||
@@ -218,6 +295,16 @@ const calculateTransportCost = ({ transportRate, quantityTons, distanceKm }) => 
     transportRateType: transportRate.rateType,
     transportRateValue: roundMoney(rateValue),
     transportCost: roundMoney(transportCost),
+    transportBasisSnapshot,
+    transportUnitIdSnapshot,
+    transportQuantitySnapshot:
+      transportRate.rateType === "per_trip" || transportRate.rateType === "per_day"
+        ? 1
+        : transportRate.rateType === "per_ton"
+          ? roundMetric(quantity, 3)
+          : transportRate.rateType === "per_km"
+            ? roundMetric(appliedDistance, 3)
+            : null,
   };
 };
 
@@ -289,8 +376,132 @@ const calculateLoadingCharge = ({
   };
 };
 
-const calculateMaterialAmount = ({ quantityTons, partyMaterialRate }) => {
+const calculateMaterialAmount = async ({
+  quantityTons,
+  partyMaterialRate,
+  materialId,
+  companyId,
+  dispatchDate,
+}) => {
   const quantity = Number(quantityTons || 0);
+  const hasUnitAwareBilling =
+    Boolean(String(partyMaterialRate.billingBasis || "").trim()) &&
+    (
+      partyMaterialRate.pricePerUnit !== null &&
+      partyMaterialRate.pricePerUnit !== undefined &&
+      partyMaterialRate.pricePerUnit !== ""
+    );
+
+  if (hasUnitAwareBilling) {
+    const billingBasis = String(partyMaterialRate.billingBasis || "").trim();
+    const effectiveTonRate = roundMoney(
+      partyMaterialRate.pricePerUnit || partyMaterialRate.ratePerTon || 0
+    );
+
+    if (billingBasis === "per_unit") {
+      if (!Number.isInteger(Number(partyMaterialRate.rateUnitId)) || Number(partyMaterialRate.rateUnitId) <= 0) {
+        throw buildValidationError("Selected party material rate is missing billing unit");
+      }
+
+      const conversion = await convertFromTon(
+        Number(materialId),
+        quantity,
+        Number(partyMaterialRate.rateUnitId),
+        companyId || null,
+        dispatchDate || null
+      );
+      const billingUnit = await getUnitById(
+        Number(partyMaterialRate.rateUnitId),
+        companyId || null
+      );
+      const billedQuantity = Number(conversion.calculatedQuantity);
+      const billedRate = roundMoney(partyMaterialRate.pricePerUnit);
+
+      return {
+        materialRatePerTon: billedRate,
+        materialRateUnit: partyMaterialRate.rateUnit || "other",
+        materialRateUnitLabel:
+          billingUnit.unitCode || partyMaterialRate.rateUnitLabel || "unit",
+        materialRateUnitsPerTon: roundMetric(billedQuantity / Math.max(quantity, 1e-9)),
+        billingBasisSnapshot: "per_unit",
+        billingUnitIdSnapshot: Number(partyMaterialRate.rateUnitId),
+        billedQuantitySnapshot: roundMetric(billedQuantity, 4),
+        billedRateSnapshot: billedRate,
+        materialAmount: roundMoney(billedQuantity * billedRate),
+        conversionNotesSnapshot: `Unit-aware billing converted ${roundMetric(quantity, 3)} ton to ${roundMetric(
+          billedQuantity,
+          4
+        )} ${billingUnit.unitCode || "unit"} using factor ${Number(
+          conversion.effectiveConversionFactor || conversion.conversionFactor
+        )}.`,
+      };
+    }
+
+    if (billingBasis === "per_ton") {
+      return {
+        materialRatePerTon: effectiveTonRate,
+        materialRateUnit: partyMaterialRate.rateUnit || "per_ton",
+        materialRateUnitLabel: partyMaterialRate.rateUnitLabel || "ton",
+        materialRateUnitsPerTon: 1,
+        billingBasisSnapshot: "per_ton",
+        billingUnitIdSnapshot: null,
+        billedQuantitySnapshot: roundMetric(quantity, 4),
+        billedRateSnapshot: effectiveTonRate,
+        materialAmount: roundMoney(quantity * effectiveTonRate),
+        conversionNotesSnapshot: "Unit-aware ton billing used normalized dispatch tons directly.",
+      };
+    }
+
+    if (billingBasis === "per_trip") {
+      const materialRateUnit = partyMaterialRate.rateUnit || "per_trip";
+      const materialRateUnitsPerTon = Number(partyMaterialRate.rateUnitsPerTon || 1);
+
+      if (!Number.isFinite(materialRateUnitsPerTon) || materialRateUnitsPerTon <= 0) {
+        throw buildValidationError(
+          "Selected party material rate has invalid billable units per ton"
+        );
+      }
+
+      const billedQuantity = calculateBillableRateUnits({
+        quantityTons: quantity,
+        materialRateUnit,
+        materialRateUnitsPerTon,
+      });
+      const billedRate = roundMoney(partyMaterialRate.pricePerUnit || partyMaterialRate.ratePerTon || 0);
+
+      return {
+        materialRatePerTon: billedRate,
+        materialRateUnit,
+        materialRateUnitLabel:
+          partyMaterialRate.rateUnitLabel || getDefaultRateUnitLabel(materialRateUnit),
+        materialRateUnitsPerTon,
+        billingBasisSnapshot: "per_trip",
+        billingUnitIdSnapshot: Number(partyMaterialRate.rateUnitId || 0) || null,
+        billedQuantitySnapshot: roundMetric(billedQuantity, 4),
+        billedRateSnapshot: billedRate,
+        materialAmount: roundMoney(billedQuantity * billedRate),
+        conversionNotesSnapshot: "Unit-aware trip billing used the current legacy trip rounding logic.",
+      };
+    }
+
+    if (billingBasis === "fixed") {
+      const billedRate = roundMoney(partyMaterialRate.pricePerUnit || partyMaterialRate.ratePerTon || 0);
+
+      return {
+        materialRatePerTon: billedRate,
+        materialRateUnit: partyMaterialRate.rateUnit || "fixed",
+        materialRateUnitLabel: partyMaterialRate.rateUnitLabel || "dispatch",
+        materialRateUnitsPerTon: 1,
+        billingBasisSnapshot: "fixed",
+        billingUnitIdSnapshot: null,
+        billedQuantitySnapshot: 1,
+        billedRateSnapshot: billedRate,
+        materialAmount: billedRate,
+        conversionNotesSnapshot: "Fixed billing applied once per dispatch.",
+      };
+    }
+  }
+
   const materialRatePerTon = Number(partyMaterialRate.ratePerTon || 0);
   const materialRateUnit = partyMaterialRate.rateUnit || "per_ton";
   const materialRateUnitsPerTon = Number(partyMaterialRate.rateUnitsPerTon || 1);
@@ -307,6 +518,23 @@ const calculateMaterialAmount = ({ quantityTons, partyMaterialRate }) => {
     materialRateUnitLabel:
       partyMaterialRate.rateUnitLabel || getDefaultRateUnitLabel(materialRateUnit),
     materialRateUnitsPerTon,
+    billingBasisSnapshot:
+      partyMaterialRate.billingBasis ||
+      (materialRateUnit === "per_ton" || materialRateUnit === "per_metric_ton"
+        ? "per_ton"
+        : materialRateUnit === "per_trip"
+          ? "per_trip"
+          : "per_unit"),
+    billingUnitIdSnapshot: partyMaterialRate.rateUnitId || null,
+    billedQuantitySnapshot: roundMetric(
+      calculateBillableRateUnits({
+        quantityTons: quantity,
+        materialRateUnit,
+        materialRateUnitsPerTon,
+      }),
+      4
+    ),
+    billedRateSnapshot: roundMoney(materialRatePerTon),
     materialAmount: roundMoney(
       calculateBillableRateUnits({
         quantityTons: quantity,
@@ -314,6 +542,7 @@ const calculateMaterialAmount = ({ quantityTons, partyMaterialRate }) => {
         materialRateUnitsPerTon,
       }) * materialRatePerTon
     ),
+    conversionNotesSnapshot: `Legacy billing uses ${materialRateUnit} with ${roundMetric(materialRateUnitsPerTon)} billable units per ton.`,
   };
 };
 
@@ -365,8 +594,19 @@ const calculateDispatchCommercials = async ({
     materialRateUnit,
     materialRateUnitLabel,
     materialRateUnitsPerTon,
+    billingBasisSnapshot,
+    billingUnitIdSnapshot,
+    billedQuantitySnapshot,
+    billedRateSnapshot,
     materialAmount,
-  } = calculateMaterialAmount({ quantityTons: quantity, partyMaterialRate });
+    conversionNotesSnapshot,
+  } = await calculateMaterialAmount({
+    quantityTons: quantity,
+    partyMaterialRate,
+    materialId,
+    companyId,
+    dispatchDate,
+  });
   const royaltyMode = partyMaterialRate.royaltyMode || "none";
   const royaltyValue = Number(partyMaterialRate.royaltyValue || 0);
   const tonsPerBrass =
@@ -403,11 +643,17 @@ const calculateDispatchCommercials = async ({
   const {
     transportRateType,
     transportRateValue,
+    transportBasisSnapshot,
+    transportUnitIdSnapshot,
+    transportQuantitySnapshot,
     transportCost,
-  } = calculateTransportCost({
+  } = await calculateTransportCost({
     transportRate,
     quantityTons: quantity,
     distanceKm,
+    materialId,
+    companyId,
+    dispatchDate,
   });
 
   const computedSubtotal = roundMoney(
@@ -442,9 +688,16 @@ const calculateDispatchCommercials = async ({
     materialRateUnit,
     materialRateUnitLabel,
     materialRateUnitsPerTon: roundMetric(materialRateUnitsPerTon),
+    billingBasisSnapshot,
+    billingUnitIdSnapshot,
+    billedQuantitySnapshot,
+    billedRateSnapshot,
     materialAmount,
     transportRateType,
     transportRateValue,
+    transportBasisSnapshot,
+    transportUnitIdSnapshot,
+    transportQuantitySnapshot,
     transportCost,
     royaltyMode,
     royaltyValue: roundMoney(royaltyValue),
@@ -460,6 +713,7 @@ const calculateDispatchCommercials = async ({
     otherCharge: normalizedOtherCharge,
     totalInvoiceValue: finalInvoiceValue,
     invoiceValue: finalInvoiceValue,
+    conversionNotesSnapshot,
   };
 };
 
@@ -515,7 +769,11 @@ const assertVehicleAvailable = (vehicle) => {
   }
 };
 
-const assertVehicleCapacity = (vehicle, quantityTons) => {
+const assertVehicleCapacity = (vehicle, quantityTons, quantitySource = null) => {
+  if (String(quantitySource || "").trim() === "trip_estimate") {
+    return;
+  }
+
   if (
     vehicle.vehicleCapacityTons !== null &&
     vehicle.vehicleCapacityTons !== undefined &&
@@ -527,6 +785,147 @@ const assertVehicleCapacity = (vehicle, quantityTons) => {
     error.statusCode = 400;
     throw error;
   }
+};
+
+const normalizeDispatchQuantity = async ({
+  materialId,
+  vehicle,
+  quantityTons,
+  enteredQuantity,
+  enteredUnitId,
+  quantitySource,
+  companyId,
+  dispatchDate,
+}) => {
+  const hasNewQuantityFields =
+    isProvided(quantitySource) || isProvided(enteredQuantity) || isProvided(enteredUnitId);
+
+  if (!hasNewQuantityFields) {
+    const normalizedQuantityTons = Number(quantityTons);
+
+    if (!Number.isFinite(normalizedQuantityTons) || normalizedQuantityTons <= 0) {
+      throw buildValidationError("quantityTons must be a valid number greater than 0");
+    }
+
+    return {
+      quantityTons: normalizedQuantityTons,
+      enteredQuantity: null,
+      enteredUnitId: null,
+      quantitySource: null,
+      conversionFactorToTon: null,
+      conversionId: null,
+      conversionMethodSnapshot: null,
+      sourceVehicleCapacityTons: null,
+      sourceVehicleCapacityUnitId: null,
+    };
+  }
+
+  const normalizedSource = String(quantitySource || "").trim();
+
+  if (!allowedQuantitySources.includes(normalizedSource)) {
+    throw buildValidationError(
+      "quantitySource must be one of weighbridge, manual_weight, manual_volume, vehicle_capacity, trip_estimate"
+    );
+  }
+
+  if (normalizedSource === "weighbridge" || normalizedSource === "manual_weight") {
+    const normalizedQuantityTons = Number(quantityTons);
+
+    if (!Number.isFinite(normalizedQuantityTons) || normalizedQuantityTons <= 0) {
+      throw buildValidationError("quantityTons must be a valid number greater than 0");
+    }
+
+    return {
+      quantityTons: normalizedQuantityTons,
+      enteredQuantity:
+        isProvided(enteredQuantity) && Number.isFinite(Number(enteredQuantity))
+          ? Number(enteredQuantity)
+          : null,
+      enteredUnitId:
+        isProvided(enteredUnitId) && Number.isFinite(Number(enteredUnitId))
+          ? Number(enteredUnitId)
+          : null,
+      quantitySource: normalizedSource,
+      conversionFactorToTon: 1,
+      conversionId: null,
+      conversionMethodSnapshot: normalizedSource,
+      sourceVehicleCapacityTons: null,
+      sourceVehicleCapacityUnitId: null,
+    };
+  }
+
+  if (normalizedSource === "manual_volume") {
+    const normalizedEnteredQuantity = Number(enteredQuantity);
+    const normalizedEnteredUnitId = Number(enteredUnitId);
+
+    if (!Number.isFinite(normalizedEnteredQuantity) || normalizedEnteredQuantity <= 0) {
+      throw buildValidationError("enteredQuantity must be a valid number greater than 0");
+    }
+
+    if (!Number.isInteger(normalizedEnteredUnitId) || normalizedEnteredUnitId <= 0) {
+      throw buildValidationError("enteredUnitId must be a valid positive number");
+    }
+
+    const conversion = await convertToTon(
+      Number(materialId),
+      normalizedEnteredQuantity,
+      normalizedEnteredUnitId,
+      companyId || null,
+      dispatchDate || null
+    );
+
+    return {
+      quantityTons: Number(conversion.calculatedQuantity),
+      enteredQuantity: normalizedEnteredQuantity,
+      enteredUnitId: normalizedEnteredUnitId,
+      quantitySource: normalizedSource,
+      conversionFactorToTon: Number(
+        conversion.effectiveConversionFactor || conversion.conversionFactor
+      ),
+      conversionId: conversion.originalConversionId || conversion.conversionId || null,
+      conversionMethodSnapshot: conversion.conversionMethod || null,
+      sourceVehicleCapacityTons: null,
+      sourceVehicleCapacityUnitId: null,
+    };
+  }
+
+  if (normalizedSource === "vehicle_capacity" || normalizedSource === "trip_estimate") {
+    const vehicleCapacityTons = Number(vehicle?.vehicleCapacityTons);
+
+    if (!Number.isFinite(vehicleCapacityTons) || vehicleCapacityTons <= 0) {
+      throw buildValidationError(
+        "Selected vehicle is missing capacity in tons for quantity estimation"
+      );
+    }
+
+    const trips =
+      normalizedSource === "trip_estimate" && isProvided(enteredQuantity)
+        ? Number(enteredQuantity)
+        : 1;
+
+    if (!Number.isFinite(trips) || trips <= 0) {
+      throw buildValidationError(
+        "enteredQuantity must be a valid number greater than 0 for trip_estimate"
+      );
+    }
+
+    return {
+      quantityTons: roundMetric(vehicleCapacityTons * trips, 3),
+      enteredQuantity: isProvided(enteredQuantity) ? Number(enteredQuantity) : 1,
+      enteredUnitId:
+        isProvided(enteredUnitId) && Number.isFinite(Number(enteredUnitId))
+          ? Number(enteredUnitId)
+          : null,
+      quantitySource: normalizedSource,
+      conversionFactorToTon: vehicleCapacityTons,
+      conversionId: null,
+      conversionMethodSnapshot: "vehicle_capacity",
+      sourceVehicleCapacityTons: vehicleCapacityTons,
+      sourceVehicleCapacityUnitId: null,
+    };
+  }
+
+  throw buildValidationError("Unsupported quantity source");
 };
 
 const assertDispatchCompletionReadiness = ({
@@ -714,6 +1113,9 @@ const createDispatchReport = async ({
   sourceType,
   destinationName,
   quantityTons,
+  enteredQuantity,
+  enteredUnitId,
+  quantitySource,
   remarks,
   createdBy,
   plantId,
@@ -758,7 +1160,22 @@ const createDispatchReport = async ({
     companyId: companyId || null,
   });
 
-  assertVehicleCapacity(vehicle, quantityTons);
+  const normalizedQuantity = await normalizeDispatchQuantity({
+    materialId,
+    vehicle,
+    quantityTons,
+    enteredQuantity,
+    enteredUnitId,
+    quantitySource,
+    companyId: companyId || null,
+    dispatchDate,
+  });
+
+  assertVehicleCapacity(
+    vehicle,
+    normalizedQuantity.quantityTons,
+    normalizedQuantity.quantitySource
+  );
 
   if (finalStatus === "pending") {
     assertVehicleAvailable(vehicle);
@@ -778,7 +1195,7 @@ const createDispatchReport = async ({
     plantId,
     materialId,
     partyId,
-    quantityTons,
+    quantityTons: normalizedQuantity.quantityTons,
   });
 
   const company = await getCompanyProfile(companyId || null);
@@ -789,7 +1206,7 @@ const createDispatchReport = async ({
     partyId,
     vehicle,
     transportVendorId,
-    quantityTons,
+    quantityTons: normalizedQuantity.quantityTons,
     distanceKm,
     otherCharge,
     loadingCharge,
@@ -830,7 +1247,15 @@ const createDispatchReport = async ({
       materialType: material.materialName,
       vehicleNumber: vehicle.vehicleNumber,
       destinationName,
-      quantityTons,
+      quantityTons: normalizedQuantity.quantityTons,
+      enteredQuantity: normalizedQuantity.enteredQuantity,
+      enteredUnitId: normalizedQuantity.enteredUnitId,
+      quantitySource: normalizedQuantity.quantitySource,
+      conversionFactorToTon: normalizedQuantity.conversionFactorToTon,
+      conversionId: normalizedQuantity.conversionId,
+      conversionMethodSnapshot: normalizedQuantity.conversionMethodSnapshot,
+      sourceVehicleCapacityTons: normalizedQuantity.sourceVehicleCapacityTons,
+      sourceVehicleCapacityUnitId: normalizedQuantity.sourceVehicleCapacityUnitId,
       remarks,
       createdBy,
       plantId: Number(plantId),
@@ -853,9 +1278,16 @@ const createDispatchReport = async ({
       materialRateUnit: commercials.materialRateUnit,
       materialRateUnitLabel: commercials.materialRateUnitLabel,
       materialRateUnitsPerTon: commercials.materialRateUnitsPerTon,
+      billingBasisSnapshot: commercials.billingBasisSnapshot,
+      billingUnitIdSnapshot: commercials.billingUnitIdSnapshot,
+      billedQuantitySnapshot: commercials.billedQuantitySnapshot,
+      billedRateSnapshot: commercials.billedRateSnapshot,
       materialAmount: commercials.materialAmount,
       transportRateType: commercials.transportRateType,
       transportRateValue: commercials.transportRateValue,
+      transportBasisSnapshot: commercials.transportBasisSnapshot,
+      transportUnitIdSnapshot: commercials.transportUnitIdSnapshot,
+      transportQuantitySnapshot: commercials.transportQuantitySnapshot,
       transportCost: commercials.transportCost,
       royaltyMode: commercials.royaltyMode,
       royaltyValue: commercials.royaltyValue,
@@ -867,6 +1299,7 @@ const createDispatchReport = async ({
       loadingChargeIsManual: commercials.loadingChargeIsManual,
       otherCharge: commercials.otherCharge,
       totalInvoiceValue: commercials.totalInvoiceValue,
+      conversionNotesSnapshot: commercials.conversionNotesSnapshot,
       billingNotes: billingNotes || null,
       gstRate: gstResult.gstRate,
       cgst: gstResult.cgst,
@@ -894,6 +1327,9 @@ const editDispatchReport = async ({
   sourceType,
   destinationName,
   quantityTons,
+  enteredQuantity,
+  enteredUnitId,
+  quantitySource,
   remarks,
   plantId,
   materialId,
@@ -935,7 +1371,22 @@ const editDispatchReport = async ({
     companyId: companyId || null,
   });
 
-  assertVehicleCapacity(vehicle, quantityTons);
+  const normalizedQuantity = await normalizeDispatchQuantity({
+    materialId,
+    vehicle,
+    quantityTons,
+    enteredQuantity,
+    enteredUnitId,
+    quantitySource,
+    companyId: companyId || null,
+    dispatchDate,
+  });
+
+  assertVehicleCapacity(
+    vehicle,
+    normalizedQuantity.quantityTons,
+    normalizedQuantity.quantitySource
+  );
 
   const vehicleChanged = Number(existingReport.vehicleId) !== Number(vehicleId);
 
@@ -957,7 +1408,7 @@ const editDispatchReport = async ({
     plantId,
     materialId,
     partyId,
-    quantityTons,
+    quantityTons: normalizedQuantity.quantityTons,
     existingReportId: reportId,
   });
 
@@ -969,7 +1420,7 @@ const editDispatchReport = async ({
     partyId,
     vehicle,
     transportVendorId,
-    quantityTons,
+    quantityTons: normalizedQuantity.quantityTons,
     distanceKm,
     otherCharge,
     loadingCharge,
@@ -1010,7 +1461,15 @@ const editDispatchReport = async ({
       materialType: material.materialName,
       vehicleNumber: vehicle.vehicleNumber,
       destinationName,
-      quantityTons,
+      quantityTons: normalizedQuantity.quantityTons,
+      enteredQuantity: normalizedQuantity.enteredQuantity,
+      enteredUnitId: normalizedQuantity.enteredUnitId,
+      quantitySource: normalizedQuantity.quantitySource,
+      conversionFactorToTon: normalizedQuantity.conversionFactorToTon,
+      conversionId: normalizedQuantity.conversionId,
+      conversionMethodSnapshot: normalizedQuantity.conversionMethodSnapshot,
+      sourceVehicleCapacityTons: normalizedQuantity.sourceVehicleCapacityTons,
+      sourceVehicleCapacityUnitId: normalizedQuantity.sourceVehicleCapacityUnitId,
       remarks,
       plantId: Number(plantId),
       materialId: Number(materialId),
@@ -1031,9 +1490,16 @@ const editDispatchReport = async ({
       materialRateUnit: commercials.materialRateUnit,
       materialRateUnitLabel: commercials.materialRateUnitLabel,
       materialRateUnitsPerTon: commercials.materialRateUnitsPerTon,
+      billingBasisSnapshot: commercials.billingBasisSnapshot,
+      billingUnitIdSnapshot: commercials.billingUnitIdSnapshot,
+      billedQuantitySnapshot: commercials.billedQuantitySnapshot,
+      billedRateSnapshot: commercials.billedRateSnapshot,
       materialAmount: commercials.materialAmount,
       transportRateType: commercials.transportRateType,
       transportRateValue: commercials.transportRateValue,
+      transportBasisSnapshot: commercials.transportBasisSnapshot,
+      transportUnitIdSnapshot: commercials.transportUnitIdSnapshot,
+      transportQuantitySnapshot: commercials.transportQuantitySnapshot,
       transportCost: commercials.transportCost,
       royaltyMode: commercials.royaltyMode,
       royaltyValue: commercials.royaltyValue,
@@ -1045,6 +1511,7 @@ const editDispatchReport = async ({
       loadingChargeIsManual: commercials.loadingChargeIsManual,
       otherCharge: commercials.otherCharge,
       totalInvoiceValue: commercials.totalInvoiceValue,
+      conversionNotesSnapshot: commercials.conversionNotesSnapshot,
       billingNotes: billingNotes || null,
       gstRate: gstResult.gstRate,
       cgst: gstResult.cgst,

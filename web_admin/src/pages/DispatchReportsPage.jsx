@@ -23,9 +23,24 @@ const formatCurrency = (value) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number(value || 0))}`;
+const QUANTITY_SOURCE_OPTIONS = [
+  { value: "weighbridge", label: "Weighbridge" },
+  { value: "manual_weight", label: "Manual Weight" },
+  { value: "manual_volume", label: "Manual Volume" },
+  { value: "vehicle_capacity", label: "Vehicle Capacity" },
+  { value: "trip_estimate", label: "Trip Estimate" },
+];
 const ALL_SOURCE_TYPES = ["Crusher", "Project", "Plant", "Store"];
+const TON_UNIT_CODES = new Set(["TON", "MT"]);
 const roundMoney = (value) =>
   Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+const roundMetric = (value, digits = 3) =>
+  Math.round((Number(value || 0) + Number.EPSILON) * 10 ** digits) / 10 ** digits;
+const buildNormalizedKey = (value) =>
+  String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "");
 
 const getLoadingBasisLabel = (basis) => {
   if (basis === "none") return "No Loading";
@@ -81,6 +96,19 @@ const getRateUnitLabel = (rate) => {
   if (safeRate.rateUnit === "per_trip") return safeRate.rateUnitLabel || "trip";
   if (safeRate.rateUnit === "other") return safeRate.rateUnitLabel || "custom unit";
   return safeRate.rateUnitLabel || "ton";
+};
+const getFriendlyBasisLabel = (basis) => {
+  if (basis === "per_ton" || basis === "per_metric_ton") return "Per Ton";
+  if (basis === "per_brass") return "Per Brass";
+  if (basis === "per_cft") return "Per CFT";
+  if (basis === "per_cubic_meter") return "Per Cubic Meter";
+  if (basis === "per_trip") return "Per Trip";
+  if (basis === "per_day") return "Per Day";
+  if (basis === "per_km") return "Per KM";
+  if (basis === "fixed") return "Fixed";
+  if (basis === "other") return "Custom";
+  if (basis === "none") return "Not Applicable";
+  return basis ? String(basis).replace(/_/g, " ") : "Pending";
 };
 const isDifferentNumber = (left, right, tolerance = 0.01) =>
   Math.abs(Number(left || 0) - Number(right || 0)) >= tolerance;
@@ -253,6 +281,12 @@ const getCompletionReadinessMeta = (report) => {
   };
 };
 
+const getQuantitySourceLabel = (value) =>
+  QUANTITY_SOURCE_OPTIONS.find((option) => option.value === value)?.label || "Legacy Tons";
+
+const getListData = (response) =>
+  Array.isArray(response?.data?.data) ? response.data.data : [];
+
 const WarningList = ({ warnings, tone = "warn" }) => {
   if (!warnings.length) {
     return null;
@@ -286,6 +320,9 @@ const createDispatchFormState = () => ({
   transportVendorId: "",
   destinationName: "",
   quantityTons: "",
+  enteredQuantity: "",
+  enteredUnitId: "",
+  quantitySource: "",
   remarks: "",
   ewbNumber: "",
   ewbDate: "",
@@ -321,9 +358,15 @@ function DispatchReportsPage() {
   const [partyRates, setPartyRates] = useState([]);
   const [transportRates, setTransportRates] = useState([]);
   const [partyOrders, setPartyOrders] = useState([]);
+  const [units, setUnits] = useState([]);
+  const [materialUnitConversions, setMaterialUnitConversions] = useState([]);
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [unitsWarning, setUnitsWarning] = useState("");
+  const [materialConversionsWarning, setMaterialConversionsWarning] = useState("");
+  const [savedCreatePreview, setSavedCreatePreview] = useState(null);
+  const [savedEditPreview, setSavedEditPreview] = useState(null);
 
   const [search, setSearch] = useState("");
   const [plantFilter, setPlantFilter] = useState("");
@@ -419,7 +462,9 @@ function DispatchReportsPage() {
         partyRatesRes,
         transportRatesRes,
         partyOrdersRes,
-      ] = await Promise.all([
+        unitsRes,
+        materialConversionsRes,
+      ] = await Promise.allSettled([
         api.get("/plants"),
         api.get("/vehicles"),
         api.get("/vendors"),
@@ -427,17 +472,59 @@ function DispatchReportsPage() {
         api.get("/party-material-rates"),
         api.get("/transport-rates"),
         api.get("/party-orders"),
+        api.get("/masters/units"),
+        api.get("/masters/material-unit-conversions"),
       ]);
 
-      setPlants(plantsRes.data?.data || []);
-      setVehicles(vehiclesRes.data?.data || []);
-      setVendors(vendorsRes.data?.data || []);
-      setPartyRates(partyRatesRes.data?.data || []);
-      setTransportRates(transportRatesRes.data?.data || []);
-      setPartyOrders(partyOrdersRes.data?.data || []);
-      setParties(partiesRes.data?.data || []);
+      const requiredResponses = [
+        plantsRes,
+        vehiclesRes,
+        vendorsRes,
+        partiesRes,
+        partyRatesRes,
+        transportRatesRes,
+        partyOrdersRes,
+      ];
+      const failedRequiredResponse = requiredResponses.find(
+        (response) => response.status !== "fulfilled"
+      );
+
+      if (failedRequiredResponse) {
+        throw failedRequiredResponse.reason;
+      }
+
+      setPlants(getListData(plantsRes.value));
+      setVehicles(getListData(vehiclesRes.value));
+      setVendors(getListData(vendorsRes.value));
+      setPartyRates(getListData(partyRatesRes.value));
+      setTransportRates(getListData(transportRatesRes.value));
+      setPartyOrders(getListData(partyOrdersRes.value));
+      setParties(getListData(partiesRes.value));
+
+      if (unitsRes.status === "fulfilled") {
+        setUnits(getListData(unitsRes.value));
+        setUnitsWarning("");
+      } else {
+        setUnits([]);
+        setUnitsWarning(
+          "Unit master data could not be loaded. Legacy dispatch records still load, but unit-aware labels may be incomplete."
+        );
+      }
+
+      if (materialConversionsRes.status === "fulfilled") {
+        setMaterialUnitConversions(getListData(materialConversionsRes.value));
+        setMaterialConversionsWarning("");
+      } else {
+        setMaterialUnitConversions([]);
+        setMaterialConversionsWarning(
+          "Material conversions could not be loaded. Manual volume preview may be limited, but legacy dispatch entry still works."
+        );
+      }
+
       setError("");
     } catch {
+      setUnitsWarning("");
+      setMaterialConversionsWarning("");
       setError("Failed to load dispatch data");
     } finally {
       setIsLoadingData(false);
@@ -581,8 +668,30 @@ function DispatchReportsPage() {
     [transportRates]
   );
 
+  const activeMaterialUnitConversions = useMemo(
+    () => materialUnitConversions.filter((conversion) => conversion.isActive),
+    [materialUnitConversions]
+  );
+
+  const availableUnits = useMemo(
+    () => units.filter((unit) => unit.isActive),
+    [units]
+  );
+
+  const unitsById = useMemo(
+    () => new Map(units.map((unit) => [String(unit.id), unit])),
+    [units]
+  );
+
   const handleChange = (setter) => (e) => {
     const { name, value } = e.target;
+
+    if (setter === setFormData) {
+      setSavedCreatePreview(null);
+    }
+    if (setter === setEditForm) {
+      setSavedEditPreview(null);
+    }
 
     setter((prev) => {
       const next = {
@@ -655,10 +764,22 @@ function DispatchReportsPage() {
       if (name === "materialId") {
         next.partyId = "";
         next.partyOrderId = "";
+        next.enteredUnitId = "";
       }
 
       if (name === "partyId") {
         next.partyOrderId = "";
+      }
+
+      if (name === "quantitySource") {
+        if (value !== "manual_volume") {
+          next.enteredUnitId = "";
+        }
+
+        if (value !== "trip_estimate") {
+          next.enteredQuantity =
+            prev.quantitySource === "trip_estimate" ? "" : prev.enteredQuantity;
+        }
       }
 
       if (name === "vehicleId") {
@@ -728,16 +849,6 @@ function DispatchReportsPage() {
         );
       });
   };
-
-  const partyRateOptionsForEdit = useMemo(() => {
-    if (!editForm.plantId || !editForm.materialId) return [];
-
-    return activePartyRates.filter(
-      (rate) =>
-        String(rate.plantId) === String(editForm.plantId) &&
-        String(rate.materialId) === String(editForm.materialId)
-    );
-  }, [activePartyRates, editForm.plantId, editForm.materialId]);
 
   const transportVendorOptionsForForm = useMemo(() => {
     if (!formData.plantId || !formData.materialId) return [];
@@ -893,10 +1004,196 @@ function DispatchReportsPage() {
     );
   };
 
+  const getUnitOptionLabel = useCallback((unitId) => {
+    const unit = unitsById.get(String(unitId));
+    if (!unit) return "Unknown unit";
+    return unit.unitCode || unit.unitName || `Unit ${unit.id}`;
+  }, [unitsById]);
+
+  const getMaterialConversionToTon = useCallback(
+    (payload) => {
+      const materialId = Number(payload.materialId || 0);
+      const enteredUnitId = Number(payload.enteredUnitId || 0);
+
+      if (!materialId || !enteredUnitId) {
+        return null;
+      }
+
+      const enteredUnit = unitsById.get(String(enteredUnitId));
+      if (!enteredUnit) {
+        return null;
+      }
+
+      const enteredUnitCode = buildNormalizedKey(enteredUnit.unitCode || enteredUnit.unitName);
+      if (TON_UNIT_CODES.has(enteredUnitCode)) {
+        return {
+          conversionId: null,
+          conversionFactor: 1,
+          conversionMethod: "identity",
+          isReciprocal: false,
+        };
+      }
+
+      const effectiveDispatchDate =
+        toComparableDateOnly(payload.dispatchDate) || getTodayDateValue();
+
+      const matchingConversions = activeMaterialUnitConversions
+        .filter(
+          (conversion) =>
+            String(conversion.materialId) === String(materialId) &&
+            (!toComparableDateOnly(conversion.effectiveFrom) ||
+              toComparableDateOnly(conversion.effectiveFrom) <= effectiveDispatchDate)
+        )
+        .sort(compareEffectiveRatePriority);
+
+      for (const conversion of matchingConversions) {
+        const fromUnit = unitsById.get(String(conversion.fromUnitId || ""));
+        const toUnit = unitsById.get(String(conversion.toUnitId || ""));
+        const fromCode = buildNormalizedKey(fromUnit?.unitCode || fromUnit?.unitName);
+        const toCode = buildNormalizedKey(toUnit?.unitCode || toUnit?.unitName);
+        const rawFactor = Number(conversion.conversionFactor || 0);
+
+        if (!Number.isFinite(rawFactor) || rawFactor <= 0) {
+          continue;
+        }
+
+        if (
+          String(conversion.fromUnitId) === String(enteredUnitId) &&
+          TON_UNIT_CODES.has(toCode)
+        ) {
+          return {
+            conversionId: conversion.id || null,
+            conversionFactor: rawFactor,
+            conversionMethod: conversion.conversionMethod || null,
+            isReciprocal: false,
+          };
+        }
+
+        if (
+          String(conversion.toUnitId) === String(enteredUnitId) &&
+          TON_UNIT_CODES.has(fromCode)
+        ) {
+          return {
+            conversionId: conversion.id || null,
+            conversionFactor: 1 / rawFactor,
+            conversionMethod: conversion.conversionMethod || null,
+            isReciprocal: true,
+          };
+        }
+      }
+
+      return null;
+    },
+    [activeMaterialUnitConversions, unitsById]
+  );
+
+  const getNormalizedQuantityPreview = useCallback((payload) => {
+    const quantitySource = String(payload.quantitySource || "").trim();
+    const quantityTons = Number(payload.quantityTons || 0);
+    const enteredQuantity = Number(payload.enteredQuantity || 0);
+    const selectedVehicle = vehicles.find(
+      (vehicle) => String(vehicle.id) === String(payload.vehicleId)
+    );
+    const vehicleCapacityTons = Number(selectedVehicle?.vehicleCapacityTons || 0);
+
+    if (!quantitySource) {
+      return {
+        value: Number.isFinite(quantityTons) && quantityTons > 0 ? quantityTons : null,
+        sourceLabel: "Legacy Tons",
+        note: "Using direct quantity tons entry.",
+        canCalculateLocally: Number.isFinite(quantityTons) && quantityTons > 0,
+      };
+    }
+
+    if (quantitySource === "weighbridge" || quantitySource === "manual_weight") {
+      return {
+        value: Number.isFinite(quantityTons) && quantityTons > 0 ? quantityTons : null,
+        sourceLabel: getQuantitySourceLabel(quantitySource),
+        note: "Weight-based entry uses quantity tons directly.",
+        canCalculateLocally: Number.isFinite(quantityTons) && quantityTons > 0,
+      };
+    }
+
+    if (quantitySource === "manual_volume") {
+      const conversion = getMaterialConversionToTon(payload);
+      const canConvert =
+        Number.isFinite(enteredQuantity) &&
+        enteredQuantity > 0 &&
+        Number.isFinite(conversion?.conversionFactor) &&
+        conversion.conversionFactor > 0;
+
+      return {
+        value: canConvert
+          ? roundMetric(enteredQuantity * Number(conversion.conversionFactor), 3)
+          : null,
+        sourceLabel: getQuantitySourceLabel(quantitySource),
+        note:
+          !payload.enteredQuantity || !payload.enteredUnitId
+            ? "Enter quantity and unit to estimate converted quantity."
+            : canConvert
+              ? `Converted from ${payload.enteredQuantity} ${getUnitOptionLabel(
+                  payload.enteredUnitId
+                )} using masters configuration.`
+              : materialConversionsWarning
+                ? "Conversion preview is unavailable because material conversions could not be loaded."
+                : "Conversion not configured for this material. Please configure in Masters.",
+        canCalculateLocally: canConvert,
+        missingConversion:
+          Boolean(payload.enteredQuantity) &&
+          Boolean(payload.enteredUnitId) &&
+          !conversion &&
+          !materialConversionsWarning,
+        conversionUnavailable: Boolean(materialConversionsWarning),
+      };
+    }
+
+    if (quantitySource === "vehicle_capacity") {
+      return {
+        value:
+          Number.isFinite(vehicleCapacityTons) && vehicleCapacityTons > 0
+            ? roundMetric(vehicleCapacityTons, 3)
+            : null,
+        sourceLabel: getQuantitySourceLabel(quantitySource),
+        note:
+          Number.isFinite(vehicleCapacityTons) && vehicleCapacityTons > 0
+            ? `Using linked vehicle capacity of ${roundMetric(vehicleCapacityTons, 3)} tons for one trip.`
+            : "Selected vehicle needs capacity in tons before using this source.",
+        canCalculateLocally: Number.isFinite(vehicleCapacityTons) && vehicleCapacityTons > 0,
+      };
+    }
+
+    if (quantitySource === "trip_estimate") {
+      const trips = Number.isFinite(enteredQuantity) && enteredQuantity > 0 ? enteredQuantity : 1;
+      return {
+        value:
+          Number.isFinite(vehicleCapacityTons) && vehicleCapacityTons > 0
+            ? roundMetric(vehicleCapacityTons * trips, 3)
+            : null,
+        sourceLabel: getQuantitySourceLabel(quantitySource),
+        note:
+          Number.isFinite(vehicleCapacityTons) && vehicleCapacityTons > 0
+            ? `${roundMetric(trips, 3)} trip(s) x ${roundMetric(vehicleCapacityTons, 3)} tons vehicle capacity.`
+            : "Selected vehicle needs capacity in tons before using trip estimate.",
+        canCalculateLocally: Number.isFinite(vehicleCapacityTons) && vehicleCapacityTons > 0,
+      };
+    }
+
+    return {
+      value: null,
+      sourceLabel: "Quantity Source",
+      note: "Quantity will be normalized by the backend.",
+      canCalculateLocally: false,
+    };
+  }, [getMaterialConversionToTon, getUnitOptionLabel, materialConversionsWarning, vehicles]);
+
   const buildBillingPreview = (payload) => {
-    const quantity = Number(payload.quantityTons || 0);
+    const quantityPreview = getNormalizedQuantityPreview(payload);
+    const quantity = Number(quantityPreview.value || 0);
     const distance = Number(payload.distanceKm || 0);
     const otherCharge = roundMoney(payload.otherCharge || 0);
+    const selectedMaterial =
+      availableMaterials.find((material) => String(material.id) === String(payload.materialId)) ||
+      null;
 
     const partyRate = getSelectedPartyRate(payload);
     const transportRate = getSelectedTransportRate(payload);
@@ -908,13 +1205,15 @@ function DispatchReportsPage() {
     const materialRateUnit = partyRate?.rateUnit || "per_ton";
     const materialRateUnitLabel = getRateUnitLabel(partyRate);
     const materialRateUnitsPerTon = Number(partyRate?.rateUnitsPerTon || 1);
-    const materialAmount = roundMoney(
-      calculateBillableRateUnits({
-        quantityTons: quantity,
-        materialRateUnit,
-        materialRateUnitsPerTon,
-      }) * materialRatePerTon
-    );
+    const materialAmount = quantityPreview.canCalculateLocally
+      ? roundMoney(
+          calculateBillableRateUnits({
+            quantityTons: quantity,
+            materialRateUnit,
+            materialRateUnitsPerTon,
+          }) * materialRatePerTon
+        )
+      : 0;
 
     const royaltyMode = partyRate?.royaltyMode || "none";
     const royaltyValue = Number(partyRate?.royaltyValue || 0);
@@ -924,9 +1223,10 @@ function DispatchReportsPage() {
         : Number(partyRate?.tonsPerBrass);
     let royaltyAmount = 0;
 
-    if (royaltyMode === "per_ton") {
+    if (quantityPreview.canCalculateLocally && royaltyMode === "per_ton") {
       royaltyAmount = roundMoney(quantity * royaltyValue);
     } else if (
+      quantityPreview.canCalculateLocally &&
       royaltyMode === "per_brass" &&
       Number.isFinite(tonsPerBrass) &&
       tonsPerBrass > 0
@@ -940,9 +1240,10 @@ function DispatchReportsPage() {
     const loadingChargeRate = roundMoney(partyRate?.loadingCharge || 0);
     let autoLoadingCharge = 0;
 
-    if (loadingChargeBasis === "per_ton") {
+    if (quantityPreview.canCalculateLocally && loadingChargeBasis === "per_ton") {
       autoLoadingCharge = quantity * loadingChargeRate;
     } else if (
+      quantityPreview.canCalculateLocally &&
       loadingChargeBasis === "per_brass" &&
       Number.isFinite(tonsPerBrass) &&
       tonsPerBrass > 0
@@ -966,7 +1267,7 @@ function DispatchReportsPage() {
     if (transportRate) {
       if (transportRate.rateType === "per_trip" || transportRate.rateType === "per_day") {
         transportCost = transportRate.rateValue;
-      } else if (transportRate.rateType === "per_ton") {
+      } else if (transportRate.rateType === "per_ton" && quantityPreview.canCalculateLocally) {
         transportCost = quantity * transportRate.rateValue;
       } else if (transportRate.rateType === "per_km") {
         const appliedDistance =
@@ -1003,6 +1304,28 @@ function DispatchReportsPage() {
       ? roundMoney(finalInvoiceValue - computedTotal)
       : 0;
 
+    const estimatedBillingQuantity = quantityPreview.canCalculateLocally
+      ? roundMetric(
+          calculateBillableRateUnits({
+            quantityTons: quantity,
+            materialRateUnit,
+            materialRateUnitsPerTon,
+          }),
+          3
+        )
+      : null;
+
+    let estimatedTransportQuantity = null;
+    if (transportRate) {
+      if (transportRate.rateType === "per_trip" || transportRate.rateType === "per_day") {
+        estimatedTransportQuantity = 1;
+      } else if (transportRate.rateType === "per_ton" && quantityPreview.canCalculateLocally) {
+        estimatedTransportQuantity = roundMetric(quantity, 3);
+      } else if (transportRate.rateType === "per_km") {
+        estimatedTransportQuantity = distance > 0 ? roundMetric(distance, 2) : null;
+      }
+    }
+
     return {
       partyRate,
       hasPartyRate,
@@ -1026,10 +1349,14 @@ function DispatchReportsPage() {
       transportRateValue,
       transportCost,
       otherCharge,
+      quantityPreview,
       computedTotal,
       finalInvoiceValue,
       hasManualOverride,
       overrideAmount,
+      estimatedBillingQuantity,
+      estimatedTransportQuantity,
+      selectedMaterial,
     };
   };
 
@@ -1167,6 +1494,8 @@ function DispatchReportsPage() {
   }, [editForm.plantId, editForm.sourceType, editRecord, plantOptions]);
 
   const validateDispatchPayload = (payload) => {
+    const quantitySource = String(payload.quantitySource || "").trim();
+
     if (
       !payload.dispatchDate ||
       !payload.sourceType ||
@@ -1174,15 +1503,56 @@ function DispatchReportsPage() {
       !payload.materialId ||
       !payload.partyId ||
       !payload.vehicleId ||
-      !payload.destinationName ||
-      !payload.quantityTons
+      !payload.destinationName
     ) {
-      return "Dispatch date, source type, plant, material, party, vehicle, destination, and quantity are required";
+      return "Dispatch date, source type, plant, material, party, vehicle, and destination are required";
     }
 
-    const quantityTons = Number(payload.quantityTons);
-    if (!Number.isFinite(quantityTons) || quantityTons <= 0) {
-      return "Quantity tons must be a valid number greater than 0";
+    if (!quantitySource || quantitySource === "weighbridge" || quantitySource === "manual_weight") {
+      const quantityTons = Number(payload.quantityTons);
+      if (!Number.isFinite(quantityTons) || quantityTons <= 0) {
+        return "Quantity tons must be a valid number greater than 0";
+      }
+    }
+
+    if (quantitySource === "manual_volume") {
+      const enteredQuantity = Number(payload.enteredQuantity);
+      const enteredUnitId = Number(payload.enteredUnitId);
+
+      if (!Number.isFinite(enteredQuantity) || enteredQuantity <= 0) {
+        return "Entered quantity must be a valid number greater than 0 for manual volume";
+      }
+
+      if (!Number.isInteger(enteredUnitId) || enteredUnitId <= 0) {
+        return "Select a valid unit for manual volume quantity";
+      }
+
+      if (
+        !materialConversionsWarning &&
+        payload.materialId &&
+        !getMaterialConversionToTon(payload)
+      ) {
+        return "Conversion not configured for this material. Please configure in Masters.";
+      }
+    }
+
+    if (quantitySource === "trip_estimate") {
+      const enteredQuantity = payload.enteredQuantity === "" ? 1 : Number(payload.enteredQuantity);
+
+      if (!Number.isFinite(enteredQuantity) || enteredQuantity <= 0) {
+        return "Trip estimate must be a valid number greater than 0";
+      }
+    }
+
+    if (quantitySource === "vehicle_capacity" || quantitySource === "trip_estimate") {
+      const selectedVehicle = vehicles.find(
+        (vehicle) => String(vehicle.id) === String(payload.vehicleId)
+      );
+      const vehicleCapacityTons = Number(selectedVehicle?.vehicleCapacityTons || 0);
+
+      if (!Number.isFinite(vehicleCapacityTons) || vehicleCapacityTons <= 0) {
+        return "Selected vehicle is missing capacity in tons for quantity estimation";
+      }
     }
 
     const invoiceValue = payload.invoiceValue === "" ? null : Number(payload.invoiceValue);
@@ -1210,10 +1580,7 @@ function DispatchReportsPage() {
     }
 
     const billingPreview = buildBillingPreview(payload);
-    if (
-      billingPreview.hasManualOverride &&
-      !String(payload.billingNotes || "").trim()
-    ) {
+    if (billingPreview.hasManualOverride && !String(payload.billingNotes || "").trim()) {
       return "Billing notes are required when manually overriding the taxable invoice value";
     }
 
@@ -1225,9 +1592,11 @@ function DispatchReportsPage() {
     }
 
     const selectedPartyOrder = getSelectedPartyOrder(payload, payload.partyOrderId);
+    const normalizedQuantityPreview = getNormalizedQuantityPreview(payload);
     if (
       selectedPartyOrder &&
-      Number(payload.quantityTons || 0) >
+      normalizedQuantityPreview.value !== null &&
+      Number(normalizedQuantityPreview.value || 0) >
         Number(selectedPartyOrder.pendingQuantityTons || 0)
     ) {
       return `Dispatch quantity exceeds pending order quantity of ${selectedPartyOrder.pendingQuantityTons} tons`;
@@ -1293,6 +1662,10 @@ function DispatchReportsPage() {
       ? Number(payload.transportVendorId)
       : null,
     quantityTons: Number(payload.quantityTons),
+    enteredQuantity:
+      payload.enteredQuantity === "" ? null : Number(payload.enteredQuantity),
+    enteredUnitId: payload.enteredUnitId ? Number(payload.enteredUnitId) : null,
+    quantitySource: payload.quantitySource || null,
     invoiceValue:
       payload.invoiceValue === "" ? null : Number(payload.invoiceValue),
     distanceKm: payload.distanceKm === "" ? null : Number(payload.distanceKm),
@@ -1304,6 +1677,8 @@ function DispatchReportsPage() {
   });
 
   const buildDispatchReadiness = (payload, billingPreview) => {
+    const quantitySource = String(payload.quantitySource || "").trim();
+    const quantityPreview = getNormalizedQuantityPreview(payload);
     const checks = [
       {
         label: "Dispatch date selected",
@@ -1337,9 +1712,18 @@ function DispatchReportsPage() {
           ) > 0,
       },
       {
-        label: "Destination and quantity filled",
-        ready: Boolean(
-          payload.destinationName && Number(payload.quantityTons || 0) > 0
+        label: "Destination and quantity inputs filled",
+        ready: Boolean(payload.destinationName) && (
+          (!quantitySource && Number(payload.quantityTons || 0) > 0) ||
+          ((quantitySource === "weighbridge" || quantitySource === "manual_weight") &&
+            Number(payload.quantityTons || 0) > 0) ||
+          (quantitySource === "manual_volume" &&
+            Number(payload.enteredQuantity || 0) > 0 &&
+            Boolean(payload.enteredUnitId)) ||
+          (quantitySource === "vehicle_capacity" && quantityPreview.value !== null) ||
+          (quantitySource === "trip_estimate" &&
+            Number(payload.enteredQuantity || 1) > 0 &&
+            quantityPreview.value !== null)
         ),
       },
       {
@@ -1347,8 +1731,12 @@ function DispatchReportsPage() {
         ready: Boolean(billingPreview.partyRate),
       },
       {
-        label: "Invoice value available",
-        ready: Number(billingPreview.finalInvoiceValue || 0) > 0,
+        label: "Billing can be computed now or after backend normalization",
+        ready:
+          Boolean(billingPreview.partyRate) &&
+          (quantityPreview.canCalculateLocally ||
+            (quantitySource === "manual_volume" &&
+              !quantityPreview.missingConversion)),
       },
     ];
 
@@ -1376,7 +1764,16 @@ function DispatchReportsPage() {
       !billingPreview.partyRate
     ) {
       warnings.push(
-        "No active material rate exists for this party, plant, and material combination."
+        "Party rate is missing for this party, plant, and material. Save will be blocked until a rate is configured."
+      );
+    }
+
+    if (
+      String(payload.quantitySource || "").trim() === "manual_volume" &&
+      billingPreview.quantityPreview.missingConversion
+    ) {
+      warnings.push(
+        "Conversion not configured for this material. Please configure in Masters."
       );
     }
 
@@ -1388,6 +1785,17 @@ function DispatchReportsPage() {
     ) {
       warnings.push(
         "No open matching order exists for this dispatch combination, so fulfillment will not be tracked against an order."
+      );
+    }
+
+    if (
+      payload.plantId &&
+      payload.materialId &&
+      (payload.transportVendorId || selectedVehicle?.vendorId) &&
+      !billingPreview.transportRate
+    ) {
+      warnings.push(
+        "Transport rate is not configured for this plant, material, and vendor. Dispatch can still continue if transport is optional."
       );
     }
 
@@ -1449,10 +1857,11 @@ function DispatchReportsPage() {
 
     try {
       setIsSubmitting(true);
-      await api.post(
+      const response = await api.post(
         "/dispatch-reports",
         normalizeDispatchPayload(formData)
       );
+      setSavedCreatePreview(response.data?.data || null);
 
       setSuccess("Dispatch report added successfully");
       setFormData(createDispatchFormState());
@@ -1506,6 +1915,12 @@ function DispatchReportsPage() {
         report.quantityTons !== null && report.quantityTons !== undefined
           ? String(report.quantityTons)
           : "",
+      enteredQuantity:
+        report.enteredQuantity !== null && report.enteredQuantity !== undefined
+          ? String(report.enteredQuantity)
+          : "",
+      enteredUnitId: report.enteredUnitId ? String(report.enteredUnitId) : "",
+      quantitySource: report.quantitySource || "",
       remarks: report.remarks || "",
       ewbNumber: report.ewbNumber || "",
       ewbDate: report.ewbDate || "",
@@ -1608,10 +2023,11 @@ function DispatchReportsPage() {
 
     try {
       setIsUpdating(true);
-      await api.patch(
+      const response = await api.patch(
         `/dispatch-reports/${editRecord.id}`,
         normalizeDispatchPayload(editForm)
       );
+      setSavedEditPreview(response.data?.data || null);
 
       setSuccess("Dispatch report updated successfully");
       closeEditPanel();
@@ -1958,10 +2374,169 @@ function DispatchReportsPage() {
     );
   };
 
+  const renderQuantityInputSection = ({
+    payload,
+    setter,
+    billingPreview,
+    selectedVehicle,
+  }) => {
+    const quantitySource = String(payload.quantitySource || "").trim();
+    const normalizedPreview = billingPreview.quantityPreview;
+    const usesDirectTons =
+      !quantitySource || quantitySource === "weighbridge" || quantitySource === "manual_weight";
+    const isManualVolume = quantitySource === "manual_volume";
+    const isVehicleCapacity = quantitySource === "vehicle_capacity";
+    const isTripEstimate = quantitySource === "trip_estimate";
+    return (
+      <>
+        <div style={styles.fullWidthField}>
+          <div style={styles.fieldGroupCard}>
+            <div style={styles.fieldGroupHeader}>
+              <div>
+                <p style={styles.fieldGroupEyebrow}>Quantity</p>
+                <strong style={styles.fieldGroupTitle}>Choose how quantity is captured</strong>
+              </div>
+            </div>
+
+            <div style={styles.form}>
+              <div style={styles.fieldStack}>
+                <label style={styles.fieldLabel}>Quantity Source</label>
+                <select
+                  name="quantitySource"
+                  value={payload.quantitySource}
+                  onChange={handleChange(setter)}
+                  style={styles.input}
+                >
+                  <option value="">Legacy Quantity Tons</option>
+                  {QUANTITY_SOURCE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {usesDirectTons && (
+                <div style={styles.fieldStack}>
+                  <label style={styles.fieldLabel}>Quantity Tons / MT</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    name="quantityTons"
+                    placeholder="Enter quantity in tons"
+                    value={payload.quantityTons}
+                    onChange={handleChange(setter)}
+                    style={styles.input}
+                  />
+                </div>
+              )}
+
+              {isManualVolume && (
+                <>
+                  <div style={styles.fieldStack}>
+                    <label style={styles.fieldLabel}>Entered Quantity</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      name="enteredQuantity"
+                      placeholder="Enter measured quantity"
+                      value={payload.enteredQuantity}
+                      onChange={handleChange(setter)}
+                      style={styles.input}
+                    />
+                  </div>
+
+                  <div style={styles.fieldStack}>
+                    <label style={styles.fieldLabel}>Unit</label>
+                    <select
+                      name="enteredUnitId"
+                      value={payload.enteredUnitId}
+                      onChange={handleChange(setter)}
+                      style={styles.input}
+                    >
+                      <option value="">Select unit from masters</option>
+                      {availableUnits.map((unit) => (
+                        <option key={unit.id} value={unit.id}>
+                          {unit.unitCode || unit.unitName}
+                          {unit.dimensionType ? ` • ${unit.dimensionType}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {isTripEstimate && (
+                <div style={styles.fieldStack}>
+                  <label style={styles.fieldLabel}>Trip Count</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    name="enteredQuantity"
+                    placeholder="Enter trip count"
+                    value={payload.enteredQuantity}
+                    onChange={handleChange(setter)}
+                    style={styles.input}
+                  />
+                </div>
+              )}
+
+              {(isVehicleCapacity || isTripEstimate) && (
+                <div style={styles.fieldStack}>
+                  <label style={styles.fieldLabel}>Selected Vehicle Capacity</label>
+                  <input
+                    value={
+                      selectedVehicle?.vehicleCapacityTons
+                        ? `${roundMetric(selectedVehicle.vehicleCapacityTons, 3)} tons`
+                        : "Capacity not configured on selected vehicle"
+                    }
+                    style={styles.input}
+                    disabled
+                  />
+                </div>
+              )}
+
+              <div style={styles.fullWidthField}>
+                <div style={styles.quantityModeCard}>
+                  <span style={styles.previewLabel}>Converted Quantity</span>
+                  <strong style={styles.previewValue}>
+                    {normalizedPreview.value !== null
+                      ? `${formatMetric(normalizedPreview.value)} tons`
+                      : "Awaiting system normalization"}
+                  </strong>
+                  <span style={styles.previewHint}>{normalizedPreview.note}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {(isVehicleCapacity || isTripEstimate) && (
+          <div style={styles.fullWidthField}>
+            <div style={styles.inlineInfoBanner}>
+              Vehicle capacity hint:{" "}
+              <strong>
+                {selectedVehicle?.vehicleCapacityTons
+                  ? `${roundMetric(selectedVehicle.vehicleCapacityTons, 3)} tons`
+                  : "capacity missing on selected vehicle"}
+              </strong>
+              {isTripEstimate
+                ? ` • Current estimate: ${payload.enteredQuantity || 1} trip(s)`
+                : " • One trip will use the linked vehicle capacity."}
+            </div>
+          </div>
+        )}
+      </>
+    );
+  };
+
   const renderBillingPreview = (billingPreview) => (
     <>
       <div style={styles.billingFlowNote}>
-        Party material rate drives the material side. Transporter rate adds only the transportation side. Taxable value is auto-computed from material amount + royalty + loading + transport + other charges unless you explicitly override it.
+        Estimated Preview only. Final amount after save will be calculated by system using backend billing, transport, and tax rules.
       </div>
 
       {billingPreview.requiresPartyRate && !billingPreview.hasPartyRate ? (
@@ -1984,20 +2559,52 @@ function DispatchReportsPage() {
         </div>
       ) : null}
 
+      {!billingPreview.quantityPreview.canCalculateLocally ? (
+        <div style={styles.overrideWarningCard}>
+          <strong>Frontend preview is partial for this quantity mode</strong>
+          <span>{billingPreview.quantityPreview.note}</span>
+        </div>
+      ) : null}
+
       <div style={styles.previewGrid}>
         <div style={styles.previewCard}>
-          <span style={styles.previewLabel}>
-            Party Material Rate / {billingPreview.materialRateUnitLabel || "ton"}
+          <span style={styles.previewLabel}>Normalized Quantity</span>
+          <strong style={styles.previewValue}>
+            {billingPreview.quantityPreview.value !== null
+              ? `${formatMetric(billingPreview.quantityPreview.value)} tons`
+              : "Backend after save"}
+          </strong>
+          <span style={styles.previewHint}>{billingPreview.quantityPreview.sourceLabel}</span>
+        </div>
+
+        <div style={styles.previewCard}>
+          <span style={styles.previewLabel}>Billing Basis</span>
+          <strong style={styles.previewValue}>
+            {getFriendlyBasisLabel(billingPreview.materialRateUnit)}
+          </strong>
+          <span style={styles.previewHint}>
+            {billingPreview.materialRateUnitLabel || "ton"}
           </span>
+        </div>
+
+        <div style={styles.previewCard}>
+          <span style={styles.previewLabel}>Billing Quantity</span>
+          <strong style={styles.previewValue}>
+            {billingPreview.estimatedBillingQuantity !== null
+              ? formatMetric(billingPreview.estimatedBillingQuantity)
+              : "After save"}
+          </strong>
+          <span style={styles.previewHint}>Indicative billing quantity</span>
+        </div>
+
+        <div style={styles.previewCard}>
+          <span style={styles.previewLabel}>Rate</span>
           <strong style={styles.previewValue}>
             {billingPreview.materialRatePerTon || 0}
           </strong>
-          {Number(billingPreview.materialRateUnitsPerTon || 1) !== 1 && (
-            <span style={styles.previewHint}>
-              {billingPreview.materialRateUnitsPerTon}{" "}
-              {billingPreview.materialRateUnitLabel} / ton
-            </span>
-          )}
+          <span style={styles.previewHint}>
+            per {billingPreview.materialRateUnitLabel || "ton"}
+          </span>
         </div>
 
         <div style={styles.previewCard}>
@@ -2034,14 +2641,19 @@ function DispatchReportsPage() {
         </div>
 
         <div style={styles.previewCard}>
-          <span style={styles.previewLabel}>Transport Rate Type</span>
+          <span style={styles.previewLabel}>Transport Basis</span>
           <strong style={styles.previewValue}>
-            {billingPreview.transportRateType || "Not linked"}
+            {getFriendlyBasisLabel(billingPreview.transportRateType)}
           </strong>
+          <span style={styles.previewHint}>
+            {billingPreview.estimatedTransportQuantity !== null
+              ? `Qty ${formatMetric(billingPreview.estimatedTransportQuantity)}`
+              : "Vendor/rate optional"}
+          </span>
         </div>
 
         <div style={styles.previewCard}>
-          <span style={styles.previewLabel}>Transport Cost</span>
+          <span style={styles.previewLabel}>Transport Amount</span>
           <strong style={styles.previewValue}>
             {formatCurrency(billingPreview.transportCost)}
           </strong>
@@ -2055,9 +2667,22 @@ function DispatchReportsPage() {
         </div>
 
         <div style={{ ...styles.previewCard, ...styles.previewCardStrong }}>
-          <span style={styles.previewLabel}>Computed Dispatch Value</span>
+          <span style={styles.previewLabel}>GST</span>
           <strong style={styles.previewValue}>
-            {formatCurrency(billingPreview.computedTotal)}
+            {billingPreview.selectedMaterial?.gstRate !== null &&
+            billingPreview.selectedMaterial?.gstRate !== undefined
+              ? `${formatMetric(billingPreview.selectedMaterial.gstRate)}%`
+              : "After save"}
+          </strong>
+          <span style={styles.previewHint}>
+            Final tax amount is backend-confirmed after save
+          </span>
+        </div>
+
+        <div style={{ ...styles.previewCard, ...styles.previewCardStrong }}>
+          <span style={styles.previewLabel}>Grand Total</span>
+          <strong style={styles.previewValue}>
+            {formatCurrency(billingPreview.finalInvoiceValue)}
           </strong>
         </div>
 
@@ -2071,16 +2696,92 @@ function DispatchReportsPage() {
         >
           <span style={styles.previewLabel}>
             {billingPreview.hasManualOverride
-              ? "Manual Taxable Value Override"
-              : "Final Taxable Value"}
+              ? "Manual Override"
+              : "System Note"}
           </span>
           <strong style={styles.previewValue}>
-            {formatCurrency(billingPreview.finalInvoiceValue)}
+            {billingPreview.hasManualOverride
+              ? formatCurrency(billingPreview.finalInvoiceValue)
+              : "Auto"}
           </strong>
+          <span style={styles.previewHint}>
+            Final amount after save will be calculated by system
+          </span>
         </div>
       </div>
     </>
   );
+
+  const renderBackendResponsePreview = (report, title) => {
+    if (!report) {
+      return null;
+    }
+
+    return (
+      <div style={styles.backendPreviewWrap}>
+        <div style={styles.backendPreviewHeader}>
+          <div>
+            <p style={styles.dispatchAssistantEyebrow}>Backend Response Preview</p>
+            <strong style={styles.dispatchAssistantTitle}>{title}</strong>
+          </div>
+          <span style={styles.dispatchAssistantBadge}>
+            Dispatch #{report.id || "Saved"}
+          </span>
+        </div>
+
+        <div style={styles.previewGrid}>
+          <div style={{ ...styles.previewCard, ...styles.previewCardStrong }}>
+            <span style={styles.previewLabel}>quantityTons</span>
+            <strong style={styles.previewValue}>
+              {formatMetric(report.quantityTons || 0)}
+            </strong>
+          </div>
+          <div style={styles.previewCard}>
+            <span style={styles.previewLabel}>billingBasisSnapshot</span>
+            <strong style={styles.previewValue}>
+              {report.billingBasisSnapshot || "-"}
+            </strong>
+          </div>
+          <div style={styles.previewCard}>
+            <span style={styles.previewLabel}>billedQuantitySnapshot</span>
+            <strong style={styles.previewValue}>
+              {report.billedQuantitySnapshot ?? "-"}
+            </strong>
+          </div>
+          <div style={styles.previewCard}>
+            <span style={styles.previewLabel}>billedRateSnapshot</span>
+            <strong style={styles.previewValue}>
+              {report.billedRateSnapshot ?? "-"}
+            </strong>
+          </div>
+          <div style={styles.previewCard}>
+            <span style={styles.previewLabel}>transportBasisSnapshot</span>
+            <strong style={styles.previewValue}>
+              {report.transportBasisSnapshot || "-"}
+            </strong>
+          </div>
+          <div style={styles.previewCard}>
+            <span style={styles.previewLabel}>transportQuantitySnapshot</span>
+            <strong style={styles.previewValue}>
+              {report.transportQuantitySnapshot ?? "-"}
+            </strong>
+          </div>
+          <div style={styles.previewCard}>
+            <span style={styles.previewLabel}>transportRateValue</span>
+            <strong style={styles.previewValue}>
+              {report.transportRateValue ?? "-"}
+            </strong>
+          </div>
+          <div style={{ ...styles.previewCard, ...styles.previewCardStrong }}>
+            <span style={styles.previewLabel}>totalInvoiceValue</span>
+            <strong style={styles.previewValue}>
+              {formatCurrency(report.totalInvoiceValue || 0)}
+            </strong>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderPartyOrderPreview = (order) => {
     if (!order) {
@@ -2125,6 +2826,490 @@ function DispatchReportsPage() {
       </div>
     );
   };
+
+  const getPartyOptionsForPayload = (payload) =>
+    parties
+      .filter(
+        (party) =>
+          party.isActive || String(party.id) === String(payload.partyId || "")
+      )
+      .sort((left, right) =>
+        String(left.partyName || "").localeCompare(String(right.partyName || ""))
+      );
+
+  const renderDispatchFormGroups = ({
+    payload,
+    setter,
+    billingPreview,
+    readiness,
+    warnings,
+    selectedPlant,
+    selectedVehicle,
+    selectedTransportVendor,
+    selectedPartyOrder,
+    sourceTypeOptions,
+    transportVendorOptions,
+    vehicleSearchValue,
+    onVehicleSearchChange,
+    savedPreview,
+    savedPreviewTitle,
+    loadingResetHandler,
+    commercialRefreshMessage = "",
+    isEdit = false,
+  }) => (
+    <>
+      {selectedPlant ? (
+        <div style={styles.inlineInfoBanner}>
+          Dispatching from <strong>{selectedPlant.plantName}</strong>. Type:{" "}
+          {selectedPlant.plantType || "Not set"}. Recommended source:{" "}
+          {getRecommendedSourceType(selectedPlant.plantType)}.
+          {!selectedPlant.isActive ? " Status: inactive in masters." : ""}
+        </div>
+      ) : null}
+
+      {!activePlants.length ? (
+        <div
+          style={{
+            ...styles.warningPanel,
+            ...styles.warningPanelDanger,
+          }}
+        >
+          No active plants/units are available from masters right now. Add or reactivate a
+          plant before creating dispatch records.
+        </div>
+      ) : null}
+
+      <div style={styles.fieldGroupCard}>
+        <div style={styles.fieldGroupHeader}>
+          <div>
+            <p style={styles.fieldGroupEyebrow}>Dispatch Basics</p>
+            <strong style={styles.fieldGroupTitle}>Core dispatch details</strong>
+          </div>
+        </div>
+
+        <div style={styles.form}>
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>Dispatch Date</label>
+            <input
+              type="date"
+              name="dispatchDate"
+              value={payload.dispatchDate}
+              onChange={handleChange(setter)}
+              style={styles.input}
+            />
+          </div>
+
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>Plant / Source</label>
+            <select
+              name="plantId"
+              value={payload.plantId}
+              onChange={handleChange(setter)}
+              style={styles.input}
+            >
+              <option value="">Select Plant / Unit</option>
+              {plantOptions.map((plant) => (
+                <option key={plant.id} value={plant.id}>
+                  {plant.plantName}
+                  {plant.plantType ? ` • ${plant.plantType}` : ""}
+                  {!plant.isActive ? " • Inactive" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>Source Type</label>
+            <select
+              name="sourceType"
+              value={payload.sourceType}
+              onChange={handleChange(setter)}
+              style={styles.input}
+            >
+              <option value="">Select Source Type</option>
+              {sourceTypeOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>Party</label>
+            <select
+              name="partyId"
+              value={payload.partyId}
+              onChange={handleChange(setter)}
+              style={styles.input}
+              disabled={!payload.plantId || !payload.materialId}
+            >
+              <option value="">
+                {payload.materialId ? "Select Party / Customer" : "Select Material First"}
+              </option>
+              {getPartyOptionsForPayload(payload).map((party) => (
+                <option key={party.id} value={party.id}>
+                  {party.partyName}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>Material</label>
+            <select
+              name="materialId"
+              value={payload.materialId}
+              onChange={handleChange(setter)}
+              style={styles.input}
+              disabled={loadingMasters || !payload.plantId}
+            >
+              <option value="">
+                {payload.plantId ? "Select Material" : "Select Plant First"}
+              </option>
+              {availableMaterials.map((material) => (
+                <option key={material.id} value={material.id}>
+                  {material.materialName}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>Destination</label>
+            <input
+              name="destinationName"
+              placeholder="Enter destination"
+              value={payload.destinationName}
+              onChange={handleChange(setter)}
+              style={styles.input}
+            />
+          </div>
+
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>Party Order</label>
+            <select
+              name="partyOrderId"
+              value={payload.partyOrderId}
+              onChange={handleChange(setter)}
+              style={styles.input}
+              disabled={!payload.partyId || !payload.materialId}
+            >
+              <option value="">
+                {payload.partyId
+                  ? hasMatchingPartyOrders(payload, payload.partyOrderId)
+                    ? "Select Party Order for fulfillment"
+                    : "Link Party Order (optional)"
+                  : "Select Party First"}
+              </option>
+              {getAvailablePartyOrders(payload, payload.partyOrderId).map((order) => (
+                <option key={order.id} value={order.id}>
+                  {order.orderNumber} • Pending {formatMetric(order.pendingQuantityTons)} tons
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ ...styles.fieldStack, ...styles.fullWidthField }}>
+            <label style={styles.fieldLabel}>Remarks</label>
+            <input
+              name="remarks"
+              placeholder="Optional dispatch remarks"
+              value={payload.remarks}
+              onChange={handleChange(setter)}
+              style={styles.input}
+            />
+          </div>
+        </div>
+
+        {renderPartyOrderPreview(selectedPartyOrder)}
+        {!selectedPartyOrder && hasMatchingPartyOrders(payload, payload.partyOrderId) && (
+          <div style={styles.orderPreviewCard}>
+            <div style={styles.orderPreviewHeader}>
+              <strong>Select a party order</strong>
+              <span style={styles.orderPreviewMeta}>
+                Matching pending orders exist for this party, plant, and material. Link one
+                before saving so the remaining balance updates correctly.
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={styles.fieldGroupCard}>
+        <div style={styles.fieldGroupHeader}>
+          <div>
+            <p style={styles.fieldGroupEyebrow}>Vehicle & Transport</p>
+            <strong style={styles.fieldGroupTitle}>Logistics and compliance</strong>
+          </div>
+        </div>
+
+        <div style={styles.fullWidthField}>
+          {renderDispatchLogisticsAssistant({
+            payload,
+            selectedVehicle,
+            selectedTransportVendor,
+            billingPreview,
+            vehicleSearchValue,
+            onVehicleSearchChange,
+            isEdit,
+          })}
+        </div>
+
+        <div style={styles.form}>
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>Vehicle</label>
+            <select
+              name="vehicleId"
+              value={payload.vehicleId}
+              onChange={handleChange(setter)}
+              style={styles.input}
+              disabled={!payload.plantId}
+            >
+              <option value="">
+                {payload.plantId ? "Select Vehicle" : "Select Plant First"}
+              </option>
+              {vehiclesForPlant(payload.plantId, vehicleSearchValue).map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {renderVehicleOptionLabel(vehicle)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>Driver</label>
+            <input
+              value={selectedVehicle?.assignedDriver || "No driver assigned"}
+              style={styles.input}
+              disabled
+            />
+          </div>
+
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>Transport Vendor</label>
+            <select
+              name="transportVendorId"
+              value={payload.transportVendorId}
+              onChange={handleChange(setter)}
+              style={styles.input}
+              disabled={!payload.materialId}
+            >
+              <option value="">Auto from vehicle or select manually</option>
+              {transportVendorOptions.map((vendor) => (
+                <option key={vendor.id} value={vendor.id}>
+                  {vendor.vendorName}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>Distance KM</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              name="distanceKm"
+              placeholder="Enter distance"
+              value={payload.distanceKm}
+              onChange={handleChange(setter)}
+              style={styles.input}
+            />
+          </div>
+
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>E-Way Bill Number</label>
+            <input
+              name="ewbNumber"
+              placeholder="12 digit EWB number"
+              value={payload.ewbNumber}
+              onChange={handleChange(setter)}
+              style={styles.input}
+              inputMode="numeric"
+              maxLength={12}
+            />
+          </div>
+
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>E-Way Bill Date</label>
+            <input
+              type="date"
+              name="ewbDate"
+              value={payload.ewbDate}
+              onChange={handleChange(setter)}
+              style={styles.input}
+            />
+          </div>
+
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>E-Way Bill Valid Upto</label>
+            <input
+              type="date"
+              name="ewbValidUpto"
+              value={payload.ewbValidUpto}
+              onChange={handleChange(setter)}
+              style={styles.input}
+            />
+          </div>
+        </div>
+      </div>
+
+      {renderQuantityInputSection({
+        payload,
+        setter,
+        billingPreview,
+        selectedVehicle,
+      })}
+
+      <div style={styles.fieldGroupCard}>
+        <div style={styles.fieldGroupHeader}>
+          <div>
+            <p style={styles.fieldGroupEyebrow}>Commercial Preview</p>
+            <strong style={styles.fieldGroupTitle}>Estimated preview before save</strong>
+          </div>
+        </div>
+
+        <div
+          style={{
+            ...styles.readinessStrip,
+            ...(readiness.isReady ? styles.readinessOk : styles.readinessWarn),
+          }}
+        >
+          <strong>{isEdit ? "Ready to update" : "Ready to save"}</strong>
+          <span>
+            {readiness.isReady
+              ? "Estimated preview is available. Final amount after save will be calculated by system."
+              : readiness.missingItems.join(" • ")}
+          </span>
+        </div>
+
+        <WarningList warnings={warnings} tone={isEdit ? "danger" : "warn"} />
+        {commercialRefreshMessage ? (
+          <div style={styles.overrideWarningCard}>
+            <strong>Commercial refresh available</strong>
+            <span>{commercialRefreshMessage}</span>
+          </div>
+        ) : null}
+        {renderBillingPreview(billingPreview)}
+        {renderBackendResponsePreview(savedPreview, savedPreviewTitle)}
+      </div>
+
+      <div style={styles.fieldGroupCard}>
+        <div style={styles.fieldGroupHeader}>
+          <div>
+            <p style={styles.fieldGroupEyebrow}>Optional Commercial Controls</p>
+            <strong style={styles.fieldGroupTitle}>Legacy-compatible billing and invoice fields</strong>
+          </div>
+        </div>
+
+        <div style={styles.inlineInfoBanner}>
+          Legacy quantity tons, invoice override, loading override, and invoice fields remain
+          available for compatibility. Hidden technical snapshot and conversion fields are preserved
+          by the system and are not shown here.
+        </div>
+
+        <div style={styles.form}>
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>Invoice Number</label>
+            <input
+              name="invoiceNumber"
+              placeholder="Blank = auto on completion"
+              value={payload.invoiceNumber}
+              onChange={handleChange(setter)}
+              style={styles.input}
+            />
+          </div>
+
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>Invoice Date</label>
+            <input
+              type="date"
+              name="invoiceDate"
+              value={payload.invoiceDate}
+              onChange={handleChange(setter)}
+              style={styles.input}
+            />
+          </div>
+
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>Manual Taxable Value Override</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              name="invoiceValue"
+              placeholder="Leave blank for auto"
+              value={payload.invoiceValue}
+              onChange={handleChange(setter)}
+              style={styles.input}
+            />
+          </div>
+
+          <div style={styles.fieldStack}>
+            <label style={styles.fieldLabel}>Other Charge</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              name="otherCharge"
+              placeholder="Optional extra charge"
+              value={payload.otherCharge}
+              onChange={handleChange(setter)}
+              style={styles.input}
+            />
+          </div>
+
+          <div style={{ ...styles.fieldStack, ...styles.fullWidthField }}>
+            <label style={styles.fieldLabel}>Loading</label>
+            <div style={styles.inlineFieldWithAction}>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                name="loadingCharge"
+                placeholder={
+                  billingPreview.loadingChargeIsManual
+                    ? "Manual Loading Charge"
+                    : `Auto Loading • ${getLoadingBasisLabel(
+                        billingPreview.loadingChargeBasis
+                      )}`
+                }
+                value={
+                  payload.loadingChargeManual
+                    ? payload.loadingCharge
+                    : String(billingPreview.loadingCharge || "")
+                }
+                onChange={handleLoadingChargeChange(setter)}
+                style={{ ...styles.input, marginBottom: 0 }}
+                disabled={!billingPreview.hasPartyRate}
+              />
+              {payload.loadingChargeManual ? (
+                <button
+                  type="button"
+                  style={styles.secondaryButton}
+                  onClick={loadingResetHandler}
+                >
+                  Reset Loading
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <div style={{ ...styles.fieldStack, ...styles.fullWidthField }}>
+            <label style={styles.fieldLabel}>Billing Notes</label>
+            <input
+              name="billingNotes"
+              placeholder="Required if taxable value is manually overridden"
+              value={payload.billingNotes}
+              onChange={handleChange(setter)}
+              style={styles.input}
+            />
+          </div>
+        </div>
+      </div>
+    </>
+  );
 
   const formReadiness = buildDispatchReadiness(formData, formBillingPreview);
   const editReadiness = buildDispatchReadiness(editForm, editBillingPreview);
@@ -2274,6 +3459,10 @@ function DispatchReportsPage() {
           <div style={styles.messageError}>{mastersError || error}</div>
         )}
         {success && <div style={styles.messageSuccess}>{success}</div>}
+        {unitsWarning && <WarningList warnings={[unitsWarning]} />}
+        {materialConversionsWarning && (
+          <WarningList warnings={[materialConversionsWarning]} />
+        )}
         {isLoadingData && (
           <div style={styles.loadingBanner}>
             Refreshing dispatch masters, vehicles, and billing references...
@@ -2396,360 +3585,24 @@ function DispatchReportsPage() {
                   </p>
                 </div>
               </div>
-
-              {selectedPlantForForm ? (
-                <div style={styles.inlineInfoBanner}>
-                  Dispatching from <strong>{selectedPlantForForm.plantName}</strong>.
-                  {" "}Type: {selectedPlantForForm.plantType || "Not set"}.
-                  {" "}Recommended source: {getRecommendedSourceType(selectedPlantForForm.plantType)}.
-                  {!selectedPlantForForm.isActive ? " Status: inactive in masters." : ""}
-                </div>
-              ) : null}
-
-              {!activePlants.length ? (
-                <div
-                  style={{
-                    ...styles.warningPanel,
-                    ...styles.warningPanelDanger,
-                  }}
-                >
-                  No active plants/units are available from masters right now. Add or reactivate a
-                  plant before creating dispatch records.
-                </div>
-              ) : null}
-
-              <div>
-                <p style={styles.formGroupTitle}>Dispatch Details</p>
-                <div style={styles.form}>
-                  <input
-                    type="date"
-                    name="dispatchDate"
-                    value={formData.dispatchDate}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                  />
-
-                  <select
-                    name="sourceType"
-                    value={formData.sourceType}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                  >
-                    <option value="">Select Source Type</option>
-                    {sourceTypeOptionsForForm.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    name="plantId"
-                    value={formData.plantId}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                  >
-                    <option value="">Select Plant / Unit</option>
-                    {plantOptions.map((plant) => (
-                      <option key={plant.id} value={plant.id}>
-                        {plant.plantName}
-                        {plant.plantType ? ` • ${plant.plantType}` : ""}
-                        {!plant.isActive ? " • Inactive" : ""}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    name="materialId"
-                    value={formData.materialId}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                    disabled={loadingMasters || !formData.plantId}
-                  >
-                    <option value="">
-                      {formData.plantId ? "Select Material" : "Select Plant First"}
-                    </option>
-                    {availableMaterials.map((material) => (
-                      <option key={material.id} value={material.id}>
-                        {material.materialName}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    name="partyId"
-                    value={formData.partyId}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                    disabled={!formData.plantId || !formData.materialId}
-                  >
-                    <option value="">
-                      {formData.materialId ? "Select Party / Customer" : "Select Material First"}
-                    </option>
-                    {parties
-                      .filter((party) => party.isActive)
-                      .map((party) => (
-                        <option key={party.id} value={party.id}>
-                          {party.partyName}
-                        </option>
-                      ))}
-                  </select>
-
-                  <div style={styles.fullWidthField}>
-                    {renderDispatchLogisticsAssistant({
-                      payload: formData,
-                      selectedVehicle: selectedVehicleForForm,
-                      selectedTransportVendor: selectedTransportVendorForForm,
-                      billingPreview: formBillingPreview,
-                      vehicleSearchValue: vehicleSearch,
-                      onVehicleSearchChange: setVehicleSearch,
-                    })}
-                  </div>
-
-                  <select
-                    name="vehicleId"
-                    value={formData.vehicleId}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                    disabled={!formData.plantId}
-                  >
-                    <option value="">
-                      {formData.plantId ? "Select Vehicle" : "Select Plant First"}
-                    </option>
-                    {vehiclesForPlant(formData.plantId, vehicleSearch).map((vehicle) => (
-                      <option key={vehicle.id} value={vehicle.id}>
-                        {renderVehicleOptionLabel(vehicle)}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    name="partyOrderId"
-                    value={formData.partyOrderId}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                    disabled={!formData.partyId || !formData.materialId}
-                  >
-                    <option value="">
-                      {formData.partyId
-                        ? hasMatchingPartyOrders(formData, formData.partyOrderId)
-                          ? "Select Party Order for fulfillment"
-                          : "Link Party Order (optional)"
-                        : "Select Party First"}
-                    </option>
-                    {getAvailablePartyOrders(formData, formData.partyOrderId).map((order) => (
-                      <option key={order.id} value={order.id}>
-                        {order.orderNumber} • Pending {formatMetric(order.pendingQuantityTons)} tons
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    name="transportVendorId"
-                    value={formData.transportVendorId}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                    disabled={!formData.materialId}
-                  >
-                    <option value="">Auto from vehicle or select manually</option>
-                    {transportVendorOptionsForForm.map((vendor) => (
-                      <option key={vendor.id} value={vendor.id}>
-                        {vendor.vendorName}
-                      </option>
-                    ))}
-                  </select>
-
-                  <input
-                    name="destinationName"
-                    placeholder="Destination Name"
-                    value={formData.destinationName}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    name="quantityTons"
-                    placeholder="Quantity Tons"
-                    value={formData.quantityTons}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    name="remarks"
-                    placeholder="Dispatch Remarks"
-                    value={formData.remarks}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                  />
-                </div>
-                {renderPartyOrderPreview(formPartyOrder)}
-                {!formPartyOrder && hasMatchingPartyOrders(formData, formData.partyOrderId) && (
-                  <div style={styles.orderPreviewCard}>
-                    <div style={styles.orderPreviewHeader}>
-                      <strong>Select a party order</strong>
-                      <span style={styles.orderPreviewMeta}>
-                        Matching pending orders exist for this party, plant, and material. Link one before saving so the remaining balance updates correctly.
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <p style={styles.formGroupTitle}>Billing Preview</p>
-                <div
-                  style={{
-                    ...styles.readinessStrip,
-                    ...(formReadiness.isReady
-                      ? styles.readinessOk
-                      : styles.readinessWarn),
-                  }}
-                >
-                  <strong>
-                    {formReadiness.isReady
-                      ? "Ready to submit"
-                      : "Complete the remaining dispatch links"}
-                  </strong>
-                  <span>
-                    {formReadiness.isReady
-                      ? "Billing preview and required dispatch details are in place."
-                      : formReadiness.missingItems.join(" • ")}
-                  </span>
-                </div>
-                <WarningList warnings={formWarnings} />
-                {renderBillingPreview(formBillingPreview)}
-              </div>
-
-              <div>
-                <p style={styles.formGroupTitle}>Invoice & E-Way Details</p>
-                <div style={styles.inlineInfoBanner}>
-                  Leave manual taxable value override blank for normal billing. Use it only when a
-                  deliberate commercial correction is required. E-Way details become operationally
-                  important once invoice processing has started. Leave invoice number blank if you
-                  want the system to generate it automatically at completion.
-                </div>
-                <div style={styles.form}>
-                  <input
-                    name="invoiceNumber"
-                    placeholder="Invoice Number (blank = auto on completion)"
-                    value={formData.invoiceNumber}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    type="date"
-                    name="invoiceDate"
-                    value={formData.invoiceDate}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    name="invoiceValue"
-                    placeholder="Manual Taxable Value Override (blank = auto)"
-                    value={formData.invoiceValue}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    name="distanceKm"
-                    placeholder="Distance (KM)"
-                    value={formData.distanceKm}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    name="otherCharge"
-                    placeholder="Other Charge"
-                    value={formData.otherCharge}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                  />
-
-                  <div style={styles.inlineFieldWithAction}>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      name="loadingCharge"
-                      placeholder={
-                        formBillingPreview.loadingChargeIsManual
-                          ? "Manual Loading Charge"
-                          : `Auto Loading • ${getLoadingBasisLabel(
-                              formBillingPreview.loadingChargeBasis
-                            )}`
-                      }
-                      value={
-                        formData.loadingChargeManual
-                          ? formData.loadingCharge
-                          : String(formBillingPreview.loadingCharge || "")
-                      }
-                      onChange={handleLoadingChargeChange(setFormData)}
-                      style={{ ...styles.input, marginBottom: 0 }}
-                      disabled={!formBillingPreview.hasPartyRate}
-                    />
-                    {formData.loadingChargeManual ? (
-                      <button
-                        type="button"
-                        style={styles.secondaryButton}
-                        onClick={handleResetFormLoadingToAuto}
-                      >
-                        Reset Loading
-                      </button>
-                    ) : null}
-                  </div>
-
-                  <input
-                    name="billingNotes"
-                    placeholder="Billing Notes / Commercial remarks"
-                    value={formData.billingNotes}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    name="ewbNumber"
-                    placeholder="E-Way Bill Number (12 digits)"
-                    value={formData.ewbNumber}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                    inputMode="numeric"
-                    maxLength={12}
-                  />
-
-                  <input
-                    type="date"
-                    name="ewbDate"
-                    value={formData.ewbDate}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    type="date"
-                    name="ewbValidUpto"
-                    value={formData.ewbValidUpto}
-                    onChange={handleChange(setFormData, formData)}
-                    style={styles.input}
-                  />
-                </div>
-              </div>
+              {renderDispatchFormGroups({
+                payload: formData,
+                setter: setFormData,
+                billingPreview: formBillingPreview,
+                readiness: formReadiness,
+                warnings: formWarnings,
+                selectedPlant: selectedPlantForForm,
+                selectedVehicle: selectedVehicleForForm,
+                selectedTransportVendor: selectedTransportVendorForForm,
+                selectedPartyOrder: formPartyOrder,
+                sourceTypeOptions: sourceTypeOptionsForForm,
+                transportVendorOptions: transportVendorOptionsForForm,
+                vehicleSearchValue: vehicleSearch,
+                onVehicleSearchChange: setVehicleSearch,
+                savedPreview: savedCreatePreview,
+                savedPreviewTitle: "Backend-confirmed values after save",
+                loadingResetHandler: handleResetFormLoadingToAuto,
+              })}
 
               <button
                 type="submit"
@@ -2776,350 +3629,26 @@ function DispatchReportsPage() {
             </p>
 
             <form onSubmit={handleEditSubmit} style={styles.formSectionStack}>
-              {selectedPlantForEdit ? (
-                <div style={styles.inlineInfoBanner}>
-                  Editing dispatch from <strong>{selectedPlantForEdit.plantName}</strong>.
-                  {" "}Type: {selectedPlantForEdit.plantType || "Not set"}.
-                  {" "}Recommended source: {getRecommendedSourceType(selectedPlantForEdit.plantType)}.
-                  {!selectedPlantForEdit.isActive ? " Status: inactive in masters." : ""}
-                </div>
-              ) : null}
-
-              <div>
-                <p style={styles.formGroupTitle}>Dispatch Details</p>
-                <div style={styles.form}>
-                  <input
-                    type="date"
-                    name="dispatchDate"
-                    value={editForm.dispatchDate}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                  />
-
-                  <select
-                    name="sourceType"
-                    value={editForm.sourceType}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                  >
-                    <option value="">Select Source Type</option>
-                    {sourceTypeOptionsForEdit.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    name="plantId"
-                    value={editForm.plantId}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                  >
-                    <option value="">Select Plant / Unit</option>
-                    {plantOptions.map((plant) => (
-                      <option key={plant.id} value={plant.id}>
-                        {plant.plantName}
-                        {plant.plantType ? ` • ${plant.plantType}` : ""}
-                        {!plant.isActive ? " • Inactive" : ""}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    name="materialId"
-                    value={editForm.materialId}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                    disabled={!editForm.plantId}
-                  >
-                    <option value="">
-                      {editForm.plantId ? "Select Material" : "Select Plant First"}
-                    </option>
-                    {availableMaterials.map((material) => (
-                      <option key={material.id} value={material.id}>
-                        {material.materialName}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    name="partyId"
-                    value={editForm.partyId}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                    disabled={!editForm.materialId}
-                  >
-                    <option value="">
-                      {editForm.materialId ? "Select Party / Customer" : "Select Material First"}
-                    </option>
-                    {partyRateOptionsForEdit.map((rate) => (
-                      <option key={rate.id} value={rate.partyId}>
-                        {rate.partyName}
-                      </option>
-                      ))}
-                  </select>
-
-                  <div style={styles.fullWidthField}>
-                    {renderDispatchLogisticsAssistant({
-                      payload: editForm,
-                      selectedVehicle: selectedVehicleForEdit,
-                      selectedTransportVendor: selectedTransportVendorForEdit,
-                      billingPreview: editBillingPreview,
-                      vehicleSearchValue: editVehicleSearch,
-                      onVehicleSearchChange: setEditVehicleSearch,
-                      isEdit: true,
-                    })}
-                  </div>
-
-                  <select
-                    name="vehicleId"
-                    value={editForm.vehicleId}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                    disabled={!editForm.plantId}
-                  >
-                    <option value="">
-                      {editForm.plantId ? "Select Vehicle" : "Select Plant First"}
-                    </option>
-                    {vehiclesForPlant(editForm.plantId, editVehicleSearch).map((vehicle) => (
-                      <option key={vehicle.id} value={vehicle.id}>
-                        {renderVehicleOptionLabel(vehicle)}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    name="partyOrderId"
-                    value={editForm.partyOrderId}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                    disabled={!editForm.partyId || !editForm.materialId}
-                  >
-                    <option value="">
-                      {editForm.partyId
-                        ? hasMatchingPartyOrders(editForm, editForm.partyOrderId)
-                          ? "Select Party Order for fulfillment"
-                          : "Link Party Order (optional)"
-                        : "Select Party First"}
-                    </option>
-                    {getAvailablePartyOrders(editForm, editForm.partyOrderId).map((order) => (
-                      <option key={order.id} value={order.id}>
-                        {order.orderNumber} • Pending {formatMetric(order.pendingQuantityTons)} tons
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    name="transportVendorId"
-                    value={editForm.transportVendorId}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                    disabled={!editForm.materialId}
-                  >
-                    <option value="">Auto from vehicle or select manually</option>
-                    {transportVendorOptionsForEdit.map((vendor) => (
-                      <option key={vendor.id} value={vendor.id}>
-                        {vendor.vendorName}
-                      </option>
-                    ))}
-                  </select>
-
-                  <input
-                    name="destinationName"
-                    placeholder="Destination Name"
-                    value={editForm.destinationName}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    name="quantityTons"
-                    placeholder="Quantity Tons"
-                    value={editForm.quantityTons}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    name="remarks"
-                    placeholder="Dispatch Remarks"
-                    value={editForm.remarks}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                  />
-                </div>
-                {renderPartyOrderPreview(editPartyOrder)}
-                {!editPartyOrder && hasMatchingPartyOrders(editForm, editForm.partyOrderId) && (
-                  <div style={styles.orderPreviewCard}>
-                    <div style={styles.orderPreviewHeader}>
-                      <strong>Select a party order</strong>
-                      <span style={styles.orderPreviewMeta}>
-                        This dispatch matches at least one pending order. Link it before saving to keep fulfillment balances accurate.
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <p style={styles.formGroupTitle}>Billing Preview</p>
-                <div
-                  style={{
-                    ...styles.readinessStrip,
-                    ...(editReadiness.isReady
-                      ? styles.readinessOk
-                      : styles.readinessWarn),
-                  }}
-                >
-                  <strong>
-                    {editReadiness.isReady
-                      ? "Ready to update"
-                      : "Resolve the remaining billing inputs"}
-                  </strong>
-                  <span>
-                    {editReadiness.isReady
-                      ? "The edited record has the required dispatch and billing links."
-                      : editReadiness.missingItems.join(" • ")}
-                  </span>
-                </div>
-                <WarningList warnings={editWarnings} tone="danger" />
-                {editCommercialRefreshMessage ? (
-                  <div style={styles.overrideWarningCard}>
-                    <strong>Commercial refresh available</strong>
-                    <span>{editCommercialRefreshMessage}</span>
-                  </div>
-                ) : null}
-                {renderBillingPreview(editBillingPreview)}
-              </div>
-
-              <div>
-                <p style={styles.formGroupTitle}>Invoice & E-Way Details</p>
-                <div style={styles.inlineInfoBanner}>
-                  Leave invoice number blank if you want the system to generate it automatically
-                  when this dispatch is completed.
-                </div>
-                <div style={styles.form}>
-                  <input
-                    name="invoiceNumber"
-                    placeholder="Invoice Number (blank = auto on completion)"
-                    value={editForm.invoiceNumber}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    type="date"
-                    name="invoiceDate"
-                    value={editForm.invoiceDate}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    name="invoiceValue"
-                    placeholder="Manual Taxable Value Override (blank = auto)"
-                    value={editForm.invoiceValue}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    name="distanceKm"
-                    placeholder="Distance (KM)"
-                    value={editForm.distanceKm}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    name="otherCharge"
-                    placeholder="Other Charge"
-                    value={editForm.otherCharge}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                  />
-
-                  <div style={styles.inlineFieldWithAction}>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      name="loadingCharge"
-                      placeholder={
-                        editBillingPreview.loadingChargeIsManual
-                          ? "Manual Loading Charge"
-                          : `Auto Loading • ${getLoadingBasisLabel(
-                              editBillingPreview.loadingChargeBasis
-                            )}`
-                      }
-                      value={
-                        editForm.loadingChargeManual
-                          ? editForm.loadingCharge
-                          : String(editBillingPreview.loadingCharge || "")
-                      }
-                      onChange={handleLoadingChargeChange(setEditForm)}
-                      style={{ ...styles.input, marginBottom: 0 }}
-                      disabled={!editBillingPreview.hasPartyRate}
-                    />
-                    {editForm.loadingChargeManual ? (
-                      <button
-                        type="button"
-                        style={styles.secondaryButton}
-                        onClick={handleResetEditLoadingToAuto}
-                      >
-                        Reset Loading
-                      </button>
-                    ) : null}
-                  </div>
-
-                  <input
-                    name="billingNotes"
-                    placeholder="Billing Notes / Commercial remarks"
-                    value={editForm.billingNotes}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    name="ewbNumber"
-                    placeholder="E-Way Bill Number (12 digits)"
-                    value={editForm.ewbNumber}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                    inputMode="numeric"
-                    maxLength={12}
-                  />
-
-                  <input
-                    type="date"
-                    name="ewbDate"
-                    value={editForm.ewbDate}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                  />
-
-                  <input
-                    type="date"
-                    name="ewbValidUpto"
-                    value={editForm.ewbValidUpto}
-                    onChange={handleChange(setEditForm, editForm)}
-                    style={styles.input}
-                  />
-                </div>
-              </div>
+              {renderDispatchFormGroups({
+                payload: editForm,
+                setter: setEditForm,
+                billingPreview: editBillingPreview,
+                readiness: editReadiness,
+                warnings: editWarnings,
+                selectedPlant: selectedPlantForEdit,
+                selectedVehicle: selectedVehicleForEdit,
+                selectedTransportVendor: selectedTransportVendorForEdit,
+                selectedPartyOrder: editPartyOrder,
+                sourceTypeOptions: sourceTypeOptionsForEdit,
+                transportVendorOptions: transportVendorOptionsForEdit,
+                vehicleSearchValue: editVehicleSearch,
+                onVehicleSearchChange: setEditVehicleSearch,
+                savedPreview: savedEditPreview,
+                savedPreviewTitle: "Backend-confirmed values after update",
+                loadingResetHandler: handleResetEditLoadingToAuto,
+                commercialRefreshMessage: editCommercialRefreshMessage,
+                isEdit: true,
+              })}
 
               <div style={styles.actionRow}>
                 <button
@@ -4107,6 +4636,37 @@ const styles = {
     flexDirection: "column",
     gap: "22px",
   },
+  fieldGroupCard: {
+    borderRadius: "22px",
+    padding: "18px",
+    background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+    border: "1px solid #dbe5f0",
+    boxShadow: "0 16px 34px rgba(15,23,42,0.05)",
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
+  },
+  fieldGroupHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "12px",
+    alignItems: "flex-start",
+    flexWrap: "wrap",
+  },
+  fieldGroupEyebrow: {
+    margin: 0,
+    marginBottom: "6px",
+    color: "#0f766e",
+    fontSize: "11px",
+    fontWeight: "800",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+  },
+  fieldGroupTitle: {
+    color: "#0f172a",
+    fontSize: "17px",
+    fontWeight: "800",
+  },
   formGroupTitle: {
     margin: "0 0 12px",
     color: "#111827",
@@ -4120,6 +4680,16 @@ const styles = {
   },
   fullWidthField: {
     gridColumn: "1 / -1",
+  },
+  fieldStack: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  },
+  fieldLabel: {
+    color: "#334155",
+    fontSize: "12px",
+    fontWeight: "700",
   },
   inlineFieldWithAction: {
     display: "flex",
@@ -4225,6 +4795,15 @@ const styles = {
     fontWeight: "700",
     boxShadow: "0 10px 20px rgba(15,23,42,0.05)",
   },
+  quantityModeCard: {
+    borderRadius: "16px",
+    padding: "16px",
+    background: "linear-gradient(135deg, #f8fafc 0%, #ffffff 100%)",
+    border: "1px dashed #93c5fd",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  },
   previewGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
@@ -4284,6 +4863,25 @@ const styles = {
     color: "#64748b",
     fontSize: "12px",
     fontWeight: "700",
+  },
+  backendPreviewWrap: {
+    marginTop: "16px",
+    borderRadius: "20px",
+    border: "1px solid rgba(14,165,233,0.16)",
+    background:
+      "linear-gradient(135deg, rgba(239,246,255,0.96) 0%, rgba(255,255,255,0.98) 100%)",
+    padding: "18px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
+    boxShadow: "0 14px 30px rgba(14,165,233,0.08)",
+  },
+  backendPreviewHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "12px",
+    flexWrap: "wrap",
   },
   button: {
     padding: "12px 16px",

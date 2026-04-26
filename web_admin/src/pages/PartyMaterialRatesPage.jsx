@@ -12,44 +12,18 @@ const currencyFormatter = new Intl.NumberFormat("en-IN", {
 
 const formatCurrency = (value) => currencyFormatter.format(Number(value || 0));
 
-const RATE_UNIT_OPTIONS = [
-  { value: "per_ton", label: "Rate Per Ton", unitLabel: "ton", requiresConversion: false },
-  {
-    value: "per_metric_ton",
-    label: "Rate Per Metric Ton",
-    unitLabel: "metric ton",
-    requiresConversion: false,
-  },
-  { value: "per_cft", label: "Rate Per CFT", unitLabel: "CFT", conversionLabel: "CFT per ton", requiresConversion: true },
-  {
-    value: "per_brass",
-    label: "Rate Per Brass",
-    unitLabel: "brass",
-    conversionLabel: "Brass per ton",
-    requiresConversion: true,
-  },
-  {
-    value: "per_cubic_meter",
-    label: "Rate Per Cubic Meter",
-    unitLabel: "cubic meter",
-    conversionLabel: "Cubic meters per ton",
-    requiresConversion: true,
-  },
-  {
-    value: "per_trip",
-    label: "Rate Per Trip / Trolley",
-    unitLabel: "trip",
-    conversionLabel: "Trips per ton",
-    requiresConversion: true,
-  },
-  {
-    value: "other",
-    label: "Other Rate Unit",
-    unitLabel: "",
-    conversionLabel: "Billable units per ton",
-    requiresConversion: true,
-  },
-];
+const formatCompactNumber = (value, maximumFractionDigits = 4) => {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return "";
+  }
+
+  return new Intl.NumberFormat("en-IN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits,
+  }).format(numericValue);
+};
 
 const LOADING_BASIS_OPTIONS = [
   { value: "none", label: "No Loading" },
@@ -59,30 +33,12 @@ const LOADING_BASIS_OPTIONS = [
   { value: "per_trip", label: "Per Trip / Load" },
 ];
 
-const getRateUnitMeta = (rateUnit) =>
-  RATE_UNIT_OPTIONS.find((option) => option.value === rateUnit) || RATE_UNIT_OPTIONS[0];
-
-const getRateUnitLabel = (item) =>
-  item.rateUnit === "other"
-    ? item.rateUnitLabel || "custom unit"
-    : item.rateUnitLabel || getRateUnitMeta(item.rateUnit).unitLabel;
-
-const rateUnitRequiresConversion = (rateUnit) =>
-  Boolean(getRateUnitMeta(rateUnit).requiresConversion);
-
-const getRateInputPlaceholder = (item) =>
-  `Enter ${getRateUnitMeta(item.rateUnit).label.toLowerCase()}`;
-
-const getConversionPlaceholder = (item) =>
-  getRateUnitMeta(item.rateUnit).conversionLabel || `${getRateUnitLabel(item)} per ton`;
-
-const getRateUnitProfessionalHint = (rateUnit) => {
-  if (rateUnit === "per_trip") {
-    return "Trip billing rounds up to full trips during dispatch billing. Use trips per ton based on your commercial loading standard.";
-  }
-
-  return "";
-};
+const BILLING_BASIS_OPTIONS = [
+  { value: "per_ton", label: "Per Ton" },
+  { value: "per_unit", label: "Per Unit" },
+  { value: "per_trip", label: "Per Trip" },
+  { value: "fixed", label: "Fixed" },
+];
 
 const getLoadingBasisLabel = (basis) =>
   LOADING_BASIS_OPTIONS.find((option) => option.value === basis)?.label || "Fixed Per Dispatch";
@@ -130,44 +86,127 @@ const formatLoadingChargeValue = (item) => {
   return amount;
 };
 
-const DEFAULT_TONS_PER_BRASS = 2.83;
-const DEFAULT_CFT_PER_TON = 22.5;
-const DEFAULT_CUBIC_METER_PER_TON = DEFAULT_CFT_PER_TON / 35.3147;
+const getBillingBasisLabel = (value) =>
+  BILLING_BASIS_OPTIONS.find((option) => option.value === value)?.label || "Legacy";
 
-const formatSuggestedConversion = (value) => {
-  if (!Number.isFinite(value) || value <= 0) {
-    return "";
-  }
-
-  return String(Math.round((value + Number.EPSILON) * 10000) / 10000);
+const LEGACY_RATE_META_BY_UNIT_CODE = {
+  TON: { rateUnit: "per_ton", rateUnitLabel: "ton", rateUnitsPerTon: 1 },
+  MT: { rateUnit: "per_metric_ton", rateUnitLabel: "metric ton", rateUnitsPerTon: 1 },
+  CFT: { rateUnit: "per_cft", rateUnitLabel: "CFT" },
+  BRASS: { rateUnit: "per_brass", rateUnitLabel: "brass" },
+  CUM: { rateUnit: "per_cubic_meter", rateUnitLabel: "cubic meter" },
+  TRIP: { rateUnit: "per_trip", rateUnitLabel: "trip" },
 };
 
-const getSuggestedRateUnitsPerTon = (rateUnit) => {
-  if (rateUnit === "per_ton" || rateUnit === "per_metric_ton") {
-    return "1";
-  }
-
-  if (rateUnit === "per_cft") {
-    return formatSuggestedConversion(DEFAULT_CFT_PER_TON);
-  }
-
-  if (rateUnit === "per_brass") {
-    return formatSuggestedConversion(1 / DEFAULT_TONS_PER_BRASS);
-  }
-
-  if (rateUnit === "per_cubic_meter") {
-    return formatSuggestedConversion(DEFAULT_CUBIC_METER_PER_TON);
-  }
-
-  if (rateUnit === "per_trip") {
-    return "1";
-  }
-
-  return "";
+const LEGACY_UNIT_CODES_BY_RATE_UNIT = {
+  per_ton: ["MT", "TON"],
+  per_metric_ton: ["MT", "TON"],
+  per_cft: ["CFT"],
+  per_brass: ["BRASS"],
+  per_cubic_meter: ["CUM"],
+  per_trip: ["TRIP"],
 };
 
-const formatRateValue = (item) =>
-  `${formatCurrency(item.ratePerTon)} / ${getRateUnitLabel(item)}`;
+const getListData = (response) =>
+  Array.isArray(response?.data?.data) ? response.data.data : [];
+
+const getMaterialsData = (response) =>
+  Array.isArray(response?.data?.data?.materials) ? response.data.data.materials : [];
+
+const getMaterialUnitConversionsData = (response) =>
+  Array.isArray(response?.data?.data) ? response.data.data : [];
+
+const getRateLabel = (draft, selectedBillingUnit) => {
+  if (draft.billingBasis === "per_unit") {
+    return `Rate (₹ / ${selectedBillingUnit?.unitCode || "Unit"})`;
+  }
+
+  if (draft.billingBasis === "per_trip") {
+    return "Rate (₹ / Trip)";
+  }
+
+  if (draft.billingBasis === "fixed") {
+    return "Fixed Amount";
+  }
+
+  return "Rate (₹ / MT)";
+};
+
+const getDisplayedRateValue = (draft) =>
+  draft.billingBasis === "per_unit" ? draft.pricePerUnit : draft.ratePerTon;
+
+const getMainRateNumber = (draft) =>
+  draft.billingBasis === "per_unit" ? Number(draft.pricePerUnit) : Number(draft.ratePerTon);
+
+const getSafePositiveNumber = (value) => {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null;
+};
+
+const buildNormalizedKey = (value) => String(value || "").trim().toUpperCase();
+
+const inferBillingBasisFromRate = (item) => {
+  const explicitBasis = String(item?.billingBasis || "").trim();
+
+  if (BILLING_BASIS_OPTIONS.some((option) => option.value === explicitBasis)) {
+    return explicitBasis;
+  }
+
+  const normalizedRateUnit = String(item?.rateUnit || "").trim();
+  const normalizedRateUnitLabel = String(item?.rateUnitLabel || "").trim().toLowerCase();
+
+  if (normalizedRateUnit === "per_trip") {
+    return "per_trip";
+  }
+
+  if (normalizedRateUnit === "other" || normalizedRateUnitLabel === "fixed amount") {
+    return "fixed";
+  }
+
+  if (
+    normalizedRateUnit &&
+    !["per_ton", "per_metric_ton"].includes(normalizedRateUnit)
+  ) {
+    return "per_unit";
+  }
+
+  return "per_ton";
+};
+
+const resolveUnitFromLegacyDraft = (draft, units) => {
+  const explicitUnitId = String(draft?.rateUnitId || "").trim();
+
+  if (explicitUnitId) {
+    const explicitUnit = units.find((unit) => String(unit.id) === explicitUnitId);
+    if (explicitUnit) {
+      return explicitUnit;
+    }
+  }
+
+  const preferredCodes = LEGACY_UNIT_CODES_BY_RATE_UNIT[String(draft?.rateUnit || "").trim()] || [];
+  if (preferredCodes.length > 0) {
+    const matchedUnit = units.find((unit) =>
+      preferredCodes.includes(buildNormalizedKey(unit.unitCode))
+    );
+
+    if (matchedUnit) {
+      return matchedUnit;
+    }
+  }
+
+  const normalizedLabel = String(draft?.rateUnitLabel || "").trim().toUpperCase();
+  if (!normalizedLabel) {
+    return null;
+  }
+
+  return (
+    units.find(
+      (unit) =>
+        buildNormalizedKey(unit.unitCode) === normalizedLabel ||
+        buildNormalizedKey(unit.unitName) === normalizedLabel
+    ) || null
+  );
+};
 
 function PartyMaterialRatesPage() {
   const location = useLocation();
@@ -177,9 +216,13 @@ function PartyMaterialRatesPage() {
   const [parties, setParties] = useState([]);
   const [plants, setPlants] = useState([]);
   const [materials, setMaterials] = useState([]);
+  const [units, setUnits] = useState([]);
+  const [materialUnitConversions, setMaterialUnitConversions] = useState([]);
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [unitsWarning, setUnitsWarning] = useState("");
+  const [conversionsWarning, setConversionsWarning] = useState("");
 
   const [search, setSearch] = useState("");
   const [plantFilter, setPlantFilter] = useState("");
@@ -188,13 +231,17 @@ function PartyMaterialRatesPage() {
 
   const [showList, setShowList] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [formConversionTouched, setFormConversionTouched] = useState(false);
-  const [editConversionTouched, setEditConversionTouched] = useState(false);
+  const [showAdvancedForm, setShowAdvancedForm] = useState(false);
+  const [showAdvancedEdit, setShowAdvancedEdit] = useState(false);
 
   const [form, setForm] = useState({
     plantId: "",
     partyId: "",
     materialId: "",
+    billingBasis: "per_ton",
+    rateUnitId: "",
+    pricePerUnit: "",
+    conversionId: "",
     ratePerTon: "",
     rateUnit: "per_ton",
     rateUnitLabel: "",
@@ -213,6 +260,10 @@ function PartyMaterialRatesPage() {
     plantId: "",
     partyId: "",
     materialId: "",
+    billingBasis: "per_ton",
+    rateUnitId: "",
+    pricePerUnit: "",
+    conversionId: "",
     ratePerTon: "",
     rateUnit: "per_ton",
     rateUnitLabel: "",
@@ -238,19 +289,54 @@ function PartyMaterialRatesPage() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [ratesRes, partiesRes, plantsRes, mastersRes] = await Promise.all([
+      const [ratesRes, partiesRes, plantsRes, mastersRes, unitsRes, conversionsRes] =
+        await Promise.allSettled([
         api.get("/party-material-rates"),
         api.get("/parties"),
         api.get("/plants"),
         api.get("/masters"),
+        api.get("/masters/units"),
+        api.get("/masters/material-unit-conversions"),
       ]);
 
-      setRates(ratesRes.data?.data || []);
-      setParties(partiesRes.data?.data || []);
-      setPlants(plantsRes.data?.data || []);
-      setMaterials(mastersRes.data?.data?.materials || []);
+      const requiredResponses = [ratesRes, partiesRes, plantsRes, mastersRes];
+      const failedRequiredResponse = requiredResponses.find(
+        (response) => response.status !== "fulfilled"
+      );
+
+      if (failedRequiredResponse) {
+        throw failedRequiredResponse.reason;
+      }
+
+      setRates(getListData(ratesRes.value));
+      setParties(getListData(partiesRes.value));
+      setPlants(getListData(plantsRes.value));
+      setMaterials(getMaterialsData(mastersRes.value));
+
+      if (unitsRes.status === "fulfilled") {
+        setUnits(getListData(unitsRes.value));
+        setUnitsWarning("");
+      } else {
+        setUnits([]);
+        setUnitsWarning(
+          "Unit master data could not be loaded. Legacy party material rates are still available, but unit labels may be incomplete."
+        );
+      }
+
+      if (conversionsRes.status === "fulfilled") {
+        setMaterialUnitConversions(getMaterialUnitConversionsData(conversionsRes.value));
+        setConversionsWarning("");
+      } else {
+        setMaterialUnitConversions([]);
+        setConversionsWarning(
+          "Material conversion master data could not be loaded. Legacy records are still available, but per unit billing guidance may be limited."
+        );
+      }
+
       setError("");
     } catch {
+      setUnitsWarning("");
+      setConversionsWarning("");
       setError("Failed to load party material rates data");
     }
   }, []);
@@ -382,9 +468,9 @@ function PartyMaterialRatesPage() {
         tone: filteredSummary.activeVisible > 0 ? "strong" : "attention",
       },
       {
-        label: "Average Sell Rate",
+        label: "Average Stored Rate Value",
         value: formatCurrency(filteredSummary.averageRate),
-        note: "Average active selling rate in the filtered view",
+        note: "Average of the legacy compatibility rate field across active visible records. Compare only within matching billing units.",
         tone: filteredSummary.averageRate > 0 ? "strong" : "calm",
       },
       {
@@ -416,27 +502,326 @@ function PartyMaterialRatesPage() {
     }));
   };
 
-  const handleRateUnitChange = (setter, setTouched) => (e) => {
-    const nextUnit = e.target.value;
-    setter((prev) => ({
-      ...prev,
-      rateUnit: nextUnit,
-      rateUnitLabel:
-        nextUnit === "other" ? prev.rateUnitLabel : getRateUnitMeta(nextUnit).unitLabel,
-      rateUnitsPerTon: getSuggestedRateUnitsPerTon(nextUnit),
-    }));
-    setTouched(false);
-  };
+  const unitsById = useMemo(
+    () => new Map(units.map((unit) => [String(unit.id), unit])),
+    [units]
+  );
 
-  const handleRateInputChange = (setter, touched) => (e) => {
-    const { name, value } = e.target;
+  const materialsById = useMemo(
+    () => new Map(materials.map((material) => [String(material.id), material])),
+    [materials]
+  );
+
+  const activeMaterialConversions = useMemo(
+    () => materialUnitConversions.filter((conversion) => conversion.isActive !== false),
+    [materialUnitConversions]
+  );
+
+  const materialConversionsByMaterialId = useMemo(() => {
+    const grouped = new Map();
+
+    activeMaterialConversions.forEach((conversion) => {
+      const key = String(conversion.materialId || "");
+      const existing = grouped.get(key) || [];
+      existing.push(conversion);
+      grouped.set(key, existing);
+    });
+
+    return grouped;
+  }, [activeMaterialConversions]);
+
+  const getConversionsForMaterial = useCallback(
+    (materialId) => materialConversionsByMaterialId.get(String(materialId || "")) || [],
+    [materialConversionsByMaterialId]
+  );
+
+  const getMaterialContext = useCallback(
+    (draft) => {
+      const materialId = String(draft.materialId || "");
+      const material = materialsById.get(materialId) || null;
+      const conversions = getConversionsForMaterial(materialId);
+      const mtUnit = units.find((unit) => ["MT", "TON"].includes(buildNormalizedKey(unit.unitCode))) || null;
+      const selectedBillingUnit =
+        unitsById.get(String(draft.rateUnitId || "")) ||
+        resolveUnitFromLegacyDraft(draft, units) ||
+        null;
+
+      const billingUnitsMap = new Map();
+      let selectedConversion = null;
+      let brassToTonConversion = null;
+
+      if (mtUnit) {
+        billingUnitsMap.set(String(mtUnit.id), mtUnit);
+      }
+
+      conversions.forEach((conversion) => {
+        const fromUnit = unitsById.get(String(conversion.fromUnitId || ""));
+        const toUnit = unitsById.get(String(conversion.toUnitId || ""));
+        const fromCode = buildNormalizedKey(fromUnit?.unitCode);
+        const toCode = buildNormalizedKey(toUnit?.unitCode);
+
+        const touchesTonSide = fromCode === "MT" || fromCode === "TON" || toCode === "MT" || toCode === "TON";
+
+        if (touchesTonSide) {
+          const derivedUnit =
+            fromCode === "MT" || fromCode === "TON" ? toUnit : fromUnit;
+
+          if (derivedUnit) {
+            billingUnitsMap.set(String(derivedUnit.id), derivedUnit);
+          }
+        }
+
+        if (
+          selectedBillingUnit &&
+          !selectedConversion &&
+          (((fromCode === "MT" || fromCode === "TON") &&
+            String(conversion.toUnitId) === String(selectedBillingUnit.id)) ||
+            ((toCode === "MT" || toCode === "TON") &&
+              String(conversion.fromUnitId) === String(selectedBillingUnit.id)))
+        ) {
+          selectedConversion = conversion;
+        }
+
+        if (
+          !brassToTonConversion &&
+          ((fromCode === "BRASS" && (toCode === "MT" || toCode === "TON")) ||
+            (toCode === "BRASS" && (fromCode === "MT" || fromCode === "TON")))
+        ) {
+          brassToTonConversion = conversion;
+        }
+      });
+
+      const availableBillingUnits = Array.from(billingUnitsMap.values()).sort((left, right) =>
+        String(left.unitCode || "").localeCompare(String(right.unitCode || ""))
+      );
+
+      const preferredDefault =
+        availableBillingUnits.find((unit) => buildNormalizedKey(unit.unitCode) === "CFT") ||
+        availableBillingUnits.find((unit) => buildNormalizedKey(unit.unitCode) === "BRASS") ||
+        availableBillingUnits.find((unit) =>
+          ["MT", "TON"].includes(buildNormalizedKey(unit.unitCode))
+        ) ||
+        availableBillingUnits[0] ||
+        null;
+
+      let rateUnitsPerTon = 1;
+      let conversionId = "";
+      let conversionHint = "";
+      let conversionMissing = false;
+
+      if (draft.billingBasis === "per_unit" && selectedBillingUnit) {
+        const selectedCode = buildNormalizedKey(selectedBillingUnit.unitCode);
+        const storedRateUnitsPerTon = getSafePositiveNumber(draft.rateUnitsPerTon);
+
+        if (selectedCode === "MT" || selectedCode === "TON") {
+          rateUnitsPerTon = 1;
+          conversionHint = `Conversion available: 1 MT = 1 ${selectedBillingUnit.unitCode}`;
+        } else if (selectedConversion) {
+          const fromUnit = unitsById.get(String(selectedConversion.fromUnitId || ""));
+          const toUnit = unitsById.get(String(selectedConversion.toUnitId || ""));
+          const fromCode = buildNormalizedKey(fromUnit?.unitCode);
+          const toCode = buildNormalizedKey(toUnit?.unitCode);
+          const rawFactor = Number(selectedConversion.conversionFactor);
+
+          if (Number.isFinite(rawFactor) && rawFactor > 0) {
+            if (fromCode === "MT" || fromCode === "TON") {
+              rateUnitsPerTon = rawFactor;
+            } else if (toCode === "MT" || toCode === "TON") {
+              rateUnitsPerTon = 1 / rawFactor;
+            }
+          }
+
+          conversionId = String(selectedConversion.id || "");
+
+          if (Number.isFinite(rateUnitsPerTon) && rateUnitsPerTon > 0) {
+            conversionHint = `Conversion available: 1 MT = ${formatCompactNumber(
+              rateUnitsPerTon
+            )} ${selectedBillingUnit.unitCode}`;
+          }
+        } else if (storedRateUnitsPerTon) {
+          rateUnitsPerTon = storedRateUnitsPerTon;
+          conversionId = String(draft.conversionId || "");
+          conversionHint = `Using saved compatibility conversion: 1 MT = ${formatCompactNumber(
+            storedRateUnitsPerTon
+          )} ${selectedBillingUnit.unitCode}`;
+        } else {
+          conversionMissing = true;
+        }
+      }
+
+      let tonsPerBrass = draft.tonsPerBrass;
+      if (draft.royaltyMode === "per_brass" || draft.loadingChargeBasis === "per_brass") {
+        const fromUnit = unitsById.get(String(brassToTonConversion?.fromUnitId || ""));
+        const toUnit = unitsById.get(String(brassToTonConversion?.toUnitId || ""));
+        const fromCode = buildNormalizedKey(fromUnit?.unitCode);
+        const toCode = buildNormalizedKey(toUnit?.unitCode);
+        const rawFactor = Number(brassToTonConversion?.conversionFactor);
+
+        if (Number.isFinite(rawFactor) && rawFactor > 0) {
+          if (fromCode === "BRASS" && (toCode === "MT" || toCode === "TON")) {
+            tonsPerBrass = String(rawFactor);
+          } else if (toCode === "BRASS" && (fromCode === "MT" || fromCode === "TON")) {
+            tonsPerBrass = String(1 / rawFactor);
+          }
+        }
+      }
+
+      const unitCode = buildNormalizedKey(selectedBillingUnit?.unitCode);
+      const legacyMeta =
+        LEGACY_RATE_META_BY_UNIT_CODE[unitCode] ||
+        (draft.billingBasis === "fixed"
+          ? { rateUnit: "other", rateUnitLabel: "fixed amount", rateUnitsPerTon: 1 }
+          : draft.billingBasis === "per_trip"
+            ? { rateUnit: "per_trip", rateUnitLabel: "trip", rateUnitsPerTon: 1 }
+            : { rateUnit: "per_ton", rateUnitLabel: "ton", rateUnitsPerTon: 1 });
+
+      return {
+        material,
+        conversions,
+        selectedBillingUnit,
+        availableBillingUnits,
+        preferredDefault,
+        conversionId,
+        conversionHint,
+        conversionMissing,
+        rateUnitsPerTon:
+          Number.isFinite(rateUnitsPerTon) && rateUnitsPerTon > 0
+            ? rateUnitsPerTon
+            : 1,
+        tonsPerBrass,
+        legacyMeta,
+      };
+    },
+    [getConversionsForMaterial, materialsById, units, unitsById]
+  );
+
+  const buildDerivedCompatibility = useCallback(
+    (draft) => {
+      const context = getMaterialContext(draft);
+      const mainRate = getSafePositiveNumber(getMainRateNumber(draft));
+
+      if (draft.billingBasis === "per_unit") {
+        return {
+          ...context,
+          ratePerTon: mainRate,
+          pricePerUnit: mainRate,
+          rateUnit: context.legacyMeta.rateUnit,
+          rateUnitLabel: context.legacyMeta.rateUnitLabel,
+          rateUnitsPerTon: context.rateUnitsPerTon,
+          conversionId: context.conversionId || draft.conversionId || "",
+          tonsPerBrass: context.tonsPerBrass || draft.tonsPerBrass || "",
+        };
+      }
+
+      if (draft.billingBasis === "per_trip") {
+        return {
+          ...context,
+          ratePerTon: mainRate,
+          pricePerUnit: mainRate,
+          rateUnit: "per_trip",
+          rateUnitLabel: "trip",
+          rateUnitsPerTon: 1,
+          conversionId: "",
+          tonsPerBrass: context.tonsPerBrass || draft.tonsPerBrass || "",
+        };
+      }
+
+      if (draft.billingBasis === "fixed") {
+        return {
+          ...context,
+          ratePerTon: mainRate,
+          pricePerUnit: mainRate,
+          rateUnit: "other",
+          rateUnitLabel: "fixed amount",
+          rateUnitsPerTon: 1,
+          conversionId: "",
+          tonsPerBrass: context.tonsPerBrass || draft.tonsPerBrass || "",
+        };
+      }
+
+      return {
+        ...context,
+        ratePerTon: mainRate,
+        pricePerUnit: mainRate,
+        rateUnit: "per_metric_ton",
+        rateUnitLabel: "metric ton",
+        rateUnitsPerTon: 1,
+        conversionId: "",
+        tonsPerBrass: context.tonsPerBrass || draft.tonsPerBrass || "",
+      };
+    },
+    [getMaterialContext]
+  );
+
+  const formDerived = useMemo(() => buildDerivedCompatibility(form), [buildDerivedCompatibility, form]);
+  const editDerived = useMemo(
+    () => buildDerivedCompatibility(editForm),
+    [buildDerivedCompatibility, editForm]
+  );
+
+  useEffect(() => {
+    if (form.billingBasis !== "per_unit") {
+      return;
+    }
+
+    const availableIds = new Set(
+      formDerived.availableBillingUnits.map((unit) => String(unit.id))
+    );
+
+    if (!form.rateUnitId || !availableIds.has(String(form.rateUnitId))) {
+      const nextUnitId = formDerived.preferredDefault?.id;
+      if (nextUnitId) {
+        setForm((prev) => ({ ...prev, rateUnitId: String(nextUnitId) }));
+      }
+    }
+  }, [form.billingBasis, form.rateUnitId, formDerived.availableBillingUnits, formDerived.preferredDefault]);
+
+  useEffect(() => {
+    if (!editItem || editForm.billingBasis !== "per_unit") {
+      return;
+    }
+
+    if (!editForm.rateUnitId) {
+      const nextUnitId = editDerived.preferredDefault?.id;
+      if (nextUnitId) {
+        setEditForm((prev) => ({ ...prev, rateUnitId: String(nextUnitId) }));
+      }
+    }
+  }, [
+    editDerived.availableBillingUnits,
+    editDerived.preferredDefault,
+    editForm.billingBasis,
+    editForm.rateUnitId,
+    editItem,
+  ]);
+
+  const handleBillingBasisChange = (setter) => (e) => {
+    const nextBasis = e.target.value;
     setter((prev) => ({
       ...prev,
-      [name]: value,
-      ...(name === "ratePerTon" && rateUnitRequiresConversion(prev.rateUnit) && !touched
-        ? { rateUnitsPerTon: getSuggestedRateUnitsPerTon(prev.rateUnit) }
+      billingBasis: nextBasis,
+      ...(nextBasis !== "per_unit"
+        ? { rateUnitId: "", conversionId: "" }
         : {}),
     }));
+  };
+
+  const handleVisibleRateChange = (setter) => (e) => {
+    const { value } = e.target;
+
+    setter((prev) => {
+      if (prev.billingBasis === "per_unit") {
+        return {
+          ...prev,
+          pricePerUnit: value,
+        };
+      }
+
+      return {
+        ...prev,
+        ratePerTon: value,
+      };
+    });
   };
 
   const renderCountBadge = (count) => (
@@ -469,30 +854,43 @@ function PartyMaterialRatesPage() {
     return `Per Ton (${item.royaltyValue || 0})`;
   };
 
-  const validateRateForm = (data) => {
+  const validateRateForm = (data, derived) => {
     if (!data.plantId || !data.partyId || !data.materialId) {
       setError("Plant, party, and material are required");
       return false;
     }
 
-    if (!data.ratePerTon || Number(data.ratePerTon) <= 0) {
-      setError("Rate must be greater than 0");
+    if (!BILLING_BASIS_OPTIONS.some((option) => option.value === data.billingBasis)) {
+      setError("Please select a valid billing basis");
       return false;
     }
 
-    if (!RATE_UNIT_OPTIONS.some((option) => option.value === data.rateUnit)) {
-      setError("Please select a valid rate unit");
-      return false;
+    if (data.billingBasis === "per_unit") {
+      if (!data.rateUnitId) {
+        setError("Please select a unit for per unit billing");
+        return false;
+      }
+
+      if (!data.pricePerUnit || Number(data.pricePerUnit) <= 0) {
+        setError("Price per unit must be greater than 0");
+        return false;
+      }
+
+      if (derived.conversionMissing) {
+        setError(
+          "Unit conversion not defined for this material. Please configure in Masters."
+        );
+        return false;
+      }
     }
 
-    if (data.rateUnit === "other" && !String(data.rateUnitLabel || "").trim()) {
-      setError("Custom rate unit name is required");
-      return false;
-    }
+    const visibleRate = getMainRateNumber(data);
 
-    if (rateUnitRequiresConversion(data.rateUnit) && (!data.rateUnitsPerTon || Number(data.rateUnitsPerTon) <= 0)) {
-      setError("Billable units per ton must be greater than 0");
-      return false;
+    if (!visibleRate || Number(visibleRate) <= 0) {
+      if (!(data.billingBasis === "per_unit" && data.pricePerUnit && Number(data.pricePerUnit) > 0)) {
+        setError("Rate must be greater than 0");
+        return false;
+      }
     }
 
     if (!["per_ton", "per_brass", "fixed", "none"].includes(data.royaltyMode)) {
@@ -515,9 +913,11 @@ function PartyMaterialRatesPage() {
 
     if (
       (data.royaltyMode === "per_brass" || data.loadingChargeBasis === "per_brass") &&
-      (data.tonsPerBrass === "" || Number(data.tonsPerBrass) <= 0)
+      (!derived.tonsPerBrass || Number(derived.tonsPerBrass) <= 0)
     ) {
-      setError("Tons per brass must be greater than 0 when royalty or loading is per brass");
+      setError(
+        "Unit conversion not defined for brass-based royalty/loading. Please configure in Masters."
+      );
       return false;
     }
 
@@ -529,18 +929,34 @@ function PartyMaterialRatesPage() {
     return true;
   };
 
-  const normalizePayload = (data) => ({
+  const normalizePayload = (data, derived) => ({
     plantId: Number(data.plantId),
     partyId: Number(data.partyId),
     materialId: Number(data.materialId),
-    ratePerTon: Number(data.ratePerTon),
-    rateUnit: data.rateUnit || "per_ton",
-    rateUnitLabel:
-      data.rateUnit === "other"
-        ? String(data.rateUnitLabel || "").trim()
-        : getRateUnitMeta(data.rateUnit).unitLabel,
-    rateUnitsPerTon:
-      rateUnitRequiresConversion(data.rateUnit) ? Number(data.rateUnitsPerTon) : 1,
+    billingBasis: data.billingBasis || "per_ton",
+    rateUnitId:
+      data.billingBasis !== "per_unit" ||
+      data.rateUnitId === "" ||
+      data.rateUnitId === undefined ||
+      data.rateUnitId === null
+        ? null
+        : Number(data.rateUnitId),
+    pricePerUnit:
+      derived.pricePerUnit === null ||
+      derived.pricePerUnit === undefined
+        ? null
+        : Number(derived.pricePerUnit),
+    conversionId:
+      !derived.conversionId
+        ? null
+        : Number(derived.conversionId),
+    ratePerTon:
+      derived.ratePerTon === null || derived.ratePerTon === undefined
+        ? null
+        : Number(derived.ratePerTon),
+    rateUnit: derived.rateUnit || "per_ton",
+    rateUnitLabel: String(derived.rateUnitLabel || "").trim(),
+    rateUnitsPerTon: Number(derived.rateUnitsPerTon || 1),
     effectiveFrom: String(data.effectiveFrom || "").trim(),
     royaltyMode: data.royaltyMode,
     royaltyValue:
@@ -551,9 +967,9 @@ function PartyMaterialRatesPage() {
         : Number(data.royaltyValue),
     tonsPerBrass:
       data.royaltyMode === "per_brass" || data.loadingChargeBasis === "per_brass"
-        ? data.tonsPerBrass === ""
+        ? !derived.tonsPerBrass
           ? null
-          : Number(data.tonsPerBrass)
+          : Number(derived.tonsPerBrass)
         : null,
     loadingCharge:
       data.loadingChargeBasis === "none"
@@ -570,16 +986,20 @@ function PartyMaterialRatesPage() {
     setError("");
     setSuccess("");
 
-    if (!validateRateForm(form)) return;
+    if (!validateRateForm(form, formDerived)) return;
 
     try {
-      await api.post("/party-material-rates", normalizePayload(form));
+      await api.post("/party-material-rates", normalizePayload(form, formDerived));
 
       setSuccess("Party material rate added successfully");
       setForm({
         plantId: "",
         partyId: "",
         materialId: "",
+        billingBasis: "per_ton",
+        rateUnitId: "",
+        pricePerUnit: "",
+        conversionId: "",
         ratePerTon: "",
         rateUnit: "per_ton",
         rateUnitLabel: "",
@@ -592,7 +1012,7 @@ function PartyMaterialRatesPage() {
         loadingChargeBasis: "fixed",
         notes: "",
       });
-      setFormConversionTouched(false);
+      setShowAdvancedForm(false);
       setShowForm(false);
       setShowList(true);
       await loadAll();
@@ -613,8 +1033,11 @@ function PartyMaterialRatesPage() {
   };
 
   const openEditPanel = (item) => {
+    const inferredBillingBasis = inferBillingBasisFromRate(item);
+    const inferredUnit = resolveUnitFromLegacyDraft(item, units);
+
     setEditItem(item);
-    setEditConversionTouched(false);
+    setShowAdvancedEdit(false);
     setEditForm({
       plantId: String(item.plantId || ""),
       partyId: String(item.partyId || ""),
@@ -622,6 +1045,23 @@ function PartyMaterialRatesPage() {
       ratePerTon:
         item.ratePerTon !== null && item.ratePerTon !== undefined
           ? String(item.ratePerTon)
+          : "",
+      billingBasis: inferredBillingBasis,
+      rateUnitId:
+        item.rateUnitId !== null && item.rateUnitId !== undefined
+          ? String(item.rateUnitId)
+          : inferredUnit
+            ? String(inferredUnit.id)
+          : "",
+      pricePerUnit:
+        item.pricePerUnit !== null && item.pricePerUnit !== undefined
+          ? String(item.pricePerUnit)
+          : item.ratePerTon !== null && item.ratePerTon !== undefined
+            ? String(item.ratePerTon)
+            : "",
+      conversionId:
+        item.conversionId !== null && item.conversionId !== undefined
+          ? String(item.conversionId)
           : "",
       rateUnit: item.rateUnit || "per_ton",
       rateUnitLabel: item.rateUnitLabel || "",
@@ -655,12 +1095,12 @@ function PartyMaterialRatesPage() {
     setSuccess("");
 
     if (!editItem) return;
-    if (!validateRateForm(editForm)) return;
+    if (!validateRateForm(editForm, editDerived)) return;
 
     try {
       await api.patch(
         `/party-material-rates/${editItem.id}`,
-        normalizePayload(editForm)
+        normalizePayload(editForm, editDerived)
       );
 
       setSuccess("Party material rate updated successfully");
@@ -698,6 +1138,116 @@ function PartyMaterialRatesPage() {
     }
   };
 
+  const formatPrimaryRateDisplay = (item) => {
+    const resolvedBillingBasis = item.billingBasis || "per_ton";
+    const resolvedUnit =
+      unitsById.get(String(item.rateUnitId || ""))?.unitCode ||
+      item.rateUnitLabel ||
+      "unit";
+
+    if (resolvedBillingBasis === "per_unit") {
+      return `${formatCurrency(item.pricePerUnit || item.ratePerTon || 0)} / ${resolvedUnit}`;
+    }
+
+    if (resolvedBillingBasis === "per_trip") {
+      return `${formatCurrency(item.pricePerUnit || item.ratePerTon || 0)} / Trip`;
+    }
+
+    if (resolvedBillingBasis === "fixed") {
+      return `${formatCurrency(item.pricePerUnit || item.ratePerTon || 0)} fixed`;
+    }
+
+    return `${formatCurrency(item.pricePerUnit || item.ratePerTon || 0)} / MT`;
+  };
+
+  const renderConversionSummary = (derived) => {
+    if (!derived.material) {
+      return null;
+    }
+
+    if (derived.conversionMissing) {
+      return (
+        <div style={styles.inlineAlert}>
+          Unit conversion not defined for this material. Please configure in Masters.
+        </div>
+      );
+    }
+
+    const optionsText =
+      derived.availableBillingUnits.length > 0
+        ? derived.availableBillingUnits.map((unit) => unit.unitCode).join(", ")
+        : "MT";
+
+    return (
+      <div style={styles.helperPanel}>
+        <div style={styles.helperTitle}>System will auto-calculate conversions based on master data</div>
+        <p style={styles.helperText}>Based on current conversion master</p>
+        <p style={styles.helperText}>Available billing units: {optionsText}</p>
+        {derived.conversionHint ? (
+          <p style={styles.helperHighlight}>{derived.conversionHint}</p>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderAdvancedSection = (draft, derived, isOpen, setOpen) => (
+    <div style={styles.advancedShell}>
+      <button
+        type="button"
+        style={styles.advancedToggle}
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        {isOpen ? "Hide" : "Show"} Advanced / Compatibility Settings
+      </button>
+
+      {isOpen ? (
+        <div style={styles.advancedPanel}>
+          <div style={styles.advancedGrid}>
+            <label style={styles.readOnlyField}>
+              <span style={styles.readOnlyLabel}>Legacy Rate Unit</span>
+              <input value={derived.rateUnit || "-"} readOnly style={styles.readOnlyInput} />
+            </label>
+            <label style={styles.readOnlyField}>
+              <span style={styles.readOnlyLabel}>Legacy Rate Per Ton</span>
+              <input
+                value={derived.ratePerTon ? formatCompactNumber(derived.ratePerTon, 2) : "-"}
+                readOnly
+                style={styles.readOnlyInput}
+              />
+            </label>
+            <label style={styles.readOnlyField}>
+              <span style={styles.readOnlyLabel}>Rate Units Per Ton</span>
+              <input
+                value={derived.rateUnitsPerTon ? formatCompactNumber(derived.rateUnitsPerTon) : "-"}
+                readOnly
+                style={styles.readOnlyInput}
+              />
+            </label>
+            <label style={styles.readOnlyField}>
+              <span style={styles.readOnlyLabel}>Conversion Reference</span>
+              <input
+                value={derived.conversionId || draft.conversionId || "Auto / Not required"}
+                readOnly
+                style={styles.readOnlyInput}
+              />
+            </label>
+            <label style={styles.readOnlyField}>
+              <span style={styles.readOnlyLabel}>Tons Per Brass</span>
+              <input
+                value={derived.tonsPerBrass || draft.tonsPerBrass || "-"}
+                readOnly
+                style={styles.readOnlyInput}
+              />
+            </label>
+          </div>
+          <p style={styles.advancedText}>
+            System will auto-calculate conversions based on master data and keep the backend compatibility payload intact.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+
   return (
     <AppShell
       title="Party Material Rates"
@@ -733,6 +1283,8 @@ function PartyMaterialRatesPage() {
 
         {error && <div style={styles.messageError}>{error}</div>}
         {success && <div style={styles.messageSuccess}>{success}</div>}
+        {unitsWarning && <div style={styles.messageWarning}>{unitsWarning}</div>}
+        {conversionsWarning && <div style={styles.messageWarning}>{conversionsWarning}</div>}
 
         {returnToPartyCommercialProfile && (
           <div style={styles.returnBanner}>
@@ -1069,12 +1621,19 @@ function PartyMaterialRatesPage() {
                               : "-"}
                           </td>
                           <td style={styles.td}>
-                            {formatRateValue(item)}
-                            {Number(item.rateUnitsPerTon || 1) !== 1 && (
+                            <div style={styles.tdSubtle}>
+                              {getBillingBasisLabel(item.billingBasis)}
+                            </div>
+                            {formatPrimaryRateDisplay(item)}
+                            {item.billingBasis === "per_unit" && Number(item.rateUnitsPerTon || 1) !== 1 ? (
                               <div style={styles.tdSubtle}>
-                                {item.rateUnitsPerTon} {getRateUnitLabel(item)} / ton
+                                Based on current conversion master: {formatCompactNumber(item.rateUnitsPerTon)}{" "}
+                                {(unitsById.get(String(item.rateUnitId || ""))?.unitCode ||
+                                  item.rateUnitLabel ||
+                                  "unit")}{" "}
+                                / MT
                               </div>
-                            )}
+                            ) : null}
                           </td>
                           <td style={styles.td}>{formatRoyalty(item)}</td>
                           <td style={styles.td}>
@@ -1127,7 +1686,7 @@ function PartyMaterialRatesPage() {
               <h3 style={styles.blockTitle}>Add Party Material Rate</h3>
               <p style={styles.blockSubtitle}>
                 Create a default selling rate with optional royalty and loading charge.
-                Royalty can be per ton, per brass, fixed, or none.
+                System will auto-calculate conversions based on master data.
               </p>
 
               <form onSubmit={handleSubmit} style={styles.form}>
@@ -1174,17 +1733,37 @@ function PartyMaterialRatesPage() {
                 </select>
 
                 <select
-                  name="rateUnit"
-                  value={form.rateUnit}
-                  onChange={handleRateUnitChange(setForm, setFormConversionTouched)}
+                  name="billingBasis"
+                  value={form.billingBasis}
+                  onChange={handleBillingBasisChange(setForm)}
                   style={styles.input}
                 >
-                  {RATE_UNIT_OPTIONS.map((option) => (
+                  {BILLING_BASIS_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
                 </select>
+
+                {renderConversionSummary(formDerived)}
+
+                {form.billingBasis === "per_unit" && (
+                  <>
+                    <select
+                      name="rateUnitId"
+                      value={form.rateUnitId}
+                      onChange={handleChange(setForm)}
+                      style={styles.input}
+                    >
+                      <option value="">Select Billing Unit</option>
+                      {formDerived.availableBillingUnits.map((unit) => (
+                        <option key={unit.id} value={unit.id}>
+                          {unit.unitCode} - {unit.unitName}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
 
                 <input
                   name="effectiveFrom"
@@ -1195,46 +1774,14 @@ function PartyMaterialRatesPage() {
                 />
 
                 <input
-                  name="ratePerTon"
+                  name="commercialRate"
                   type="number"
                   step="0.01"
-                  placeholder={getRateInputPlaceholder(form)}
-                  value={form.ratePerTon}
-                  onChange={handleRateInputChange(setForm, formConversionTouched)}
+                  placeholder={getRateLabel(form, formDerived.selectedBillingUnit)}
+                  value={getDisplayedRateValue(form)}
+                  onChange={handleVisibleRateChange(setForm)}
                   style={styles.input}
                 />
-
-                {form.rateUnit === "other" && (
-                  <input
-                    name="rateUnitLabel"
-                    placeholder="Custom unit name"
-                    value={form.rateUnitLabel}
-                    onChange={handleChange(setForm)}
-                    style={styles.input}
-                  />
-                )}
-
-                {rateUnitRequiresConversion(form.rateUnit) && (
-                  <>
-                    <input
-                      name="rateUnitsPerTon"
-                      type="number"
-                      step="0.0001"
-                      placeholder={getConversionPlaceholder(form)}
-                      value={form.rateUnitsPerTon}
-                      onChange={(e) => {
-                        setFormConversionTouched(true);
-                        handleChange(setForm)(e);
-                      }}
-                      style={styles.input}
-                    />
-                    {getRateUnitProfessionalHint(form.rateUnit) ? (
-                      <p style={styles.logicText}>
-                        {getRateUnitProfessionalHint(form.rateUnit)}
-                      </p>
-                    ) : null}
-                  </>
-                )}
 
                 <select
                   name="royaltyMode"
@@ -1264,15 +1811,17 @@ function PartyMaterialRatesPage() {
                 />
 
                 {form.royaltyMode === "per_brass" && (
-                  <input
-                    name="tonsPerBrass"
-                    type="number"
-                    step="0.0001"
-                    placeholder="Tons Per Brass"
-                    value={form.tonsPerBrass}
-                    onChange={handleChange(setForm)}
-                    style={styles.input}
-                  />
+                  <div style={styles.helperPanel}>
+                    <div style={styles.helperTitle}>Royalty conversion</div>
+                    <p style={styles.helperText}>
+                      Based on current conversion master
+                    </p>
+                    <p style={styles.helperHighlight}>
+                      {formDerived.tonsPerBrass
+                        ? `1 BRASS = ${formatCompactNumber(formDerived.tonsPerBrass)} MT`
+                        : "Please configure BRASS conversion in Masters."}
+                    </p>
+                  </div>
                 )}
 
                 <select
@@ -1299,10 +1848,16 @@ function PartyMaterialRatesPage() {
                   disabled={form.loadingChargeBasis === "none"}
                 />
 
-                {getLoadingProfessionalHint(form.loadingChargeBasis) ? (
-                  <p style={styles.logicText}>
-                    {getLoadingProfessionalHint(form.loadingChargeBasis)}
-                  </p>
+                {form.loadingChargeBasis === "per_brass" ? (
+                  <div style={styles.helperPanel}>
+                    <div style={styles.helperTitle}>Loading conversion</div>
+                    <p style={styles.helperText}>Based on current conversion master</p>
+                    <p style={styles.helperHighlight}>
+                      {formDerived.tonsPerBrass
+                        ? `1 BRASS = ${formatCompactNumber(formDerived.tonsPerBrass)} MT`
+                        : "Please configure BRASS conversion in Masters."}
+                    </p>
+                  </div>
                 ) : null}
 
                 <input
@@ -1312,6 +1867,15 @@ function PartyMaterialRatesPage() {
                   onChange={handleChange(setForm)}
                   style={{ ...styles.input, gridColumn: "1 / -1" }}
                 />
+
+                <div style={styles.fullWidth}>
+                  {renderAdvancedSection(
+                    form,
+                    formDerived,
+                    showAdvancedForm,
+                    setShowAdvancedForm
+                  )}
+                </div>
 
                 <button type="submit" style={styles.button}>
                   Save Rate
@@ -1327,6 +1891,7 @@ function PartyMaterialRatesPage() {
               <h3 style={styles.editTitle}>Update selected party material rate</h3>
               <p style={styles.editSubtitle}>
                 Edit the selling rate, royalty logic, and loading charge carefully.
+                System will auto-calculate conversions based on master data.
               </p>
             </div>
 
@@ -1374,17 +1939,37 @@ function PartyMaterialRatesPage() {
               </select>
 
               <select
-                name="rateUnit"
-                value={editForm.rateUnit}
-                onChange={handleRateUnitChange(setEditForm, setEditConversionTouched)}
+                name="billingBasis"
+                value={editForm.billingBasis}
+                onChange={handleBillingBasisChange(setEditForm)}
                 style={styles.input}
               >
-                {RATE_UNIT_OPTIONS.map((option) => (
+                {BILLING_BASIS_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
                 ))}
               </select>
+
+              {renderConversionSummary(editDerived)}
+
+              {editForm.billingBasis === "per_unit" && (
+                <>
+                  <select
+                    name="rateUnitId"
+                    value={editForm.rateUnitId}
+                    onChange={handleChange(setEditForm)}
+                    style={styles.input}
+                  >
+                    <option value="">Select Billing Unit</option>
+                    {editDerived.availableBillingUnits.map((unit) => (
+                      <option key={unit.id} value={unit.id}>
+                        {unit.unitCode} - {unit.unitName}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
 
               <input
                 name="effectiveFrom"
@@ -1395,46 +1980,14 @@ function PartyMaterialRatesPage() {
               />
 
               <input
-                name="ratePerTon"
+                name="commercialRate"
                 type="number"
                 step="0.01"
-                placeholder={getRateInputPlaceholder(editForm)}
-                value={editForm.ratePerTon}
-                onChange={handleRateInputChange(setEditForm, editConversionTouched)}
+                placeholder={getRateLabel(editForm, editDerived.selectedBillingUnit)}
+                value={getDisplayedRateValue(editForm)}
+                onChange={handleVisibleRateChange(setEditForm)}
                 style={styles.input}
               />
-
-              {editForm.rateUnit === "other" && (
-                <input
-                  name="rateUnitLabel"
-                  placeholder="Custom unit name"
-                  value={editForm.rateUnitLabel}
-                  onChange={handleChange(setEditForm)}
-                  style={styles.input}
-                />
-              )}
-
-              {rateUnitRequiresConversion(editForm.rateUnit) && (
-                <>
-                  <input
-                    name="rateUnitsPerTon"
-                    type="number"
-                    step="0.0001"
-                    placeholder={getConversionPlaceholder(editForm)}
-                    value={editForm.rateUnitsPerTon}
-                    onChange={(e) => {
-                      setEditConversionTouched(true);
-                      handleChange(setEditForm)(e);
-                    }}
-                    style={styles.input}
-                  />
-                  {getRateUnitProfessionalHint(editForm.rateUnit) ? (
-                    <p style={styles.logicText}>
-                      {getRateUnitProfessionalHint(editForm.rateUnit)}
-                    </p>
-                  ) : null}
-                </>
-              )}
 
               <select
                 name="royaltyMode"
@@ -1464,15 +2017,15 @@ function PartyMaterialRatesPage() {
               />
 
               {editForm.royaltyMode === "per_brass" && (
-                <input
-                  name="tonsPerBrass"
-                  type="number"
-                  step="0.0001"
-                  placeholder="Tons Per Brass"
-                  value={editForm.tonsPerBrass}
-                  onChange={handleChange(setEditForm)}
-                  style={styles.input}
-                />
+                <div style={styles.helperPanel}>
+                  <div style={styles.helperTitle}>Royalty conversion</div>
+                  <p style={styles.helperText}>Based on current conversion master</p>
+                  <p style={styles.helperHighlight}>
+                    {editDerived.tonsPerBrass
+                      ? `1 BRASS = ${formatCompactNumber(editDerived.tonsPerBrass)} MT`
+                      : "Please configure BRASS conversion in Masters."}
+                  </p>
+                </div>
               )}
 
               <select
@@ -1499,10 +2052,16 @@ function PartyMaterialRatesPage() {
                 disabled={editForm.loadingChargeBasis === "none"}
               />
 
-              {getLoadingProfessionalHint(editForm.loadingChargeBasis) ? (
-                <p style={styles.logicText}>
-                  {getLoadingProfessionalHint(editForm.loadingChargeBasis)}
-                </p>
+              {editForm.loadingChargeBasis === "per_brass" ? (
+                <div style={styles.helperPanel}>
+                  <div style={styles.helperTitle}>Loading conversion</div>
+                  <p style={styles.helperText}>Based on current conversion master</p>
+                  <p style={styles.helperHighlight}>
+                    {editDerived.tonsPerBrass
+                      ? `1 BRASS = ${formatCompactNumber(editDerived.tonsPerBrass)} MT`
+                      : "Please configure BRASS conversion in Masters."}
+                  </p>
+                </div>
               ) : null}
 
               <input
@@ -1512,6 +2071,15 @@ function PartyMaterialRatesPage() {
                 onChange={handleChange(setEditForm)}
                 style={{ ...styles.input, gridColumn: "1 / -1" }}
               />
+
+              <div style={styles.fullWidth}>
+                {renderAdvancedSection(
+                  editForm,
+                  editDerived,
+                  showAdvancedEdit,
+                  setShowAdvancedEdit
+                )}
+              </div>
             </div>
 
             <div style={styles.editActions}>
@@ -1743,6 +2311,15 @@ const styles = {
     fontSize: "14px",
     boxShadow: "0 10px 24px rgba(16,185,129,0.08)",
   },
+  messageWarning: {
+    background: "linear-gradient(135deg, #fff7ed 0%, #fffbeb 100%)",
+    color: "#9a3412",
+    border: "1px solid #fdba74",
+    padding: "14px 16px",
+    borderRadius: "16px",
+    fontSize: "14px",
+    boxShadow: "0 10px 24px rgba(245,158,11,0.08)",
+  },
   summaryGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -1939,6 +2516,9 @@ const styles = {
     border: "1px solid #e2e8f0",
     marginTop: "18px",
   },
+  fullWidth: {
+    gridColumn: "1 / -1",
+  },
   editHeader: {
     marginBottom: "12px",
   },
@@ -1965,6 +2545,93 @@ const styles = {
     fontSize: "14px",
     outline: "none",
     background: "#fff",
+  },
+  helperPanel: {
+    gridColumn: "1 / -1",
+    padding: "14px 16px",
+    borderRadius: "14px",
+    border: "1px solid #dbeafe",
+    background: "linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%)",
+  },
+  helperTitle: {
+    margin: 0,
+    marginBottom: "4px",
+    color: "#0f172a",
+    fontSize: "13px",
+    fontWeight: "800",
+  },
+  helperText: {
+    margin: 0,
+    color: "#475569",
+    fontSize: "13px",
+    lineHeight: 1.6,
+  },
+  helperHighlight: {
+    margin: "6px 0 0",
+    color: "#1d4ed8",
+    fontSize: "13px",
+    fontWeight: "700",
+    lineHeight: 1.6,
+  },
+  inlineAlert: {
+    gridColumn: "1 / -1",
+    padding: "12px 14px",
+    borderRadius: "12px",
+    border: "1px solid #fdba74",
+    background: "linear-gradient(135deg, #fff7ed 0%, #fffbeb 100%)",
+    color: "#9a3412",
+    fontSize: "13px",
+    fontWeight: "700",
+  },
+  advancedShell: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+  advancedToggle: {
+    alignSelf: "flex-start",
+    border: "1px solid #cbd5e1",
+    borderRadius: "999px",
+    padding: "10px 14px",
+    background: "#fff",
+    color: "#0f172a",
+    fontWeight: "700",
+    cursor: "pointer",
+  },
+  advancedPanel: {
+    padding: "16px",
+    borderRadius: "16px",
+    border: "1px dashed #cbd5e1",
+    background: "#f8fafc",
+  },
+  advancedGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: "12px",
+  },
+  readOnlyField: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+  },
+  readOnlyLabel: {
+    color: "#475569",
+    fontSize: "12px",
+    fontWeight: "700",
+  },
+  readOnlyInput: {
+    padding: "11px 12px",
+    border: "1px solid #dbe3f0",
+    borderRadius: "12px",
+    background: "#fff",
+    color: "#0f172a",
+    fontSize: "13px",
+  },
+  advancedText: {
+    margin: "12px 0 0",
+    color: "#64748b",
+    fontSize: "13px",
+    lineHeight: 1.6,
   },
   button: {
     padding: "12px 16px",

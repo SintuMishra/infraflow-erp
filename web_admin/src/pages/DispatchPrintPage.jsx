@@ -1,14 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../services/api";
-import { formatDisplayDate } from "../utils/date";
+import { formatDisplayDate, toDateOnlyValue } from "../utils/date";
 
 const currencyFormatter = new Intl.NumberFormat("en-IN", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
 
-const formatCurrency = (value) => currencyFormatter.format(Number(value || 0));
+const BASIS_LABELS = {
+  per_unit: "Per Unit",
+  per_ton: "Per Ton",
+  per_trip: "Per Trip",
+  per_day: "Per Day",
+  per_km: "Per KM",
+  fixed: "Fixed",
+};
+
+const QUANTITY_SOURCE_LABELS = {
+  weighbridge: "Weighbridge",
+  manual_weight: "Manual Weight",
+  manual_volume: "Manual Volume",
+  vehicle_capacity: "Vehicle Capacity",
+  trip_estimate: "Trip Estimate",
+};
+
+const formatCurrency = (value) => `₹${currencyFormatter.format(Number(value || 0))}`;
+const formatCurrencyValue = (value) =>
+  currencyFormatter.format(Number(value || 0));
 const formatNumber = (value, fractionDigits = 3) =>
   new Intl.NumberFormat("en-IN", {
     minimumFractionDigits: 0,
@@ -17,12 +36,10 @@ const formatNumber = (value, fractionDigits = 3) =>
 
 const formatStatusLabel = (value) => {
   const normalized = String(value || "").trim();
-  if (!normalized) {
-    return "-";
-  }
+  if (!normalized) return "-";
 
   return normalized
-    .split(/[_\s]+/)
+    .split(/[_\s/]+/)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
     .join(" ");
 };
@@ -46,11 +63,8 @@ const sanitizeFilenamePart = (value, fallback = "Dispatch") => {
 
 const normalizeLogoUrl = (value) => {
   const candidate = String(value || "").trim();
-  if (!candidate) {
-    return "";
-  }
+  if (!candidate) return "";
 
-  // Allow only data URLs or absolute http(s) URLs to avoid broken relative fetches like /dispatch-print/16
   if (
     candidate.startsWith("data:image/") ||
     candidate.startsWith("http://") ||
@@ -110,7 +124,6 @@ const numberToWordsBelowThousand = (value) => {
 
 const numberToIndianWords = (value) => {
   const number = Math.floor(Number(value || 0));
-
   if (number === 0) return "Zero";
 
   const parts = [];
@@ -142,6 +155,27 @@ const formatAmountInWords = (value) => {
   return `${numberToIndianWords(rupees)} Rupees Only`;
 };
 
+const safeText = (value, fallback = "Not available") => {
+  const normalized = String(value ?? "").trim();
+  return normalized || fallback;
+};
+
+const displayValue = (value, fallback = "-") => {
+  const normalized = String(value ?? "").trim();
+  return normalized || fallback;
+};
+
+const formatUnitName = (unit, fallback = "Unit") => {
+  if (!unit) return fallback;
+  return safeText(unit.unitCode || unit.unitName || fallback, fallback);
+};
+
+const getBasisLabel = (basis, fallback = "Not specified") =>
+  BASIS_LABELS[String(basis || "").trim()] || fallback;
+
+const getQuantitySourceLabel = (source) =>
+  QUANTITY_SOURCE_LABELS[String(source || "").trim()] || "Legacy Weight Entry";
+
 const buildBuyerAddress = (record) => {
   const parts = [
     record?.partyAddressLine1,
@@ -150,54 +184,116 @@ const buildBuyerAddress = (record) => {
     record?.partyStateName,
   ].filter(Boolean);
 
-  return parts.length > 0 ? parts.join(", ") : "-";
+  return parts.length ? parts.join(", ") : "Buyer address not available";
 };
 
-const buildDocumentReference = ({ data, company, billing }) => [
-  { label: "Doc No", value: `DC-${data?.id ?? "-"}` },
-  { label: "Invoice No", value: data?.invoiceNumber || "-" },
-  { label: "Date", value: data?.invoiceDate || data?.dispatchDate || "-" },
-  { label: "Supplier GST", value: company?.gstin || "-" },
-  { label: "Buyer GST", value: data?.partyGstin || "-" },
-  { label: "Amount", value: Number(billing?.totalWithGst || 0).toFixed(2) },
-  { label: "EWB", value: data?.ewbNumber || "-" },
-];
+const buildSupplierAddress = (company) => {
+  const parts = [
+    company?.branchName,
+    company?.addressLine1,
+    company?.addressLine2,
+    company?.city,
+    company?.stateName,
+  ].filter(Boolean);
 
-const getEwbStatus = (record) => {
-  if (!record?.ewbNumber) {
-    return {
-      label: "Not Generated",
-      tone: "pending",
-    };
-  }
+  return parts.length ? parts.join(", ") : "Supplier address not available";
+};
 
-  if (!record?.ewbValidUpto) {
-    return {
-      label: "Generated",
-      tone: "ok",
-    };
-  }
+const parseDateOnly = (value) => {
+  const normalized = toDateOnlyValue(value);
+  if (!normalized) return null;
+  const parsed = new Date(`${normalized}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
 
-  const validUpto = new Date(`${record.ewbValidUpto}T23:59:59`);
-  const now = new Date();
+const getDocumentState = (record) => {
+  const invoiceNumber = String(record?.invoiceNumber || "").trim();
+  const dispatchStatus = String(record?.status || "").trim().toLowerCase();
+  const hasInvoiceNumber = Boolean(invoiceNumber);
+  const dispatchDate = parseDateOnly(record?.dispatchDate);
+  const ewbValidUpto = parseDateOnly(record?.ewbValidUpto);
+  const currentDate = parseDateOnly(new Date());
+  const comparisonDate =
+    dispatchDate && currentDate
+      ? dispatchDate > currentDate
+        ? dispatchDate
+        : currentDate
+      : dispatchDate || currentDate;
+  const isEwbExpired =
+    Boolean(record?.ewbNumber) &&
+    ewbValidUpto &&
+    comparisonDate &&
+    ewbValidUpto < comparisonDate;
 
-  if (!Number.isNaN(validUpto.getTime()) && validUpto < now) {
-    return {
-      label: "Expired",
-      tone: "danger",
-    };
+  let title = hasInvoiceNumber ? "Tax Invoice" : "Delivery Challan / Dispatch Summary";
+  let statusLabel = hasInvoiceNumber ? "Valid Tax Invoice" : "Delivery Challan";
+  let statusTone = "ok";
+
+  if (dispatchStatus === "cancelled") {
+    statusLabel = "Cancelled";
+    statusTone = "danger";
+  } else if (!hasInvoiceNumber && dispatchStatus === "pending") {
+    statusLabel = "Draft Invoice";
+    statusTone = "warn";
+  } else if (isEwbExpired) {
+    statusLabel = "EWB Expired";
+    statusTone = "danger";
   }
 
   return {
-    label: "Active",
-    tone: "ok",
+    title,
+    statusLabel,
+    statusTone,
+    hasInvoiceNumber,
+    isEwbExpired,
   };
 };
+
+const getSystemVerificationReference = (record) => {
+  const invoiceNumber = safeText(record?.invoiceNumber, "NO-INVOICE");
+  const dispatchDate = safeText(record?.dispatchDate, "NO-DATE");
+  return `DSP-${record?.id || "NA"}-${dispatchDate}-${invoiceNumber}`;
+};
+
+const buildChargeRows = (record, billing) => [
+  {
+    label: "Material Amount",
+    basis: safeText(
+      getBasisLabel(record?.billingBasisSnapshot, "Saved Material Basis"),
+      "Saved Material Basis"
+    ),
+    amount: Number(billing?.materialAmount || 0),
+  },
+  {
+    label: "Royalty",
+    basis: billing?.royaltyBasisLabel || "-",
+    amount: Number(billing?.royaltyAmount || 0),
+  },
+  {
+    label: "Loading Charge",
+    basis: billing?.loadingBasisLabel || "-",
+    amount: Number(billing?.loadingCharge || 0),
+  },
+  {
+    label: "Transport",
+    basis: billing?.transportBasisLabel || "-",
+    amount: Number(billing?.transportCost || 0),
+  },
+  {
+    label: "Other Charges",
+    basis:
+      Number(billing?.otherCharge || 0) > 0
+        ? "Additional charges"
+        : "-",
+    amount: Number(billing?.otherCharge || 0),
+  },
+];
 
 function DispatchPrintPage() {
   const { id } = useParams();
   const [data, setData] = useState(null);
   const [company, setCompany] = useState(null);
+  const [units, setUnits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -207,16 +303,33 @@ function DispatchPrintPage() {
       setError("");
 
       try {
-        const [dispatchRes, companyRes] = await Promise.all([
+        const [dispatchRes, companyRes, unitsRes] = await Promise.allSettled([
           api.get(`/dispatch-reports/${id}`),
           api.get("/company-profile"),
+          api.get("/masters/units"),
         ]);
 
-        setData(dispatchRes.data?.data || null);
-        setCompany(companyRes.data?.data || null);
+        if (
+          dispatchRes.status !== "fulfilled" ||
+          companyRes.status !== "fulfilled"
+        ) {
+          throw (
+            dispatchRes.status === "rejected"
+              ? dispatchRes.reason
+              : companyRes.reason
+          );
+        }
+
+        setData(dispatchRes.value.data?.data || null);
+        setCompany(companyRes.value.data?.data || null);
+        setUnits(
+          unitsRes.status === "fulfilled"
+            ? unitsRes.value.data?.data || []
+            : []
+        );
       } catch (err) {
         setError(
-          err?.response?.data?.message || "Failed to load dispatch print document"
+          err?.response?.data?.message || "Failed to load dispatch billing document"
         );
       } finally {
         setLoading(false);
@@ -225,6 +338,14 @@ function DispatchPrintPage() {
 
     loadDocument();
   }, [id]);
+
+  const unitMap = useMemo(() => {
+    const map = new Map();
+    units.forEach((unit) => {
+      map.set(String(unit.id), unit);
+    });
+    return map;
+  }, [units]);
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -236,8 +357,11 @@ function DispatchPrintPage() {
     }
 
     const partyName = sanitizeFilenamePart(data.partyName, "Party");
-    const invoiceNumber = sanitizeFilenamePart(data.invoiceNumber, `DC-${data.id || "Dispatch"}`);
-    document.title = `${partyName} - ${invoiceNumber} - Dispatch Billing Document`;
+    const documentNumber = sanitizeFilenamePart(
+      data.invoiceNumber,
+      `DC-${data.id || "Dispatch"}`
+    );
+    document.title = `${partyName} - ${documentNumber} - Dispatch Invoice`;
 
     return () => {
       document.title = previousTitle;
@@ -247,88 +371,86 @@ function DispatchPrintPage() {
   const billing = useMemo(() => {
     if (!data) return null;
 
-    const componentSubtotal = Number(
-      Number(
-        Number(data.materialAmount || 0) +
-          Number(data.transportCost || 0) +
-          Number(data.royaltyAmount || 0) +
-          Number(data.loadingCharge || 0) +
-          Number(data.otherCharge || 0)
-      ).toFixed(2)
-    );
     const materialAmount = Number(data.materialAmount || 0);
     const transportCost = Number(data.transportCost || 0);
     const royaltyAmount = Number(data.royaltyAmount || 0);
     const loadingCharge = Number(data.loadingCharge || 0);
     const otherCharge = Number(data.otherCharge || 0);
-    const taxableValue = Number(
-      data.totalInvoiceValue ?? data.invoiceValue ?? 0
+    const componentSubtotal = Number(
+      (materialAmount + transportCost + royaltyAmount + loadingCharge + otherCharge).toFixed(2)
     );
+    const taxableValue = Number(data.totalInvoiceValue ?? data.invoiceValue ?? 0);
     const gstRate = Number(data.gstRate || 0);
     const cgst = Number(data.cgst || 0);
     const sgst = Number(data.sgst || 0);
     const igst = Number(data.igst || 0);
+    const gstTotal = Number((cgst + sgst + igst).toFixed(2));
     const totalWithGst = Number(data.totalWithGst || taxableValue);
-    const gstTotal = cgst + sgst + igst;
-    const amountInWords = formatAmountInWords(totalWithGst);
-    const taxMode = igst > 0 ? "Inter-state supply (IGST)" : "Intra-state supply (CGST + SGST)";
     const invoiceAdjustment = Number((taxableValue - componentSubtotal).toFixed(2));
+    const taxMode =
+      igst > 0 ? "Inter-state supply (IGST)" : "Intra-state supply (CGST + SGST)";
+    const quantityTons = Number(data.quantityTons || 0);
     const royaltyMode = String(data.royaltyMode || "none").trim();
     const loadingChargeBasis = String(data.loadingChargeBasis || "fixed").trim();
     const loadingChargeRate = Number(
       (data.loadingChargeRate ?? data.loadingCharge) || 0
     );
-    const quantityTons = Number(data.quantityTons || 0);
-    let royaltyBasisLabel = "No royalty applied";
-    let loadingBasisLabel = "No loading applied";
 
+    let royaltyBasisLabel = "-";
     if (royaltyMode === "per_ton") {
-      royaltyBasisLabel = `${formatNumber(quantityTons)} tons x ${formatCurrency(
+      royaltyBasisLabel = `${formatNumber(quantityTons)} Tons x ${formatCurrency(
         data.royaltyValue || 0
-      )} per ton`;
+      )} per Ton`;
     } else if (royaltyMode === "per_brass") {
-      const royaltyValuePerBrass = Number(data.royaltyValue || 0);
       const tonsPerBrass = Number(data.royaltyTonsPerBrass || 0);
       const brassQuantity =
         tonsPerBrass > 0
           ? Number((quantityTons / tonsPerBrass).toFixed(4))
-          : royaltyValuePerBrass > 0
-            ? Number((royaltyAmount / royaltyValuePerBrass).toFixed(4))
-            : 0;
-
-      royaltyBasisLabel = `${formatNumber(quantityTons)} tons ~ ${formatNumber(
+          : 0;
+      royaltyBasisLabel = `${formatNumber(quantityTons)} Tons ~ ${formatNumber(
         brassQuantity,
         4
-      )} brass x ${formatCurrency(royaltyValuePerBrass)} per brass`;
+      )} Brass x ${formatCurrency(data.royaltyValue || 0)} per Brass`;
     } else if (royaltyMode === "fixed") {
-      royaltyBasisLabel = `Fixed royalty ${formatCurrency(data.royaltyValue || 0)}`;
+      royaltyBasisLabel = `Fixed ${formatCurrency(data.royaltyValue || 0)}`;
     }
 
+    let loadingBasisLabel = "-";
     if (loadingChargeBasis === "per_ton") {
-      loadingBasisLabel = `${formatNumber(quantityTons)} tons x ${formatCurrency(
+      loadingBasisLabel = `${formatNumber(quantityTons)} Tons x ${formatCurrency(
         loadingChargeRate
-      )} per ton`;
+      )} per Ton`;
     } else if (loadingChargeBasis === "per_brass") {
       const tonsPerBrass = Number(data.royaltyTonsPerBrass || 0);
-      const brassQuantity = tonsPerBrass > 0 ? Number((quantityTons / tonsPerBrass).toFixed(4)) : 0;
-      loadingBasisLabel = `${formatNumber(quantityTons)} tons ~ ${formatNumber(
+      const brassQuantity =
+        tonsPerBrass > 0
+          ? Number((quantityTons / tonsPerBrass).toFixed(4))
+          : 0;
+      loadingBasisLabel = `${formatNumber(quantityTons)} Tons ~ ${formatNumber(
         brassQuantity,
         4
-      )} brass x ${formatCurrency(loadingChargeRate)} per brass`;
+      )} Brass x ${formatCurrency(loadingChargeRate)} per Brass`;
     } else if (loadingChargeBasis === "per_trip") {
-      loadingBasisLabel = `Per trip loading ${formatCurrency(loadingChargeRate)}`;
+      loadingBasisLabel = `${formatCurrency(loadingChargeRate)} per Trip`;
     } else if (loadingChargeBasis === "fixed") {
-      loadingBasisLabel = `Fixed loading ${formatCurrency(loadingChargeRate)}`;
+      loadingBasisLabel = `Fixed ${formatCurrency(loadingChargeRate)}`;
     }
 
+    const transportBasisLabel = data.transportBasisSnapshot
+      ? `${getBasisLabel(data.transportBasisSnapshot)}${
+          data.transportRateValue !== null && data.transportRateValue !== undefined
+            ? ` @ ₹${formatCurrencyValue(data.transportRateValue)}`
+            : ""
+        }`
+      : "-";
+
     return {
-      componentSubtotal,
       materialAmount,
       transportCost,
       royaltyAmount,
       loadingCharge,
       otherCharge,
-      invoiceAdjustment,
+      componentSubtotal,
       taxableValue,
       gstRate,
       cgst,
@@ -336,10 +458,12 @@ function DispatchPrintPage() {
       igst,
       gstTotal,
       totalWithGst,
-      amountInWords,
+      amountInWords: formatAmountInWords(totalWithGst),
       taxMode,
+      invoiceAdjustment,
       royaltyBasisLabel,
       loadingBasisLabel,
+      transportBasisLabel,
     };
   }, [data]);
 
@@ -348,53 +472,135 @@ function DispatchPrintPage() {
     [company?.logoUrl]
   );
 
-  const ewbStatus = useMemo(() => getEwbStatus(data), [data]);
-  const documentReference = useMemo(
-    () => buildDocumentReference({ data, company, billing }),
-    [billing, company, data]
-  );
-  const hasMissingHsnSac = !String(data?.hsnSacCode || "").trim();
-  const documentHighlights = useMemo(() => {
-    if (!data || !billing) return [];
+  const documentState = useMemo(() => getDocumentState(data), [data]);
 
-    return [
-      {
-        label: "Taxable Value",
-        value: formatCurrency(billing.taxableValue),
-        tone: "neutral",
-      },
-      {
-        label: "Total GST",
-        value: formatCurrency(billing.gstTotal),
-        tone: "neutral",
-      },
-      {
-        label: "Grand Total",
-        value: formatCurrency(billing.totalWithGst),
-        tone: "strong",
-      },
-      {
-        label: "Tax Mode",
-        value: billing.igst > 0 ? "Inter-state" : "Intra-state",
-        tone: "accent",
-      },
-      {
-        label: "Dispatch Qty",
-        value: `${data.quantityTons ?? 0} Tons`,
-        tone: "neutral",
-      },
-    ];
-  }, [billing, data]);
+  const quantityDetails = useMemo(() => {
+    if (!data) return null;
+
+    const enteredUnit =
+      unitMap.get(String(data.enteredUnitId || "")) || null;
+    const billingUnit =
+      unitMap.get(String(data.billingUnitIdSnapshot || "")) || null;
+    const transportUnit =
+      unitMap.get(String(data.transportUnitIdSnapshot || "")) || null;
+
+    const normalizedQuantity = Number(data.quantityTons || 0);
+    const hasEnteredQuantity =
+      data.enteredQuantity !== null &&
+      data.enteredQuantity !== undefined &&
+      data.enteredQuantity !== "";
+    const enteredQuantityValue = hasEnteredQuantity
+      ? Number(data.enteredQuantity)
+      : normalizedQuantity;
+    const enteredUnitLabel = hasEnteredQuantity
+      ? formatUnitName(
+          enteredUnit,
+          String(data.quantitySource || "").trim() === "manual_volume" ? "Unit" : "Tons"
+        )
+      : "Tons";
+    const quantitySourceLabel = hasEnteredQuantity
+      ? getQuantitySourceLabel(data.quantitySource)
+      : "Legacy Weight Entry";
+    const billingQuantity =
+      data.billedQuantitySnapshot !== null &&
+      data.billedQuantitySnapshot !== undefined
+        ? Number(data.billedQuantitySnapshot)
+        : normalizedQuantity;
+    const billingUnitLabel =
+      formatUnitName(
+        billingUnit,
+        data.billingBasisSnapshot === "per_ton"
+          ? "Tons"
+          : data.materialRateUnitLabel || "Unit"
+      );
+    const billingBasisLabel = getBasisLabel(
+      data.billingBasisSnapshot,
+      "-"
+    );
+    const transportBasisLabel = data.transportBasisSnapshot
+      ? getBasisLabel(data.transportBasisSnapshot)
+      : "-";
+    const transportQuantityLabel =
+      data.transportQuantitySnapshot !== null &&
+      data.transportQuantitySnapshot !== undefined
+        ? `${formatNumber(data.transportQuantitySnapshot, 4)} ${formatUnitName(
+            transportUnit,
+            data.transportBasisSnapshot === "per_km"
+              ? "KM"
+              : data.transportBasisSnapshot === "per_ton"
+                ? "Tons"
+                : data.transportBasisSnapshot === "per_trip"
+                  ? "Trip"
+                  : "Unit"
+          )}`
+        : "-";
+
+    let conversionMessage = safeText(
+      data.conversionNotesSnapshot,
+      hasEnteredQuantity && String(data.quantitySource || "").trim() === "manual_volume"
+        ? `Quantity converted as per material conversion master: ${formatNumber(
+            enteredQuantityValue,
+            4
+          )} ${enteredUnitLabel} = ${formatNumber(normalizedQuantity, 3)} Tons`
+        : "-"
+    );
+
+    if (!hasEnteredQuantity) {
+      conversionMessage = "Legacy dispatch entry used weight directly without unit conversion.";
+    }
+
+    return {
+      enteredQuantityLabel: `${formatNumber(enteredQuantityValue, 4)} ${enteredUnitLabel}`,
+      quantitySourceLabel,
+      normalizedQuantityLabel: `${formatNumber(normalizedQuantity, 3)} Tons`,
+      billingQuantityLabel: `${formatNumber(billingQuantity, 4)} ${billingUnitLabel}`,
+      billingBasisLabel,
+      transportBasisLabel,
+      transportQuantityLabel,
+      billedRateLabel:
+        data.billedRateSnapshot !== null && data.billedRateSnapshot !== undefined
+          ? `${formatCurrencyValue(data.billedRateSnapshot)} / ${billingUnitLabel}`
+          : "-",
+      conversionMessage,
+    };
+  }, [data, unitMap]);
+
+  const chargeRows = useMemo(
+    () => buildChargeRows(data, billing),
+    [billing, data]
+  );
+
+  const itemRow = useMemo(() => {
+    if (!data || !billing || !quantityDetails) return null;
+
+    return {
+      material: safeText(data.materialName || data.materialType, "Material not available"),
+      materialCode: displayValue(data.materialCode),
+      hsnSac: displayValue(data.hsnSacCode),
+      qty: formatNumber(data.quantityTons || 0, 3),
+      uom: "Tons",
+      billingQty: formatNumber(data.billedQuantitySnapshot ?? data.quantityTons ?? 0, 4),
+      billingUnit:
+        quantityDetails.billingQuantityLabel.split(" ").slice(1).join(" ") || "Unit",
+      rate: quantityDetails.billedRateLabel,
+      taxableValue: formatCurrencyValue(billing.taxableValue),
+      gstRate: `${formatNumber(billing.gstRate, 2)}%`,
+      cgst: billing.cgst > 0 ? formatCurrencyValue(billing.cgst) : "-",
+      sgst: billing.sgst > 0 ? formatCurrencyValue(billing.sgst) : "-",
+      igst: billing.igst > 0 ? formatCurrencyValue(billing.igst) : "-",
+      lineTotal: formatCurrencyValue(billing.totalWithGst),
+    };
+  }, [billing, data, quantityDetails]);
 
   if (loading) {
-    return <div style={styles.loading}>Loading document...</div>;
+    return <div style={styles.loading}>Loading dispatch billing document...</div>;
   }
 
   if (error) {
     return <div style={styles.loading}>{error}</div>;
   }
 
-  if (!data || !company) {
+  if (!data || !company || !billing || !quantityDetails || !itemRow) {
     return <div style={styles.loading}>Dispatch print data not available.</div>;
   }
 
@@ -405,16 +611,15 @@ function DispatchPrintPage() {
       <div style={styles.toolbar} className="no-print">
         <div style={styles.toolbarMeta}>
           <div style={styles.toolbarTitle}>Dispatch Billing Document</div>
-          <div style={styles.toolbarHint}>
-            Optimized for A4 print and Save as PDF workflows
-          </div>
+          <div style={styles.toolbarHint}>Professional A4 invoice / challan layout</div>
         </div>
 
         <div style={styles.toolbarActions}>
-          <button style={styles.toolbarButton} onClick={() => window.print()}>
+          <button type="button" style={styles.toolbarButton} onClick={() => window.print()}>
             Print / Save PDF
           </button>
           <button
+            type="button"
             style={styles.secondaryToolbarButton}
             onClick={() => window.history.back()}
           >
@@ -424,494 +629,365 @@ function DispatchPrintPage() {
       </div>
 
       <div style={styles.document} className="print-document">
-        <div style={styles.documentAccent} />
-
-        <div style={styles.topHeader}>
-          <div style={styles.companyHeaderBlock}>
-            <div style={styles.companyHeaderDetails}>
-              <div style={styles.docTag}>Tax Invoice Cum Delivery Challan</div>
-              <h1 style={styles.companyName}>{company.companyName || "-"}</h1>
-              <p style={styles.companyLine}>{company.branchName || "-"}</p>
-              <p style={styles.companyLine}>{company.addressLine1 || "-"}</p>
-              <p style={styles.companyLine}>{company.addressLine2 || "-"}</p>
-              <p style={styles.companyLine}>
-                GSTIN: {company.gstin || "-"} | State: {company.stateName || "-"} (
-                {company.stateCode || "-"})
-              </p>
-              <p style={styles.companyLine}>
-                Mobile: {company.mobile || "-"} | Email: {company.email || "-"}
-              </p>
+        <div style={styles.topBand} className="print-top-band">
+          <div style={styles.topBandPrimary}>
+            <div style={styles.documentTypeLabel}>{documentState.title}</div>
+            <h1 style={styles.documentTitle}>
+              {company.companyName || "Supplier Name Not Available"}
+            </h1>
+            <div style={styles.headerMetaLine}>{buildSupplierAddress(company)}</div>
+            <div style={styles.headerMetaLine}>
+              GSTIN: {displayValue(company.gstin)} | PAN: {displayValue(company.pan)} |
+              {" "}State: {displayValue(company.stateName)}
             </div>
+          </div>
+
+          <div style={styles.topBandSummary}>
             {printableLogoUrl ? (
-              <div style={styles.companyLogoCard}>
-                <img
-                  src={printableLogoUrl}
-                  alt="Company logo"
-                  style={styles.companyLogoImage}
-                />
+              <div style={styles.logoCard}>
+                <img src={printableLogoUrl} alt="Company logo" style={styles.logoImage} />
               </div>
             ) : null}
-          </div>
 
-          <div style={styles.docMetaCard}>
-            <div style={styles.complianceBadgeRow}>
-              <span
+            <div style={styles.summaryBox}>
+              <div style={styles.summaryBoxHeader}>
+                <span style={styles.summaryBoxTitle}>Invoice Summary</span>
+                <span style={styles.summaryBoxCurrency}>Amount (₹)</span>
+              </div>
+              <div style={styles.summaryBoxRow}>
+                <span>Taxable Value</span>
+                <strong>{formatCurrencyValue(billing.taxableValue)}</strong>
+              </div>
+              <div style={styles.summaryBoxRow}>
+                <span>Total GST</span>
+                <strong>{formatCurrencyValue(billing.gstTotal)}</strong>
+              </div>
+              <div style={styles.summaryBoxTotal}>
+                <span>Grand Total</span>
+                <strong>{formatCurrencyValue(billing.totalWithGst)}</strong>
+              </div>
+              <div
                 style={{
-                  ...styles.complianceBadge,
-                  ...(ewbStatus.tone === "ok"
-                    ? styles.complianceBadgeOk
-                    : ewbStatus.tone === "danger"
-                    ? styles.complianceBadgeDanger
-                    : styles.complianceBadgePending),
+                  ...styles.statusPill,
+                  ...(documentState.statusTone === "ok"
+                    ? styles.statusPillOk
+                    : documentState.statusTone === "danger"
+                      ? styles.statusPillDanger
+                      : styles.statusPillWarn),
                 }}
               >
-                EWB {ewbStatus.label}
-              </span>
-            </div>
-            <div style={styles.metaRow}>
-              <span style={styles.metaLabel}>Document No</span>
-              <span style={styles.metaValue}>DC-{data.id}</span>
-            </div>
-            <div style={styles.metaRow}>
-              <span style={styles.metaLabel}>Dispatch Date</span>
-              <span style={styles.metaValue}>
-                {formatDisplayDate(data.dispatchDate)}
-              </span>
-            </div>
-            <div style={styles.metaRow}>
-              <span style={styles.metaLabel}>Invoice No</span>
-              <span style={styles.metaValue}>{data.invoiceNumber || "-"}</span>
-            </div>
-            <div style={styles.metaRow}>
-              <span style={styles.metaLabel}>Invoice Date</span>
-              <span style={styles.metaValue}>
-                {formatDisplayDate(data.invoiceDate)}
-              </span>
-            </div>
-            <div style={styles.metaRow}>
-              <span style={styles.metaLabel}>EWB No</span>
-              <span style={styles.metaValue}>{data.ewbNumber || "-"}</span>
-            </div>
-            <div style={styles.metaRow}>
-              <span style={styles.metaLabel}>EWB Valid Upto</span>
-              <span style={styles.metaValue}>
-                {formatDisplayDate(data.ewbValidUpto)}
-              </span>
+                {documentState.statusLabel}
+              </div>
             </div>
           </div>
         </div>
 
-        <div style={styles.spotlightGrid}>
-          {documentHighlights.map((item) => (
-            <div
-              key={item.label}
-              style={{
-                ...styles.spotlightCard,
-                ...(item.tone === "strong"
-                  ? styles.spotlightCardStrong
-                  : item.tone === "accent"
-                  ? styles.spotlightCardAccent
-                  : null),
-              }}
-            >
-              <span
-                style={{
-                  ...styles.spotlightLabel,
-                  ...(item.tone === "strong" ? styles.spotlightLabelStrong : null),
-                }}
-              >
-                {item.label}
-              </span>
-              <strong
-                style={{
-                  ...styles.spotlightValue,
-                  ...(item.tone === "strong" ? styles.spotlightValueStrong : null),
-                }}
-              >
-                {item.value}
-              </strong>
-            </div>
-          ))}
-        </div>
-
-        <div style={styles.documentNotice} className="print-section">
-          <div style={styles.documentNoticeTitle}>Document Use & Reference</div>
-          <p style={styles.documentNoticeText}>
-            This document is generated from the dispatch ledger for invoice reference,
-            transport coordination, and movement compliance support.
-          </p>
-          <p style={styles.documentNoticeText}>
-            Commercial values, GST breakup, and E-Way details shown below are based
-            on the recorded dispatch transaction for this consignment.
-          </p>
-        </div>
-
-        {hasMissingHsnSac && (
-          <div style={styles.complianceWarning}>
-            <div style={styles.complianceWarningTitle}>HSN / SAC configuration is missing</div>
-            <p style={styles.complianceWarningText}>
-              This invoice print is using dispatch and GST values correctly, but the material master
-              still does not have an HSN / SAC code. Update the material in Masters before using
-              this as a finalized tax-facing document.
-            </p>
+        {documentState.isEwbExpired ? (
+          <div style={styles.criticalBanner}>
+            EWB EXPIRED - NOT VALID FOR MOVEMENT
           </div>
-        )}
+        ) : null}
 
-        <div style={styles.twoColGrid} className="print-section">
-          <div style={styles.panel}>
-            <div style={styles.panelTitle}>Supplier Details</div>
-            <div style={styles.detailRow}>
-              <strong>Supplier:</strong> {company.companyName || "-"}
-            </div>
-            <div style={styles.detailRow}>
-              <strong>Address:</strong> {company.addressLine1 || "-"},{" "}
-              {company.addressLine2 || "-"}
-            </div>
-            <div style={styles.detailRow}>
-              <strong>GSTIN:</strong> {company.gstin || "-"}
-            </div>
-            <div style={styles.detailRow}>
-              <strong>State:</strong> {company.stateName || "-"}
-            </div>
-            <div style={styles.detailRow}>
-              <strong>PAN:</strong> {company.pan || "-"}
-            </div>
+        {documentState.statusLabel === "Cancelled" ? (
+          <div style={styles.warningBanner}>
+            Cancelled document. Retain only for audit and reconciliation reference.
           </div>
+        ) : null}
 
-          <div style={styles.panel}>
-            <div style={styles.panelTitle}>Buyer / Consignee Details</div>
-            <div style={styles.detailRow}>
-              <strong>Party Name:</strong> {data.partyName || "-"}
+        {!documentState.hasInvoiceNumber ? (
+          <div style={styles.warningBanner}>
+            Invoice number not available. This document is shown as Delivery Challan /
+            Dispatch Summary and should not be treated as a final tax invoice.
+          </div>
+        ) : null}
+
+        <div style={styles.headerGrid} className="print-section print-two-col-grid">
+          <section style={styles.card}>
+            <div style={styles.sectionTitle}>Supplier</div>
+            <div style={styles.detailLine}>
+              <strong>Supplier:</strong> {safeText(company.companyName, "Supplier name not available")}
             </div>
-            <div style={styles.detailRow}>
+            <div style={styles.detailLine}>
+              <strong>Address:</strong> {buildSupplierAddress(company)}
+            </div>
+            <div style={styles.detailLine}>
+              <strong>GSTIN:</strong> {displayValue(company.gstin)}
+            </div>
+            <div style={styles.detailLine}>
+              <strong>PAN:</strong> {displayValue(company.pan)}
+            </div>
+            <div style={styles.detailLine}>
+              <strong>Contact:</strong> {displayValue(company.mobile)} | {displayValue(company.email)}
+            </div>
+          </section>
+
+          <section style={styles.card}>
+            <div style={styles.sectionTitle}>Buyer / Consignee</div>
+            <div style={styles.detailLine}>
+              <strong>Buyer:</strong> {safeText(data.partyName, "Party not available")}
+            </div>
+            <div style={styles.detailLine}>
               <strong>Address:</strong> {buildBuyerAddress(data)}
             </div>
-            <div style={styles.detailRow}>
-              <strong>Buyer GSTIN:</strong> {data.partyGstin || "-"}
+            <div style={styles.detailLine}>
+              <strong>GSTIN:</strong> {displayValue(data.partyGstin)}
             </div>
-            <div style={styles.detailRow}>
-              <strong>Place of Supply:</strong> {data.partyStateName || "-"}
+            <div style={styles.detailLine}>
+              <strong>Place of Supply:</strong> {displayValue(data.partyStateName)}
             </div>
-            <div style={styles.detailRow}>
-              <strong>State Code:</strong> {data.partyStateCode || "-"}
+            <div style={styles.detailLine}>
+              <strong>Destination:</strong> {displayValue(data.destinationName)}
             </div>
-            <div style={styles.detailRow}>
-              <strong>Destination:</strong> {data.destinationName || "-"}
-            </div>
-          </div>
+          </section>
         </div>
 
-        <div style={styles.twoColGrid} className="print-section">
-          <div style={styles.panel}>
-            <div style={styles.panelTitle}>Dispatch & Vehicle Details</div>
-            <div style={styles.detailRow}>
-              <strong>Plant / Unit:</strong> {data.plantName || "-"}
+        <div style={styles.headerGrid} className="print-section print-two-col-grid">
+          <section style={styles.card}>
+            <div style={styles.sectionTitle}>Invoice / Challan Details</div>
+            <div style={styles.detailLine}>
+              <strong>Document No:</strong> DC-{data.id || "NA"}
             </div>
-            <div style={styles.detailRow}>
-              <strong>Source Type:</strong> {data.sourceType || "-"}
+            <div style={styles.detailLine}>
+              <strong>Invoice No:</strong> {displayValue(data.invoiceNumber, "Not generated")}
             </div>
-            <div style={styles.detailRow}>
-              <strong>Vehicle No:</strong>{" "}
-              {data.linkedVehicleNumber || data.vehicleNumber || "-"}
+            <div style={styles.detailLine}>
+              <strong>Invoice Date:</strong> {displayValue(formatDisplayDate(data.invoiceDate))}
             </div>
-            <div style={styles.detailRow}>
-              <strong>Vehicle Type:</strong> {data.vehicleType || "-"}
+            <div style={styles.detailLine}>
+              <strong>Dispatch Date:</strong> {displayValue(formatDisplayDate(data.dispatchDate))}
             </div>
-            <div style={styles.detailRow}>
-              <strong>Driver:</strong> {data.assignedDriver || "-"}
+            <div style={styles.detailLine}>
+              <strong>Dispatch Status:</strong> {displayValue(formatStatusLabel(data.status))}
             </div>
-            <div style={styles.detailRow}>
-              <strong>Transport Vendor:</strong> {data.transportVendorName || "-"}
+            <div style={styles.detailLine}>
+              <strong>System Verification Reference:</strong> {getSystemVerificationReference(data)}
             </div>
-          </div>
+          </section>
 
-          <div style={styles.panel}>
-            <div style={styles.panelTitle}>E-Way & Compliance Details</div>
-            <div style={styles.detailRow}>
-              <strong>EWB Number:</strong> {data.ewbNumber || "-"}
+          <section style={styles.card}>
+            <div style={styles.sectionTitle}>Dispatch / E-Way Details</div>
+            <div style={styles.detailLine}>
+              <strong>Plant / Unit:</strong> {displayValue(data.plantName)}
             </div>
-            <div style={styles.detailRow}>
-              <strong>EWB Date:</strong> {formatDisplayDate(data.ewbDate)}
+            <div style={styles.detailLine}>
+              <strong>Source Type:</strong> {displayValue(data.sourceType)}
             </div>
-            <div style={styles.detailRow}>
-              <strong>EWB Valid Upto:</strong>{" "}
-              {formatDisplayDate(data.ewbValidUpto)}
+            <div style={styles.detailLine}>
+              <strong>Vehicle No:</strong> {displayValue(data.linkedVehicleNumber || data.vehicleNumber)}
             </div>
-            <div style={styles.detailRow}>
-              <strong>Distance (KM):</strong> {data.distanceKm ?? "-"}
+            <div style={styles.detailLine}>
+              <strong>Vehicle Type:</strong> {displayValue(data.vehicleType)}
             </div>
-            <div style={styles.detailRow}>
-              <strong>Vehicle for Movement:</strong>{" "}
-              {data.linkedVehicleNumber || data.vehicleNumber || "-"}
+            <div style={styles.detailLine}>
+              <strong>Transport Vendor:</strong> {displayValue(data.transportVendorName, "Not linked")}
             </div>
-            <div style={styles.detailRow}>
-              <strong>Transporter:</strong> {data.transportVendorName || "-"}
+            <div style={styles.detailLine}>
+              <strong>EWB No:</strong> {displayValue(data.ewbNumber, "Not generated")}
             </div>
-            <div style={styles.detailRow}>
-              <strong>Status:</strong> {formatStatusLabel(data.status)}
+            <div style={styles.detailLine}>
+              <strong>EWB Valid Upto:</strong> {displayValue(formatDisplayDate(data.ewbValidUpto))}
             </div>
-            <div style={styles.detailRow}>
-              <strong>Tax Mode:</strong> {billing.taxMode}
-            </div>
-          </div>
+          </section>
         </div>
 
-        <div style={styles.referenceCard} className="print-section">
-          <div style={styles.referenceHeader}>
-            <div>
-              <div style={styles.referenceEyebrow}>Digital Reference</div>
-              <strong style={styles.referenceTitle}>
-                Internal verification string for invoice lookup
-              </strong>
-            </div>
-            <div style={styles.referenceMeta}>
-              HSN/SAC: {data.hsnSacCode || "Not configured"}
-            </div>
-          </div>
-          <div style={styles.referenceGrid}>
-            {documentReference.map((entry) => (
-              <div key={entry.label} style={styles.referenceItem}>
-                <span style={styles.referenceItemLabel}>{entry.label}</span>
-                <strong style={styles.referenceItemValue}>{entry.value}</strong>
-              </div>
-            ))}
-          </div>
-          <div style={styles.referenceHint} className="print-compact-hint">
-            Internal reconciliation reference only. QR/IRN will be shown once formally enabled.
-          </div>
-        </div>
-
-        <div style={styles.ewayCard} className="print-section">
-          <div style={styles.ewayHeader}>
-            <div>
-              <div style={styles.ewayEyebrow}>Movement Compliance Snapshot</div>
-              <h3 style={styles.ewayTitle}>E-Way Bill Reference</h3>
-            </div>
-            <div
-              style={{
-                ...styles.ewayStatusPill,
-                ...(ewbStatus.tone === "ok"
-                  ? styles.ewayStatusOk
-                  : ewbStatus.tone === "danger"
-                  ? styles.ewayStatusDanger
-                  : styles.ewayStatusPending),
-              }}
-            >
-              {ewbStatus.label}
-            </div>
-          </div>
-
-          <div style={styles.ewayGrid}>
-            <div style={styles.ewayItem}>
-              <span style={styles.ewayLabel}>EWB Number</span>
-              <strong style={styles.ewayValue}>
-                {data.ewbNumber || "-"}
-              </strong>
-            </div>
-            <div style={styles.ewayItem}>
-              <span style={styles.ewayLabel}>Generated On</span>
-              <strong style={styles.ewayValue}>
-                {formatDisplayDate(data.ewbDate)}
-              </strong>
-            </div>
-            <div style={styles.ewayItem}>
-              <span style={styles.ewayLabel}>Valid Until</span>
-              <strong style={styles.ewayValue}>
-                {formatDisplayDate(data.ewbValidUpto)}
-              </strong>
-            </div>
-            <div style={styles.ewayItem}>
-              <span style={styles.ewayLabel}>Distance Declared</span>
-              <strong style={styles.ewayValue}>
-                {data.distanceKm ?? "-"} KM
-              </strong>
-            </div>
-            <div style={styles.ewayItem}>
-              <span style={styles.ewayLabel}>Vehicle Number</span>
-              <strong style={styles.ewayValue}>
-                {data.linkedVehicleNumber || data.vehicleNumber || "-"}
-              </strong>
-            </div>
-            <div style={styles.ewayItem}>
-              <span style={styles.ewayLabel}>Consignee GSTIN</span>
-              <strong style={styles.ewayValue}>{data.partyGstin || "-"}</strong>
-            </div>
-          </div>
-        </div>
-
-        <div style={styles.tableBlock} className="print-section">
-          <div style={styles.blockTitle}>Item Details</div>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>#</th>
-                <th style={styles.th}>Material Description</th>
-                <th style={styles.th}>Material Code</th>
-                <th style={styles.th}>HSN/SAC</th>
-                <th style={styles.th}>Qty (Tons)</th>
-                <th style={styles.th}>Rate Unit</th>
-                <th style={styles.th}>Material Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td style={styles.td}>1</td>
-                <td style={styles.td}>
-                  {data.materialName || data.materialType || "-"}
-                </td>
-                <td style={styles.td}>{data.materialCode || "-"}</td>
-                <td style={styles.td}>{data.hsnSacCode || "Not configured"}</td>
-                <td style={styles.td}>{data.quantityTons ?? "-"}</td>
-                <td style={styles.td}>
-                  {formatCurrency(data.materialRatePerTon || 0)} /{" "}
-                  {data.materialRateUnitLabel || "ton"}
-                  {Number(data.materialRateUnitsPerTon || 1) !== 1 ? (
-                    <div style={styles.rateHint}>
-                      {data.materialRateUnitsPerTon}{" "}
-                      {data.materialRateUnitLabel || "unit"} / ton
-                    </div>
-                  ) : null}
-                </td>
-                <td style={styles.td}>
-                  {formatCurrency(billing?.materialAmount || 0)}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div style={styles.amountGrid} className="print-section">
-          <div style={styles.panel}>
-            <div style={styles.panelTitle}>Billing Notes</div>
-            <div style={styles.detailRow}>
-              <strong>Remarks:</strong> {data.remarks || "-"}
-            </div>
-            <div style={styles.detailRow}>
-              <strong>Billing Notes:</strong> {data.billingNotes || "-"}
-            </div>
-            <div style={styles.detailRow}>
-              <strong>Commercial Snapshot:</strong> Saved with this dispatch. Edit and save the dispatch to refresh from the latest party rate.
-            </div>
-            <div style={styles.detailRow}>
-              <strong>Royalty Mode:</strong> {data.royaltyMode || "-"}
-            </div>
-            <div style={styles.detailRow}>
-              <strong>Royalty Basis:</strong> {billing?.royaltyBasisLabel || "-"}
-            </div>
-            <div style={styles.detailRow}>
-              <strong>Loading Basis:</strong> {billing?.loadingBasisLabel || "-"}
-            </div>
-            <div style={styles.detailRow}>
-              <strong>Transport Rate Type:</strong>{" "}
-              {data.transportRateType || "-"}
-            </div>
-          </div>
-
-          <div style={styles.amountCard}>
-            <div style={styles.amountSectionTitle}>Amount Summary</div>
-
-            <div style={styles.amountRow}>
-              <span>Material Amount</span>
-              <strong>{formatCurrency(billing?.materialAmount || 0)}</strong>
-            </div>
-            <div style={styles.amountRow}>
-              <span>Transport Cost</span>
-              <strong>{formatCurrency(billing?.transportCost || 0)}</strong>
-            </div>
-            <div style={styles.amountRow}>
-              <span>Royalty</span>
-              <strong>{formatCurrency(billing?.royaltyAmount || 0)}</strong>
-            </div>
-            <div style={styles.amountRow}>
-              <span>Loading Charge</span>
-              <strong>{formatCurrency(billing?.loadingCharge || 0)}</strong>
-            </div>
-            <div style={styles.amountRow}>
-              <span>Other Charge</span>
-              <strong>{formatCurrency(billing?.otherCharge || 0)}</strong>
-            </div>
-            {Math.abs(billing?.invoiceAdjustment || 0) >= 0.01 ? (
-              <div style={styles.amountRow}>
-                <span>Manual Taxable Value Override</span>
-                <strong>{formatCurrency(billing?.invoiceAdjustment || 0)}</strong>
-              </div>
-            ) : null}
-            <div style={styles.amountRowStrong}>
-              <span>Taxable Value</span>
-              <strong>{formatCurrency(billing?.taxableValue || 0)}</strong>
-            </div>
-
-            <table style={styles.taxTable}>
+        <section style={styles.tableSection} className="print-section">
+          <div style={styles.sectionTitle}>Item Details</div>
+          <div style={styles.tableWrap} className="print-table-wrap">
+            <table style={styles.table} className="print-item-table">
+              <colgroup>
+                <col style={{ width: "4.5%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "7%" }} />
+                <col style={{ width: "7.5%" }} />
+                <col style={{ width: "6.5%" }} />
+                <col style={{ width: "5%" }} />
+                <col style={{ width: "8.5%" }} />
+                <col style={{ width: "7%" }} />
+                <col style={{ width: "9.5%" }} />
+                <col style={{ width: "8.5%" }} />
+                <col style={{ width: "5%" }} />
+                <col style={{ width: "5%" }} />
+                <col style={{ width: "5%" }} />
+                <col style={{ width: "5%" }} />
+                <col style={{ width: "10%" }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Sr</th>
+                  <th style={styles.th}>Material</th>
+                  <th style={styles.th}>Code</th>
+                  <th style={styles.th}>HSN/SAC</th>
+                  <th style={{ ...styles.th, ...styles.thNumeric }}>Qty</th>
+                  <th style={styles.th}>UOM</th>
+                  <th style={{ ...styles.th, ...styles.thNumeric }}>Billing Qty</th>
+                  <th style={styles.th}>Billing Unit</th>
+                  <th style={{ ...styles.th, ...styles.thNumeric }}>Rate (₹)</th>
+                  <th style={{ ...styles.th, ...styles.thNumeric }}>Taxable (₹)</th>
+                  <th style={{ ...styles.th, ...styles.thNumeric }}>GST %</th>
+                  <th style={{ ...styles.th, ...styles.thNumeric }}>CGST (₹)</th>
+                  <th style={{ ...styles.th, ...styles.thNumeric }}>SGST (₹)</th>
+                  <th style={{ ...styles.th, ...styles.thNumeric }}>IGST (₹)</th>
+                  <th style={{ ...styles.th, ...styles.thNumeric }}>Line Total (₹)</th>
+                </tr>
+              </thead>
               <tbody>
                 <tr>
-                  <td style={styles.taxLabel}>GST Rate</td>
-                  <td style={styles.taxValue}>{billing?.gstRate || 0}%</td>
-                </tr>
-                <tr>
-                  <td style={styles.taxLabel}>CGST</td>
-                  <td style={styles.taxValue}>
-                    {formatCurrency(billing?.cgst || 0)}
-                  </td>
-                </tr>
-                <tr>
-                  <td style={styles.taxLabel}>SGST</td>
-                  <td style={styles.taxValue}>
-                    {formatCurrency(billing?.sgst || 0)}
-                  </td>
-                </tr>
-                <tr>
-                  <td style={styles.taxLabel}>IGST</td>
-                  <td style={styles.taxValue}>
-                    {formatCurrency(billing?.igst || 0)}
-                  </td>
-                </tr>
-                <tr style={styles.taxSummaryRow}>
-                  <td style={styles.taxLabel}>Total GST</td>
-                  <td style={styles.taxValue}>
-                    {formatCurrency(billing?.gstTotal || 0)}
-                  </td>
-                </tr>
-                <tr style={styles.taxSummaryRow}>
-                  <td style={styles.taxLabel}>Total (With GST)</td>
-                  <td style={styles.taxValue}>
-                    {formatCurrency(billing?.totalWithGst || 0)}
-                  </td>
+                  <td style={styles.td}>1</td>
+                  <td style={styles.td}>{itemRow.material}</td>
+                  <td style={styles.td}>{itemRow.materialCode}</td>
+                  <td style={styles.td}>{itemRow.hsnSac}</td>
+                  <td style={{ ...styles.td, ...styles.tdNumeric }}>{itemRow.qty}</td>
+                  <td style={styles.td}>{itemRow.uom}</td>
+                  <td style={{ ...styles.td, ...styles.tdNumeric }}>{itemRow.billingQty}</td>
+                  <td style={styles.td}>{itemRow.billingUnit}</td>
+                  <td style={{ ...styles.td, ...styles.tdNumeric }}>{itemRow.rate}</td>
+                  <td style={{ ...styles.td, ...styles.tdNumeric }}>{itemRow.taxableValue}</td>
+                  <td style={{ ...styles.td, ...styles.tdNumeric }}>{itemRow.gstRate}</td>
+                  <td style={{ ...styles.td, ...styles.tdNumeric }}>{itemRow.cgst}</td>
+                  <td style={{ ...styles.td, ...styles.tdNumeric }}>{itemRow.sgst}</td>
+                  <td style={{ ...styles.td, ...styles.tdNumeric }}>{itemRow.igst}</td>
+                  <td style={{ ...styles.td, ...styles.tdNumericStrong }}>{itemRow.lineTotal}</td>
                 </tr>
               </tbody>
             </table>
-
-            <div style={styles.totalRow}>
-              <span>Grand Total Payable</span>
-              <strong>{formatCurrency(billing?.totalWithGst || 0)}</strong>
-            </div>
-
-            <div style={styles.amountWordsCard}>
-              <span style={styles.amountWordsLabel}>Amount In Words</span>
-              <strong style={styles.amountWordsValue}>
-                {billing?.amountInWords || "Zero Rupees Only"}
-              </strong>
-            </div>
           </div>
+        </section>
+
+        <div style={styles.summaryGrid} className="print-section print-summary-grid">
+          <section style={styles.card}>
+            <div style={styles.sectionTitle}>Additional Charges</div>
+            <table style={styles.chargeTable}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Charge Head</th>
+                  <th style={styles.th}>Basis</th>
+                  <th style={{ ...styles.th, ...styles.thNumeric }}>Amount (₹)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {chargeRows.map((row) => (
+                  <tr key={row.label}>
+                    <td style={styles.td}>{row.label}</td>
+                    <td style={styles.td}>{row.basis}</td>
+                    <td style={{ ...styles.td, ...styles.tdNumeric }}>
+                      {formatCurrencyValue(row.amount)}
+                    </td>
+                  </tr>
+                ))}
+                {Math.abs(billing.invoiceAdjustment) >= 0.01 ? (
+                  <tr>
+                    <td style={styles.td}>Manual Taxable Value Override</td>
+                    <td style={styles.td}>Saved taxable invoice adjustment</td>
+                    <td style={{ ...styles.td, ...styles.tdNumeric }}>
+                      {formatCurrencyValue(billing.invoiceAdjustment)}
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </section>
+
+          <section style={styles.card}>
+            <div style={styles.sectionTitle}>GST Summary</div>
+            <div style={styles.amountRow}>
+              <span>Taxable Value</span>
+              <strong>₹ {formatCurrencyValue(billing.taxableValue)}</strong>
+            </div>
+            <div style={styles.amountRow}>
+              <span>GST Rate</span>
+              <strong>{formatNumber(billing.gstRate, 2)}%</strong>
+            </div>
+            {billing.igst > 0 ? (
+              <div style={styles.amountRow}>
+                <span>IGST</span>
+                <strong>₹ {formatCurrencyValue(billing.igst)}</strong>
+              </div>
+            ) : (
+              <>
+                <div style={styles.amountRow}>
+                  <span>CGST</span>
+                  <strong>₹ {formatCurrencyValue(billing.cgst)}</strong>
+                </div>
+                <div style={styles.amountRow}>
+                  <span>SGST</span>
+                  <strong>₹ {formatCurrencyValue(billing.sgst)}</strong>
+                </div>
+              </>
+            )}
+            <div style={styles.amountRowStrong}>
+              <span>Total GST</span>
+              <strong>₹ {formatCurrencyValue(billing.gstTotal)}</strong>
+            </div>
+            <div style={styles.totalRow}>
+              <span>Grand Total</span>
+              <strong>₹ {formatCurrencyValue(billing.totalWithGst)}</strong>
+            </div>
+          </section>
         </div>
 
-        <div style={styles.footerGrid} className="print-section print-footer-grid">
-          <div style={styles.footerBox}>
-            <div style={styles.footerTitle}>Declaration</div>
-            <p style={styles.footerText}>
-              We declare that this invoice / challan shows the actual details of
-              goods described and that all particulars shown are true and
-              correct to the best of our knowledge and belief.
-            </p>
-            <p style={styles.footerText}>
-              This document may be used for dispatch, invoice reference, and
-              E-Way movement support as applicable to the transaction.
-            </p>
-          </div>
+        <div style={styles.headerGrid} className="print-section print-two-col-grid">
+          <section style={styles.card}>
+            <div style={styles.sectionTitle}>Quantity & Billing Basis</div>
+            <div style={styles.detailLine}>
+              <strong>Entered Quantity:</strong> {quantityDetails.enteredQuantityLabel}
+            </div>
+            <div style={styles.detailLine}>
+              <strong>Quantity Source:</strong> {quantityDetails.quantitySourceLabel}
+            </div>
+            <div style={styles.detailLine}>
+              <strong>Normalized Quantity:</strong> {quantityDetails.normalizedQuantityLabel}
+            </div>
+            <div style={styles.detailLine}>
+              <strong>Billing Quantity:</strong> {quantityDetails.billingQuantityLabel}
+            </div>
+            <div style={styles.detailLine}>
+              <strong>Billing Basis:</strong> {quantityDetails.billingBasisLabel}
+            </div>
+            <div style={styles.detailLine}>
+              <strong>Billed Rate:</strong> {quantityDetails.billedRateLabel}
+            </div>
+            <div style={styles.detailLine}>
+              <strong>Transport Basis:</strong> {quantityDetails.transportBasisLabel}
+            </div>
+            <div style={styles.detailLine}>
+              <strong>Transport Quantity:</strong> {quantityDetails.transportQuantityLabel}
+            </div>
+            <div style={styles.detailLine}>
+              <strong>Transport Rate:</strong>{" "}
+              {data.transportRateValue !== null && data.transportRateValue !== undefined
+                ? `₹${formatCurrencyValue(data.transportRateValue)}`
+                : "-"}
+            </div>
+            <div style={styles.compactNote}>{quantityDetails.conversionMessage}</div>
+          </section>
 
-          <div style={styles.footerBoxRight}>
-            <div style={styles.footerTitle}>For {company.companyName || "-"}</div>
+          <section style={styles.card}>
+            <div style={styles.sectionTitle}>Declaration</div>
+            <div style={styles.detailLine}>
+              <strong>Amount in Words:</strong> {billing.amountInWords}
+            </div>
+            <div style={styles.detailLine}>
+              Certified that the particulars stated above are true and correct and
+              represent the dispatch and invoice details recorded for this consignment.
+            </div>
+          </section>
+        </div>
+
+        <div style={styles.signatureGrid} className="print-section print-footer-grid print-signature-grid">
+          <div style={styles.signatureCard}>
+            <div style={styles.signatureTitle}>Prepared By</div>
+            <div style={styles.signatureMeta}>Dispatch</div>
             <div style={styles.signatureSpace} />
-            <div style={styles.footerText}>Authorized Signatory</div>
+          </div>
+          <div style={styles.signatureCard}>
+            <div style={styles.signatureTitle}>Checked By</div>
+            <div style={styles.signatureMeta}>Accounts / Commercial</div>
+            <div style={styles.signatureSpace} />
+          </div>
+          <div style={styles.signatureCard}>
+            <div style={styles.signatureTitle}>Authorized Signatory</div>
+            <div style={styles.signatureMeta}>For {safeText(company.companyName, "Company")}</div>
+            <div style={styles.signatureSpace} />
           </div>
         </div>
       </div>
@@ -920,17 +996,45 @@ function DispatchPrintPage() {
 }
 
 const printStyles = `
+  @media (max-width: 980px) {
+    .print-page {
+      padding: 8px !important;
+    }
+
+    .print-document {
+      padding: 14px !important;
+      border-radius: 6px !important;
+    }
+
+    .print-top-band,
+    .print-two-col-grid,
+    .print-summary-grid,
+    .print-signature-grid {
+      grid-template-columns: 1fr !important;
+      flex-direction: column !important;
+    }
+
+    .print-top-band {
+      align-items: stretch !important;
+    }
+
+    .print-item-table {
+      min-width: 860px !important;
+    }
+  }
+
   @media print {
     @page {
       size: A4;
-      margin: 8mm;
+      margin: 7mm;
     }
 
     html,
     body {
-      background: white !important;
+      background: #ffffff !important;
       margin: 0 !important;
       padding: 0 !important;
+      color: #000000 !important;
     }
 
     .no-print {
@@ -949,34 +1053,77 @@ const printStyles = `
       border: none !important;
       border-radius: 0 !important;
       box-shadow: none !important;
-      padding: 6mm 6mm 4mm !important;
+      padding: 0 !important;
+      overflow: visible !important;
+      gap: 4px !important;
+    }
+
+    .print-top-band {
+      align-items: flex-start !important;
+      gap: 8px !important;
+      margin-bottom: 2px !important;
+      padding-bottom: 6px !important;
+    }
+
+    .print-two-col-grid,
+    .print-summary-grid {
+      grid-template-columns: 1fr 1fr !important;
+      gap: 5px !important;
+      margin-bottom: 0 !important;
+    }
+
+    .print-signature-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+      gap: 5px !important;
+      margin-top: 5px !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+
+    .print-section,
+    .print-section table,
+    .print-section tr,
+    .print-summary-grid > *,
+    .print-two-col-grid > *,
+    .print-signature-grid {
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+    }
+
+    .print-table-wrap {
       overflow: visible !important;
     }
 
-    .print-section {
-      break-inside: avoid-page;
-      page-break-inside: avoid;
+    .print-item-table {
+      width: 100% !important;
+      min-width: 0 !important;
+      table-layout: fixed !important;
     }
 
-    .print-footer-grid {
-      margin-top: 12px !important;
-      padding-top: 10px !important;
+    .print-item-table th,
+    .print-item-table td {
+      font-size: 9.25px !important;
+      line-height: 1.18 !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      vertical-align: top !important;
     }
 
-    .print-compact-hint {
-      margin-top: 6px !important;
-      font-size: 11px !important;
-      line-height: 1.45 !important;
-    }
-
-    table {
-      break-inside: auto;
-      page-break-inside: auto;
+    .print-item-table td:nth-child(2),
+    .print-item-table td:nth-child(3),
+    .print-item-table td:nth-child(4),
+    .print-item-table td:nth-child(8) {
+      white-space: normal !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+      overflow-wrap: break-word !important;
+      word-break: normal !important;
     }
 
     th,
     td {
-      padding: 7px 8px !important;
+      padding: 3px 4px !important;
     }
 
     * {
@@ -988,8 +1135,7 @@ const printStyles = `
 const styles = {
   page: {
     minHeight: "100vh",
-    background:
-      "radial-gradient(circle at top left, rgba(37,99,235,0.08), transparent 22%), linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%)",
+    background: "#f5f5f5",
     padding: "24px",
   },
   loading: {
@@ -997,22 +1143,21 @@ const styles = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontSize: "18px",
-    color: "#334155",
+    fontSize: "16px",
+    color: "#444444",
   },
   toolbar: {
-    maxWidth: "980px",
+    maxWidth: "1120px",
     margin: "0 auto 16px",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
     gap: "16px",
     padding: "14px 18px",
-    borderRadius: "20px",
-    background: "rgba(255,255,255,0.82)",
-    border: "1px solid rgba(148,163,184,0.2)",
-    boxShadow: "0 18px 42px rgba(15,23,42,0.08)",
-    backdropFilter: "blur(18px)",
+    borderRadius: "8px",
+    background: "#ffffff",
+    border: "1px solid #d0d0d0",
+    boxShadow: "0 8px 18px rgba(0,0,0,0.06)",
   },
   toolbarMeta: {
     display: "flex",
@@ -1022,11 +1167,11 @@ const styles = {
   toolbarTitle: {
     fontSize: "15px",
     fontWeight: "800",
-    color: "#0f172a",
+    color: "#000000",
   },
   toolbarHint: {
     fontSize: "12px",
-    color: "#64748b",
+    color: "#777777",
     fontWeight: "600",
   },
   toolbarActions: {
@@ -1037,574 +1182,343 @@ const styles = {
   toolbarButton: {
     padding: "12px 16px",
     border: "none",
-    borderRadius: "12px",
-    background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
-    color: "#fff",
+    borderRadius: "8px",
+    background: "#000000",
+    color: "#ffffff",
     fontWeight: "700",
     cursor: "pointer",
-    boxShadow: "0 12px 28px rgba(15,23,42,0.16)",
   },
   secondaryToolbarButton: {
     padding: "12px 16px",
-    border: "1px solid #cbd5e1",
-    borderRadius: "12px",
+    border: "1px solid #cfcfcf",
+    borderRadius: "8px",
     background: "#ffffff",
-    color: "#0f172a",
+    color: "#000000",
     fontWeight: "700",
     cursor: "pointer",
   },
   document: {
-    position: "relative",
-    maxWidth: "980px",
+    maxWidth: "1120px",
     margin: "0 auto",
-    background: "#fff",
-    borderRadius: "24px",
-    padding: "30px",
-    boxShadow: "0 18px 40px rgba(15,23,42,0.08)",
-    border: "1px solid #dbe3f0",
-    overflow: "hidden",
-  },
-  documentAccent: {
-    position: "absolute",
-    inset: 0,
-    pointerEvents: "none",
-    background:
-      "radial-gradient(circle at top right, rgba(14,165,233,0.08), transparent 20%), radial-gradient(circle at bottom left, rgba(249,115,22,0.08), transparent 20%)",
-  },
-  topHeader: {
-    position: "relative",
-    zIndex: 1,
-    display: "grid",
-    gridTemplateColumns: "1.8fr 1fr",
-    gap: "18px",
-    marginBottom: "18px",
-    paddingBottom: "18px",
-    borderBottom: "2px solid #e5e7eb",
-  },
-  companyHeaderBlock: {
+    background: "#ffffff",
+    borderRadius: "6px",
+    padding: "16px",
+    boxShadow: "0 10px 24px rgba(0,0,0,0.08)",
+    border: "1px solid #d6d6d6",
     display: "flex",
-    gap: "14px",
+    flexDirection: "column",
+    gap: "5px",
+  },
+  topBand: {
+    display: "flex",
     justifyContent: "space-between",
     alignItems: "flex-start",
+    gap: "8px",
+    marginBottom: "2px",
+    paddingBottom: "5px",
+    borderBottom: "1px solid #bdbdbd",
   },
-  companyHeaderDetails: {
+  topBandPrimary: {
     minWidth: 0,
     flex: 1,
   },
-  spotlightGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-    gap: "12px",
-    marginBottom: "16px",
-  },
-  spotlightCard: {
-    position: "relative",
-    zIndex: 1,
+  topBandSummary: {
     display: "flex",
     flexDirection: "column",
-    gap: "8px",
-    borderRadius: "18px",
-    padding: "16px",
-    border: "1px solid #dbe3f0",
-    background: "linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)",
+    alignItems: "flex-end",
+    gap: "5px",
+    minWidth: 0,
   },
-  spotlightCardStrong: {
-    background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
-    border: "1px solid #0f172a",
-  },
-  spotlightCardAccent: {
-    background: "linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%)",
-    border: "1px solid #bfdbfe",
-  },
-  spotlightLabel: {
+  documentTypeLabel: {
+    display: "inline-flex",
+    padding: "2px 0",
+    color: "#444444",
     fontSize: "11px",
     fontWeight: "800",
-    letterSpacing: "0.7px",
     textTransform: "uppercase",
-    color: "#64748b",
+    marginBottom: "3px",
   },
-  spotlightValue: {
-    fontSize: "18px",
+  documentTitle: {
+    margin: 0,
+    color: "#000000",
+    fontSize: "15px",
+    fontWeight: "800",
+    lineHeight: 1.2,
+    wordBreak: "break-word",
+    overflowWrap: "anywhere",
+  },
+  headerMetaLine: {
+    marginTop: "2px",
+    color: "#444444",
+    fontSize: "10px",
     lineHeight: 1.3,
-    color: "#0f172a",
   },
-  spotlightLabelStrong: {
-    color: "rgba(226,232,240,0.78)",
-  },
-  spotlightValueStrong: {
-    color: "#ffffff",
-  },
-  documentNotice: {
-    position: "relative",
-    zIndex: 1,
-    marginBottom: "16px",
-    padding: "16px 18px",
-    borderRadius: "18px",
-    border: "1px solid #e2e8f0",
-    background:
-      "linear-gradient(135deg, rgba(248,250,252,0.96) 0%, rgba(239,246,255,0.96) 100%)",
-  },
-  documentNoticeTitle: {
-    fontSize: "13px",
+  statusPill: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: "24px",
+    padding: "4px 8px",
+    borderRadius: "0",
+    fontSize: "9px",
     fontWeight: "800",
-    letterSpacing: "0.6px",
+    border: "1px solid currentColor",
     textTransform: "uppercase",
-    color: "#0f172a",
-    marginBottom: "8px",
   },
-  documentNoticeText: {
-    margin: "0 0 6px",
-    fontSize: "13px",
-    color: "#475569",
-    lineHeight: 1.6,
+  statusPillOk: {
+    background: "#ffffff",
+    color: "#000000",
   },
-  complianceWarning: {
-    marginBottom: "16px",
-    padding: "16px 18px",
-    borderRadius: "18px",
-    border: "1px solid #fcd34d",
-    background: "linear-gradient(135deg, #fff7ed 0%, #fef3c7 100%)",
+  statusPillWarn: {
+    background: "#ffffff",
+    color: "#444444",
   },
-  complianceWarningTitle: {
-    fontSize: "13px",
-    fontWeight: "800",
-    letterSpacing: "0.6px",
-    textTransform: "uppercase",
-    color: "#92400e",
-    marginBottom: "8px",
+  statusPillDanger: {
+    background: "#ffffff",
+    color: "#991b1b",
   },
-  complianceWarningText: {
-    margin: 0,
-    fontSize: "13px",
-    color: "#78350f",
-    lineHeight: 1.6,
-  },
-  docTag: {
-    display: "inline-block",
-    padding: "6px 10px",
-    borderRadius: "999px",
-    background: "#dbeafe",
-    color: "#1d4ed8",
-    fontSize: "12px",
-    fontWeight: "800",
-    marginBottom: "10px",
-    textTransform: "uppercase",
-    letterSpacing: "0.8px",
-  },
-  companyName: {
-    margin: 0,
-    fontSize: "30px",
-    fontWeight: "800",
-    color: "#0f172a",
-  },
-  companyLine: {
-    margin: "4px 0",
-    fontSize: "14px",
-    color: "#475569",
-  },
-  companyLogoCard: {
-    width: "164px",
-    height: "82px",
-    border: "1px solid #dbe3f0",
-    borderRadius: "12px",
+  logoCard: {
+    width: "120px",
+    minHeight: "52px",
+    border: "1px solid #d9d9d9",
+    borderRadius: "0",
     background: "#ffffff",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     padding: "6px",
-    flexShrink: 0,
   },
-  companyLogoImage: {
+  logoImage: {
     maxWidth: "100%",
-    maxHeight: "100%",
+    maxHeight: "40px",
     objectFit: "contain",
     display: "block",
   },
-  docMetaCard: {
-    border: "1px solid #dbe3f0",
-    borderRadius: "18px",
-    padding: "16px",
-    background: "linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)",
-  },
-  complianceBadgeRow: {
+  summaryBox: {
+    minWidth: "220px",
+    border: "1px solid #000000",
+    padding: "6px 8px",
     display: "flex",
-    justifyContent: "flex-end",
-    marginBottom: "12px",
+    flexDirection: "column",
+    gap: "2px",
   },
-  complianceBadge: {
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "6px 10px",
-    borderRadius: "999px",
-    fontSize: "11px",
-    fontWeight: "800",
-    letterSpacing: "0.7px",
-    textTransform: "uppercase",
-  },
-  complianceBadgeOk: {
-    background: "#dcfce7",
-    color: "#166534",
-  },
-  complianceBadgeDanger: {
-    background: "#fee2e2",
-    color: "#991b1b",
-  },
-  complianceBadgePending: {
-    background: "#fef3c7",
-    color: "#92400e",
-  },
-  metaRow: {
+  summaryBoxHeader: {
     display: "flex",
     justifyContent: "space-between",
-    gap: "16px",
-    marginBottom: "10px",
+    gap: "10px",
+    paddingBottom: "2px",
+    borderBottom: "1px solid #bdbdbd",
+  },
+  summaryBoxTitle: {
+    fontSize: "10px",
+    fontWeight: "800",
+    color: "#000000",
+    textTransform: "uppercase",
+  },
+  summaryBoxCurrency: {
+    fontSize: "9px",
+    fontWeight: "700",
+    color: "#777777",
+  },
+  summaryBoxRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "8px",
+    color: "#444444",
+    fontSize: "9.5px",
+    lineHeight: 1.3,
+  },
+  summaryBoxTotal: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "8px",
+    paddingTop: "4px",
+    borderTop: "1px solid #000000",
+    color: "#000000",
     fontSize: "14px",
+    fontWeight: "900",
+    marginTop: "2px",
   },
-  metaLabel: {
-    color: "#64748b",
+  criticalBanner: {
+    marginBottom: "2px",
+    padding: "5px 10px",
+    background: "#c62828",
+    color: "#ffffff",
+    fontWeight: "800",
+    fontSize: "10px",
+    textTransform: "uppercase",
+    textAlign: "center",
+  },
+  warningBanner: {
+    marginBottom: "2px",
+    padding: "6px 9px",
+    background: "#ffffff",
+    border: "1px solid #777777",
+    color: "#444444",
+    fontSize: "9.5px",
+    lineHeight: 1.3,
     fontWeight: "700",
   },
-  metaValue: {
-    color: "#0f172a",
-    fontWeight: "700",
-    textAlign: "right",
-  },
-  twoColGrid: {
+  headerGrid: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
-    gap: "16px",
-    marginBottom: "16px",
+    gap: "5px",
+    marginBottom: "0",
   },
-  referenceCard: {
-    marginBottom: "16px",
-    padding: "18px",
-    borderRadius: "18px",
-    border: "1px solid #bfdbfe",
-    background: "linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%)",
-  },
-  referenceHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: "16px",
-    marginBottom: "12px",
-  },
-  referenceEyebrow: {
-    fontSize: "11px",
-    fontWeight: "800",
-    letterSpacing: "0.8px",
-    textTransform: "uppercase",
-    color: "#1d4ed8",
-    marginBottom: "4px",
-  },
-  referenceTitle: {
-    color: "#0f172a",
-    fontSize: "15px",
-  },
-  referenceMeta: {
-    color: "#1e3a8a",
-    fontSize: "12px",
-    fontWeight: "800",
-    whiteSpace: "nowrap",
-  },
-  referenceGrid: {
-    marginBottom: "10px",
-    padding: "10px",
-    borderRadius: "12px",
-    border: "1px dashed #93c5fd",
-    background: "#ffffff",
+  summaryGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: "8px",
+    gridTemplateColumns: "1.2fr 0.8fr",
+    gap: "5px",
+    marginBottom: "0",
   },
-  referenceItem: {
-    border: "1px solid #dbeafe",
-    borderRadius: "10px",
-    padding: "8px 10px",
-    background: "linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)",
+  card: {
+    border: "1px solid #cfcfcf",
+    borderRadius: "0",
+    padding: "6px 8px",
+    background: "#ffffff",
     minWidth: 0,
   },
-  referenceItemLabel: {
-    display: "block",
+  sectionTitle: {
+    marginBottom: "4px",
+    color: "#000000",
+    fontSize: "11px",
+    fontWeight: "800",
+    textTransform: "uppercase",
+    borderBottom: "1px solid #d5d5d5",
+    paddingBottom: "2px",
+  },
+  detailLine: {
+    marginBottom: "3px",
+    color: "#444444",
     fontSize: "10px",
-    color: "#1d4ed8",
-    fontWeight: "800",
-    letterSpacing: "0.6px",
-    textTransform: "uppercase",
-    marginBottom: "4px",
-  },
-  referenceItemValue: {
-    display: "block",
-    fontSize: "13px",
-    color: "#0f172a",
-    fontWeight: "700",
+    lineHeight: 1.32,
     wordBreak: "break-word",
+    overflowWrap: "anywhere",
   },
-  referenceHint: {
-    color: "#475569",
-    fontSize: "12px",
-    lineHeight: 1.6,
+  compactNote: {
+    marginTop: "3px",
+    color: "#777777",
+    fontSize: "9.5px",
+    lineHeight: 1.28,
   },
-  panel: {
-    border: "1px solid #e5e7eb",
-    borderRadius: "18px",
-    padding: "16px",
-    background: "#ffffff",
+  tableSection: {
+    marginBottom: "0",
   },
-  panelTitle: {
-    fontSize: "14px",
-    fontWeight: "800",
-    color: "#0f172a",
-    marginBottom: "12px",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px",
-  },
-  detailRow: {
-    marginBottom: "8px",
-    fontSize: "14px",
-    color: "#334155",
-    lineHeight: 1.6,
-  },
-  tableBlock: {
-    marginTop: "8px",
-    marginBottom: "16px",
-  },
-  ewayCard: {
-    marginBottom: "16px",
-    borderRadius: "20px",
-    padding: "18px",
-    border: "1px solid #dbe3f0",
-    background:
-      "linear-gradient(135deg, rgba(15,23,42,0.02) 0%, rgba(37,99,235,0.05) 100%)",
-  },
-  ewayHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "16px",
-    alignItems: "flex-start",
-    marginBottom: "14px",
-  },
-  ewayEyebrow: {
-    fontSize: "11px",
-    fontWeight: "800",
-    letterSpacing: "0.8px",
-    textTransform: "uppercase",
-    color: "#475569",
-    marginBottom: "4px",
-  },
-  ewayTitle: {
-    margin: 0,
-    fontSize: "20px",
-    color: "#0f172a",
-  },
-  ewayStatusPill: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: "98px",
-    padding: "8px 12px",
-    borderRadius: "999px",
-    fontSize: "12px",
-    fontWeight: "800",
-  },
-  ewayStatusOk: {
-    background: "#dcfce7",
-    color: "#166534",
-  },
-  ewayStatusDanger: {
-    background: "#fee2e2",
-    color: "#991b1b",
-  },
-  ewayStatusPending: {
-    background: "#fef3c7",
-    color: "#92400e",
-  },
-  ewayGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: "12px",
-  },
-  ewayItem: {
-    borderRadius: "14px",
-    padding: "12px",
-    background: "#ffffff",
-    border: "1px solid #e2e8f0",
-  },
-  ewayLabel: {
-    display: "block",
-    fontSize: "11px",
-    fontWeight: "800",
-    letterSpacing: "0.6px",
-    textTransform: "uppercase",
-    color: "#64748b",
-    marginBottom: "6px",
-  },
-  ewayValue: {
-    fontSize: "14px",
-    color: "#0f172a",
-  },
-  blockTitle: {
-    fontSize: "15px",
-    fontWeight: "800",
-    color: "#0f172a",
-    marginBottom: "10px",
+  tableWrap: {
+    overflowX: "auto",
+    border: "1px solid #cfcfcf",
   },
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    border: "1px solid #e5e7eb",
+    minWidth: "880px",
+    tableLayout: "fixed",
   },
   th: {
-    border: "1px solid #e5e7eb",
-    padding: "10px",
-    background: "#f8fafc",
-    fontSize: "13px",
-    textAlign: "left",
-    color: "#334155",
+    borderBottom: "1px solid #cfcfcf",
+    padding: "4px 4px",
+    background: "#ffffff",
+    color: "#000000",
+    fontSize: "9.5px",
     fontWeight: "800",
+    textAlign: "left",
+    whiteSpace: "normal",
+    wordBreak: "break-word",
+    overflowWrap: "anywhere",
+  },
+  thNumeric: {
+    textAlign: "right",
   },
   td: {
-    border: "1px solid #e5e7eb",
-    padding: "10px",
-    fontSize: "13px",
-    color: "#111827",
+    borderBottom: "1px solid #e4e4e4",
+    padding: "4px 4px",
+    color: "#444444",
+    fontSize: "9.5px",
     verticalAlign: "top",
+    lineHeight: 1.2,
+    wordBreak: "break-word",
+    overflowWrap: "anywhere",
   },
-  rateHint: {
-    marginTop: "4px",
-    color: "#64748b",
-    fontSize: "11px",
-    fontWeight: "700",
+  tdNumeric: {
+    textAlign: "right",
+    whiteSpace: "nowrap",
   },
-  amountGrid: {
-    display: "grid",
-    gridTemplateColumns: "1.2fr 0.8fr",
-    gap: "16px",
-    marginBottom: "18px",
-  },
-  amountCard: {
-    border: "1px solid #dbe3f0",
-    borderRadius: "18px",
-    padding: "16px",
-    background: "linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)",
-  },
-  amountSectionTitle: {
-    fontSize: "14px",
+  tdNumericStrong: {
+    textAlign: "right",
+    whiteSpace: "nowrap",
+    color: "#000000",
     fontWeight: "800",
-    color: "#0f172a",
-    marginBottom: "12px",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px",
+  },
+  chargeTable: {
+    width: "100%",
+    borderCollapse: "collapse",
   },
   amountRow: {
     display: "flex",
     justifyContent: "space-between",
-    gap: "16px",
-    marginBottom: "10px",
-    fontSize: "14px",
-    color: "#334155",
+    gap: "10px",
+    marginBottom: "4px",
+    color: "#444444",
+    fontSize: "9.75px",
+    alignItems: "flex-start",
   },
   amountRowStrong: {
     display: "flex",
     justifyContent: "space-between",
-    gap: "16px",
-    marginTop: "14px",
-    paddingTop: "12px",
-    borderTop: "1px solid #cbd5e1",
-    fontSize: "14px",
-    color: "#0f172a",
+    gap: "12px",
+    marginTop: "4px",
+    paddingTop: "4px",
+    borderTop: "1px solid #cfcfcf",
+    color: "#000000",
+    fontSize: "9.75px",
     fontWeight: "800",
-  },
-  taxTable: {
-    width: "100%",
-    marginTop: "12px",
-    marginBottom: "12px",
-    borderTop: "1px solid #cbd5e1",
-    borderBottom: "1px solid #e2e8f0",
-    borderCollapse: "collapse",
-  },
-  taxLabel: {
-    padding: "10px 0",
-    color: "#334155",
-    fontSize: "14px",
-  },
-  taxValue: {
-    padding: "10px 0",
-    color: "#0f172a",
-    fontSize: "14px",
-    fontWeight: "700",
-    textAlign: "right",
-  },
-  taxSummaryRow: {
-    fontWeight: "800",
-    borderTop: "1px solid #cbd5e1",
+    alignItems: "flex-start",
   },
   totalRow: {
     display: "flex",
     justifyContent: "space-between",
-    gap: "16px",
-    marginTop: "14px",
-    paddingTop: "12px",
-    borderTop: "2px solid #cbd5e1",
-    fontSize: "16px",
-    color: "#0f172a",
-    fontWeight: "800",
+    gap: "10px",
+    marginTop: "6px",
+    paddingTop: "6px",
+    borderTop: "2px solid #000000",
+    color: "#000000",
+    fontSize: "14px",
+    fontWeight: "900",
+    alignItems: "flex-start",
   },
-  amountWordsCard: {
-    marginTop: "14px",
-    padding: "14px 16px",
-    borderRadius: "16px",
-    background: "linear-gradient(135deg, #eff6ff 0%, #ffffff 100%)",
-    border: "1px solid #bfdbfe",
+  signatureGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: "5px",
+    marginTop: "auto",
+    paddingTop: "5px",
+    borderTop: "1px solid #bdbdbd",
+    alignItems: "stretch",
+  },
+  signatureCard: {
+    border: "1px solid #cfcfcf",
+    borderRadius: "0",
+    padding: "6px",
+    textAlign: "center",
+    minWidth: 0,
     display: "flex",
     flexDirection: "column",
-    gap: "6px",
+    justifyContent: "space-between",
   },
-  amountWordsLabel: {
-    color: "#475569",
-    fontSize: "12px",
+  signatureTitle: {
+    color: "#000000",
+    fontSize: "10px",
     fontWeight: "800",
-    letterSpacing: "0.8px",
+    marginBottom: "3px",
     textTransform: "uppercase",
   },
-  amountWordsValue: {
-    color: "#0f172a",
-    fontSize: "15px",
-    lineHeight: 1.5,
-  },
-  footerGrid: {
-    display: "grid",
-    gridTemplateColumns: "1.4fr 0.6fr",
-    gap: "16px",
-    marginTop: "20px",
-    paddingTop: "16px",
-    borderTop: "2px solid #e5e7eb",
-  },
-  footerBox: {
-    border: "1px solid #e5e7eb",
-    borderRadius: "18px",
-    padding: "16px",
-  },
-  footerBoxRight: {
-    border: "1px solid #e5e7eb",
-    borderRadius: "18px",
-    padding: "16px",
-    textAlign: "center",
-  },
-  footerTitle: {
-    fontSize: "14px",
-    fontWeight: "800",
-    color: "#0f172a",
-    marginBottom: "10px",
-  },
-  footerText: {
-    margin: 0,
-    color: "#475569",
-    fontSize: "13px",
-    lineHeight: 1.7,
+  signatureMeta: {
+    color: "#777777",
+    fontSize: "9.5px",
+    fontWeight: "700",
   },
   signatureSpace: {
-    height: "80px",
+    height: "42px",
   },
 };
 

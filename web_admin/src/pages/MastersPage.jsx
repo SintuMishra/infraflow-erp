@@ -109,6 +109,8 @@ const sectionFilterLabels = {
   plants: "Plants & Units",
   crusherUnits: "Sub Plants & Units",
   materials: "Materials",
+  unitMasters: "Unit Master",
+  materialUnitConversions: "Material Unit Conversions",
   shifts: "Shifts",
   vehicleTypes: "Vehicle Types",
   configOptions: "Config Options",
@@ -153,6 +155,8 @@ function MastersPage() {
     plant: false,
     crusherUnit: false,
     material: false,
+    unitMaster: false,
+    materialUnitConversion: false,
     shift: false,
     vehicleType: false,
   });
@@ -162,6 +166,8 @@ function MastersPage() {
     plants: false,
     crusherUnits: false,
     materials: false,
+    unitMasters: false,
+    materialUnitConversions: false,
     shifts: false,
     vehicleTypes: false,
   });
@@ -195,6 +201,30 @@ function MastersPage() {
     shiftName: "",
     startTime: "",
     endTime: "",
+  });
+
+  const [units, setUnits] = useState([]);
+  const [materialUnitConversions, setMaterialUnitConversions] = useState([]);
+
+  const [unitForm, setUnitForm] = useState({
+    unitCode: "",
+    unitName: "",
+    dimensionType: "weight",
+    precisionScale: "3",
+    isBaseUnit: "false",
+    isActive: "true",
+  });
+
+  const [materialUnitConversionForm, setMaterialUnitConversionForm] = useState({
+    materialId: "",
+    fromUnitId: "",
+    toUnitId: "",
+    conversionFactor: "",
+    conversionMethod: "standard",
+    effectiveFrom: "",
+    effectiveTo: "",
+    notes: "",
+    isActive: "true",
   });
 
   const [vehicleTypeForm, setVehicleTypeForm] = useState({
@@ -299,6 +329,25 @@ function MastersPage() {
     ]
   );
 
+  const scopedUnits = useMemo(() => units || [], [units]);
+  const scopedMaterialUnitConversions = useMemo(
+    () => materialUnitConversions || [],
+    [materialUnitConversions]
+  );
+
+  const materialsById = useMemo(
+    () =>
+      new Map(
+        safeMasters.materials.map((material) => [String(material.id), material])
+      ),
+    [safeMasters.materials]
+  );
+
+  const unitsById = useMemo(
+    () => new Map(scopedUnits.map((unit) => [String(unit.id), unit])),
+    [scopedUnits]
+  );
+
   async function loadPlants() {
     try {
       const res = await api.get("/plants");
@@ -306,6 +355,26 @@ function MastersPage() {
       setError("");
     } catch {
       setError("Failed to load plants");
+    }
+  }
+
+  async function loadUnits() {
+    try {
+      const res = await api.get("/masters/units");
+      setUnits(res.data?.data || []);
+      setError("");
+    } catch {
+      setError("Failed to load unit master");
+    }
+  }
+
+  async function loadMaterialUnitConversions() {
+    try {
+      const res = await api.get("/masters/material-unit-conversions");
+      setMaterialUnitConversions(res.data?.data || []);
+      setError("");
+    } catch {
+      setError("Failed to load material unit conversions");
     }
   }
 
@@ -337,7 +406,13 @@ function MastersPage() {
     setIsRefreshing(true);
 
     try {
-      await Promise.all([reloadMasters(), loadPlants(), loadMastersHealthCheck()]);
+      await Promise.all([
+        reloadMasters(),
+        loadPlants(),
+        loadMastersHealthCheck(),
+        loadUnits(),
+        loadMaterialUnitConversions(),
+      ]);
       setError("");
     } catch {
       setError("Failed to refresh master workspace");
@@ -349,7 +424,12 @@ function MastersPage() {
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       setIsRefreshing(true);
-      Promise.all([loadPlants(), loadMastersHealthCheck()])
+      Promise.all([
+        loadPlants(),
+        loadMastersHealthCheck(),
+        loadUnits(),
+        loadMaterialUnitConversions(),
+      ])
         .then(() => {
           setError("");
         })
@@ -409,6 +489,8 @@ function MastersPage() {
       plants: true,
       crusherUnits: true,
       materials: true,
+      unitMasters: true,
+      materialUnitConversions: true,
       shifts: true,
       vehicleTypes: true,
     });
@@ -420,6 +502,8 @@ function MastersPage() {
       plants: false,
       crusherUnits: false,
       materials: false,
+      unitMasters: false,
+      materialUnitConversions: false,
       shifts: false,
       vehicleTypes: false,
     });
@@ -430,6 +514,8 @@ function MastersPage() {
       plants: plants.length || 0,
       crusherUnits: safeMasters.crusherUnits.length || 0,
       materials: safeMasters.materials.length || 0,
+      unitMasters: scopedUnits.length || 0,
+      materialUnitConversions: scopedMaterialUnitConversions.length || 0,
       shifts: safeMasters.shifts.length || 0,
       vehicleTypes: safeMasters.vehicleTypes.length || 0,
       configOptions: allConfigOptions.length || 0,
@@ -438,6 +524,8 @@ function MastersPage() {
     plants,
     safeMasters.crusherUnits.length,
     safeMasters.materials.length,
+    scopedUnits.length,
+    scopedMaterialUnitConversions.length,
     safeMasters.shifts.length,
     safeMasters.vehicleTypes.length,
     allConfigOptions.length,
@@ -611,6 +699,78 @@ function MastersPage() {
     );
   }, [safeMasters.shifts, globalSearch, statusFilter]);
 
+  const filteredUnits = useMemo(() => {
+    const q = globalSearch.trim().toLowerCase();
+
+    return scopedUnits.filter((unit) => {
+      const matchesSearch =
+        !q ||
+        [
+          unit.unitCode,
+          unit.unitName,
+          unit.dimensionType,
+          unit.precisionScale,
+          unit.isBaseUnit ? "base" : "derived",
+        ].some((field) => normalize(field).includes(q));
+
+      const matchesStatus =
+        statusFilter === "all"
+          ? true
+          : statusFilter === "active"
+            ? unit.isActive
+            : !unit.isActive;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [scopedUnits, globalSearch, statusFilter]);
+
+  const filteredMaterialUnitConversions = useMemo(() => {
+    const q = globalSearch.trim().toLowerCase();
+
+    return scopedMaterialUnitConversions.filter((conversion) => {
+      const materialName =
+        conversion.materialName ||
+        materialsById.get(String(conversion.materialId))?.materialName ||
+        "";
+      const fromUnit =
+        conversion.fromUnitCode ||
+        unitsById.get(String(conversion.fromUnitId))?.unitCode ||
+        "";
+      const toUnit =
+        conversion.toUnitCode ||
+        unitsById.get(String(conversion.toUnitId))?.unitCode ||
+        "";
+
+      const matchesSearch =
+        !q ||
+        [
+          materialName,
+          fromUnit,
+          toUnit,
+          conversion.conversionMethod,
+          conversion.conversionFactor,
+          conversion.notes,
+          conversion.effectiveFrom,
+          conversion.effectiveTo,
+        ].some((field) => normalize(field).includes(q));
+
+      const matchesStatus =
+        statusFilter === "all"
+          ? true
+          : statusFilter === "active"
+            ? conversion.isActive
+            : !conversion.isActive;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [
+    scopedMaterialUnitConversions,
+    materialsById,
+    unitsById,
+    globalSearch,
+    statusFilter,
+  ]);
+
   const filteredVehicleTypes = useMemo(() => {
     const q = globalSearch.trim().toLowerCase();
 
@@ -669,6 +829,8 @@ function MastersPage() {
         plants: sectionFilter === "plants",
         crusherUnits: sectionFilter === "crusherUnits",
         materials: sectionFilter === "materials",
+        unitMasters: sectionFilter === "unitMasters",
+        materialUnitConversions: sectionFilter === "materialUnitConversions",
         shifts: sectionFilter === "shifts",
         vehicleTypes: sectionFilter === "vehicleTypes",
       });
@@ -682,6 +844,8 @@ function MastersPage() {
         plants: false,
         crusherUnits: false,
         materials: false,
+        unitMasters: false,
+        materialUnitConversions: false,
         shifts: false,
         vehicleTypes: false,
       }));
@@ -693,6 +857,8 @@ function MastersPage() {
       plants: filteredPlants.length > 0,
       crusherUnits: filteredCrusherUnits.length > 0,
       materials: filteredMaterials.length > 0,
+      unitMasters: filteredUnits.length > 0,
+      materialUnitConversions: filteredMaterialUnitConversions.length > 0,
       shifts: filteredShifts.length > 0,
       vehicleTypes: filteredVehicleTypes.length > 0,
     });
@@ -703,6 +869,8 @@ function MastersPage() {
     filteredPlants.length,
     filteredCrusherUnits.length,
     filteredMaterials.length,
+    filteredUnits.length,
+    filteredMaterialUnitConversions.length,
     filteredShifts.length,
     filteredVehicleTypes.length,
   ]);
@@ -713,6 +881,8 @@ function MastersPage() {
         filteredPlants.length,
         filteredCrusherUnits.length,
         filteredMaterials.length,
+        filteredUnits.length,
+        filteredMaterialUnitConversions.length,
         filteredShifts.length,
         filteredVehicleTypes.length,
         filteredConfigOptions.length,
@@ -721,6 +891,8 @@ function MastersPage() {
         filteredPlants.length +
         filteredCrusherUnits.length +
         filteredMaterials.length +
+        filteredUnits.length +
+        filteredMaterialUnitConversions.length +
         filteredShifts.length +
         filteredVehicleTypes.length +
         filteredConfigOptions.length,
@@ -732,6 +904,8 @@ function MastersPage() {
       filteredPlants.length,
       filteredCrusherUnits.length,
       filteredMaterials.length,
+      filteredUnits.length,
+      filteredMaterialUnitConversions.length,
       filteredShifts.length,
       filteredVehicleTypes.length,
       filteredConfigOptions.length,
@@ -765,6 +939,8 @@ function MastersPage() {
       plant: false,
       crusherUnit: false,
       material: false,
+      unitMaster: false,
+      materialUnitConversion: false,
       shift: false,
       vehicleType: false,
     });
@@ -773,6 +949,8 @@ function MastersPage() {
       plants: false,
       crusherUnits: false,
       materials: false,
+      unitMasters: false,
+      materialUnitConversions: false,
       shifts: false,
       vehicleTypes: false,
     });
@@ -866,6 +1044,38 @@ function MastersPage() {
 
     if (section === "vehicleTypes") {
       values.categoryCustom = "";
+    }
+
+    if (section === "unitMasters") {
+      values.precisionScale =
+        values.precisionScale !== null && values.precisionScale !== undefined
+          ? String(values.precisionScale)
+          : "3";
+      values.isBaseUnit = values.isBaseUnit ? "true" : "false";
+      values.isActive = values.isActive ? "true" : "false";
+    }
+
+    if (section === "materialUnitConversions") {
+      values.materialId =
+        values.materialId !== null && values.materialId !== undefined
+          ? String(values.materialId)
+          : "";
+      values.fromUnitId =
+        values.fromUnitId !== null && values.fromUnitId !== undefined
+          ? String(values.fromUnitId)
+          : "";
+      values.toUnitId =
+        values.toUnitId !== null && values.toUnitId !== undefined
+          ? String(values.toUnitId)
+          : "";
+      values.conversionFactor =
+        values.conversionFactor !== null && values.conversionFactor !== undefined
+          ? String(values.conversionFactor)
+          : "";
+      values.effectiveFrom = values.effectiveFrom || "";
+      values.effectiveTo = values.effectiveTo || "";
+      values.notes = values.notes || "";
+      values.isActive = values.isActive ? "true" : "false";
     }
 
     setEditState({
@@ -1001,9 +1211,34 @@ function MastersPage() {
         });
       }
 
+      if (editState.section === "unitMasters") {
+        await api.patch(`/masters/units/${editState.id}`, {
+          unitCode: editState.values.unitCode,
+          unitName: editState.values.unitName,
+          dimensionType: editState.values.dimensionType,
+          precisionScale: Number(editState.values.precisionScale || 0),
+          isBaseUnit: editState.values.isBaseUnit === "true",
+          isActive: editState.values.isActive === "true",
+        });
+      }
+
+      if (editState.section === "materialUnitConversions") {
+        await api.patch(`/masters/material-unit-conversions/${editState.id}`, {
+          materialId: Number(editState.values.materialId),
+          fromUnitId: Number(editState.values.fromUnitId),
+          toUnitId: Number(editState.values.toUnitId),
+          conversionFactor: Number(editState.values.conversionFactor),
+          conversionMethod: editState.values.conversionMethod,
+          effectiveFrom: editState.values.effectiveFrom,
+          effectiveTo: editState.values.effectiveTo || null,
+          notes: editState.values.notes,
+          isActive: editState.values.isActive === "true",
+        });
+      }
+
       setSuccess("Master record updated successfully");
       closeEditPanel();
-      await reloadMasters();
+      await Promise.all([reloadMasters(), loadUnits(), loadMaterialUnitConversions()]);
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to update record");
     } finally {
@@ -1112,21 +1347,23 @@ function MastersPage() {
       >
         Edit
       </button>
-      <button
-        type="button"
-        style={{
-          ...styles.smallButton,
-          ...(item.isActive ? styles.warnButton : styles.successButton),
-        }}
-        onClick={() => handleToggleStatus(section, item)}
-        disabled={!canManageMasters || isSaving || isRefreshing || Boolean(statusUpdatingKey)}
-      >
-        {statusUpdatingKey === `${section}-${item.id}`
-          ? "Updating..."
-          : item.isActive
-            ? "Deactivate"
-            : "Activate"}
-      </button>
+      {section !== "unitMasters" && section !== "materialUnitConversions" ? (
+        <button
+          type="button"
+          style={{
+            ...styles.smallButton,
+            ...(item.isActive ? styles.warnButton : styles.successButton),
+          }}
+          onClick={() => handleToggleStatus(section, item)}
+          disabled={!canManageMasters || isSaving || isRefreshing || Boolean(statusUpdatingKey)}
+        >
+          {statusUpdatingKey === `${section}-${item.id}`
+            ? "Updating..."
+            : item.isActive
+              ? "Deactivate"
+              : "Activate"}
+        </button>
+      ) : null}
     </div>
   );
 
@@ -1504,6 +1741,161 @@ function MastersPage() {
             </div>
           )}
 
+          {editState.section === "unitMasters" && (
+            <div style={styles.form}>
+              <input
+                name="unitCode"
+                placeholder="Unit Code"
+                value={editState.values.unitCode || ""}
+                onChange={handleEditValueChange}
+                style={styles.input}
+              />
+              <input
+                name="unitName"
+                placeholder="Unit Name"
+                value={editState.values.unitName || ""}
+                onChange={handleEditValueChange}
+                style={styles.input}
+              />
+              <select
+                name="dimensionType"
+                value={editState.values.dimensionType || "weight"}
+                onChange={handleEditValueChange}
+                style={styles.input}
+              >
+                <option value="weight">Weight</option>
+                <option value="volume">Volume</option>
+                <option value="count">Count</option>
+                <option value="distance">Distance</option>
+                <option value="time">Time</option>
+                <option value="custom">Custom</option>
+              </select>
+              <input
+                type="number"
+                min="0"
+                max="6"
+                name="precisionScale"
+                placeholder="Precision Scale"
+                value={editState.values.precisionScale || ""}
+                onChange={handleEditValueChange}
+                style={styles.input}
+              />
+              <select
+                name="isBaseUnit"
+                value={editState.values.isBaseUnit || "false"}
+                onChange={handleEditValueChange}
+                style={styles.input}
+              >
+                <option value="false">Derived Unit</option>
+                <option value="true">Base Unit</option>
+              </select>
+              <select
+                name="isActive"
+                value={editState.values.isActive || "true"}
+                onChange={handleEditValueChange}
+                style={styles.input}
+              >
+                <option value="true">Active</option>
+                <option value="false">Inactive</option>
+              </select>
+            </div>
+          )}
+
+          {editState.section === "materialUnitConversions" && (
+            <div style={styles.form}>
+              <select
+                name="materialId"
+                value={editState.values.materialId || ""}
+                onChange={handleEditValueChange}
+                style={styles.input}
+              >
+                <option value="">Select Material</option>
+                {safeMasters.materials.map((material) => (
+                  <option key={material.id} value={material.id}>
+                    {material.materialName}
+                  </option>
+                ))}
+              </select>
+              <select
+                name="fromUnitId"
+                value={editState.values.fromUnitId || ""}
+                onChange={handleEditValueChange}
+                style={styles.input}
+              >
+                <option value="">From Unit</option>
+                {scopedUnits.map((unit) => (
+                  <option key={unit.id} value={unit.id}>
+                    {unit.unitCode} - {unit.unitName}
+                  </option>
+                ))}
+              </select>
+              <select
+                name="toUnitId"
+                value={editState.values.toUnitId || ""}
+                onChange={handleEditValueChange}
+                style={styles.input}
+              >
+                <option value="">To Unit</option>
+                {scopedUnits.map((unit) => (
+                  <option key={unit.id} value={unit.id}>
+                    {unit.unitCode} - {unit.unitName}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="0.000001"
+                step="0.000001"
+                name="conversionFactor"
+                placeholder="Conversion Factor"
+                value={editState.values.conversionFactor || ""}
+                onChange={handleEditValueChange}
+                style={styles.input}
+              />
+              <select
+                name="conversionMethod"
+                value={editState.values.conversionMethod || "standard"}
+                onChange={handleEditValueChange}
+                style={styles.input}
+              >
+                <option value="standard">Standard</option>
+                <option value="density_based">Density Based</option>
+                <option value="vehicle_capacity_based">Vehicle Capacity Based</option>
+                <option value="manual_defined">Manual Defined</option>
+              </select>
+              <input
+                type="date"
+                name="effectiveFrom"
+                value={editState.values.effectiveFrom || ""}
+                onChange={handleEditValueChange}
+                style={styles.input}
+              />
+              <input
+                type="date"
+                name="effectiveTo"
+                value={editState.values.effectiveTo || ""}
+                onChange={handleEditValueChange}
+                style={styles.input}
+              />
+              <select
+                name="isActive"
+                value={editState.values.isActive || "true"}
+                onChange={handleEditValueChange}
+                style={styles.input}
+              >
+                <option value="true">Active</option>
+                <option value="false">Inactive</option>
+              </select>
+              <textarea
+                name="notes"
+                placeholder="Notes"
+                value={editState.values.notes || ""}
+                onChange={handleEditValueChange}
+                style={styles.textarea}
+              />
+            </div>
+          )}
+
           <div style={styles.actionRow}>
             <button
               type="button"
@@ -1781,6 +2173,16 @@ function MastersPage() {
                 <p style={styles.summaryLabel}>Materials</p>
                 <h3 style={styles.summaryValue}>{summary.materials}</h3>
               </div>
+              <div style={{ ...styles.summaryCard, ...styles.summaryBlue }}>
+                <span style={styles.summaryTag}>Units</span>
+                <p style={styles.summaryLabel}>Unit Master</p>
+                <h3 style={styles.summaryValue}>{summary.unitMasters}</h3>
+              </div>
+              <div style={{ ...styles.summaryCard, ...styles.summaryGreen }}>
+                <span style={styles.summaryTag}>Conversions</span>
+                <p style={styles.summaryLabel}>Material Unit Conversions</p>
+                <h3 style={styles.summaryValue}>{summary.materialUnitConversions}</h3>
+              </div>
               <div style={{ ...styles.summaryCard, ...styles.summaryPurple }}>
                 <span style={styles.summaryTag}>Planning</span>
                 <p style={styles.summaryLabel}>Shifts</p>
@@ -1871,6 +2273,8 @@ function MastersPage() {
               <option value="plants">Plants & Units</option>
               <option value="crusherUnits">Sub Plants & Units</option>
               <option value="materials">Materials</option>
+              <option value="unitMasters">Unit Master</option>
+              <option value="materialUnitConversions">Material Unit Conversions</option>
               <option value="shifts">Shifts</option>
               <option value="vehicleTypes">Vehicle Types</option>
               <option value="configOptions">Config Options</option>
@@ -2583,6 +2987,391 @@ function MastersPage() {
           </SectionCard>
         )}
 
+        {shouldShowSection("unitMasters") && (
+          <SectionCard title="Unit Master">
+            {renderWorkspaceHeader({
+              title: "Unit Master Workspace",
+              subtitle:
+                "Maintain reusable quantity units for materials, dispatch conversions, and future pricing flows.",
+              count: filteredUnits.length,
+              listKey: "unitMasters",
+              formOpen: openPanels.unitMaster,
+              onToggleForm: () => togglePanel("unitMaster"),
+              formButtonLabel: "Add Unit",
+            })}
+
+            {listVisibility.unitMasters && (
+              <>
+                {filteredUnits.length === 0 ? (
+                  renderSectionEmpty(
+                    "No units match this view",
+                    "Add quantity units here so material conversions and future commercial workflows can use shared master references."
+                  )
+                ) : (
+                  <div style={styles.tableWrapper}>
+                    <table style={styles.table}>
+                      <thead>
+                        <tr>
+                          <th style={styles.th}>Code</th>
+                          <th style={styles.th}>Name</th>
+                          <th style={styles.th}>Dimension</th>
+                          <th style={styles.th}>Precision</th>
+                          <th style={styles.th}>Base</th>
+                          <th style={styles.th}>Status</th>
+                          <th style={styles.th}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredUnits.map((unit) => (
+                          <tr key={unit.id}>
+                            <td style={styles.td}>{unit.unitCode}</td>
+                            <td style={styles.td}>{unit.unitName}</td>
+                            <td style={styles.td}>{unit.dimensionType}</td>
+                            <td style={styles.td}>{unit.precisionScale}</td>
+                            <td style={styles.td}>{unit.isBaseUnit ? "Yes" : "No"}</td>
+                            <td style={styles.td}>{renderStatusBadge(unit.isActive)}</td>
+                            <td style={styles.td}>{renderActions("unitMasters", unit)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+
+            {openPanels.unitMaster && canManageMasters && (
+              <div style={styles.compactFormShell}>
+                <h3 style={styles.blockTitle}>Add Unit</h3>
+                <p style={styles.blockSubtitle}>
+                  Unit codes should stay short and consistent so commercial and operational forms can reuse them cleanly.
+                </p>
+
+                <form
+                  style={styles.form}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+
+                    if (!unitForm.unitCode || !unitForm.unitName) {
+                      setError("Unit code and unit name are required");
+                      setSuccess("");
+                      return;
+                    }
+
+                    handleCreate({
+                      url: "/masters/units",
+                      payload: {
+                        unitCode: unitForm.unitCode,
+                        unitName: unitForm.unitName,
+                        dimensionType: unitForm.dimensionType,
+                        precisionScale: Number(unitForm.precisionScale || 0),
+                        isBaseUnit: unitForm.isBaseUnit === "true",
+                        isActive: unitForm.isActive === "true",
+                      },
+                      successMessage: "Unit added successfully",
+                      reset: () =>
+                        setUnitForm({
+                          unitCode: "",
+                          unitName: "",
+                          dimensionType: "weight",
+                          precisionScale: "3",
+                          isBaseUnit: "false",
+                          isActive: "true",
+                        }),
+                      afterSuccess: loadUnits,
+                    });
+                  }}
+                >
+                  <input
+                    name="unitCode"
+                    placeholder="Unit Code"
+                    value={unitForm.unitCode}
+                    onChange={handleChange(setUnitForm)}
+                    style={styles.input}
+                  />
+                  <input
+                    name="unitName"
+                    placeholder="Unit Name"
+                    value={unitForm.unitName}
+                    onChange={handleChange(setUnitForm)}
+                    style={styles.input}
+                  />
+                  <select
+                    name="dimensionType"
+                    value={unitForm.dimensionType}
+                    onChange={handleChange(setUnitForm)}
+                    style={styles.input}
+                  >
+                    <option value="weight">Weight</option>
+                    <option value="volume">Volume</option>
+                    <option value="count">Count</option>
+                    <option value="distance">Distance</option>
+                    <option value="time">Time</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    max="6"
+                    name="precisionScale"
+                    placeholder="Precision Scale"
+                    value={unitForm.precisionScale}
+                    onChange={handleChange(setUnitForm)}
+                    style={styles.input}
+                  />
+                  <select
+                    name="isBaseUnit"
+                    value={unitForm.isBaseUnit}
+                    onChange={handleChange(setUnitForm)}
+                    style={styles.input}
+                  >
+                    <option value="false">Derived Unit</option>
+                    <option value="true">Base Unit</option>
+                  </select>
+                  <select
+                    name="isActive"
+                    value={unitForm.isActive}
+                    onChange={handleChange(setUnitForm)}
+                    style={styles.input}
+                  >
+                    <option value="true">Active</option>
+                    <option value="false">Inactive</option>
+                  </select>
+                  <button type="submit" style={styles.button} disabled={isSaving}>
+                    {isSaving ? "Saving..." : "Save Unit"}
+                  </button>
+                </form>
+              </div>
+            )}
+          </SectionCard>
+        )}
+
+        {shouldShowSection("materialUnitConversions") && (
+          <SectionCard title="Material Unit Conversions">
+            {renderWorkspaceHeader({
+              title: "Material Conversion Workspace",
+              subtitle:
+                "Define material-specific quantity conversion factors that later dispatch and commercial flows can reuse safely.",
+              count: filteredMaterialUnitConversions.length,
+              listKey: "materialUnitConversions",
+              formOpen: openPanels.materialUnitConversion,
+              onToggleForm: () => togglePanel("materialUnitConversion"),
+              formButtonLabel: "Add Conversion",
+            })}
+
+            {listVisibility.materialUnitConversions && (
+              <>
+                {filteredMaterialUnitConversions.length === 0 ? (
+                  renderSectionEmpty(
+                    "No material unit conversions match this view",
+                    "Add material-wise conversion factors here before using unit-flexible dispatch and commercial workflows."
+                  )
+                ) : (
+                  <div style={styles.tableWrapper}>
+                    <table style={styles.table}>
+                      <thead>
+                        <tr>
+                          <th style={styles.th}>Material</th>
+                          <th style={styles.th}>From</th>
+                          <th style={styles.th}>To</th>
+                          <th style={styles.th}>Factor</th>
+                          <th style={styles.th}>Method</th>
+                          <th style={styles.th}>Effective From</th>
+                          <th style={styles.th}>Effective To</th>
+                          <th style={styles.th}>Status</th>
+                          <th style={styles.th}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredMaterialUnitConversions.map((conversion) => (
+                          <tr key={conversion.id}>
+                            <td style={styles.td}>
+                              {conversion.materialName ||
+                                materialsById.get(String(conversion.materialId))?.materialName ||
+                                "-"}
+                            </td>
+                            <td style={styles.td}>
+                              {conversion.fromUnitCode ||
+                                unitsById.get(String(conversion.fromUnitId))?.unitCode ||
+                                "-"}
+                            </td>
+                            <td style={styles.td}>
+                              {conversion.toUnitCode ||
+                                unitsById.get(String(conversion.toUnitId))?.unitCode ||
+                                "-"}
+                            </td>
+                            <td style={styles.td}>{conversion.conversionFactor}</td>
+                            <td style={styles.td}>{conversion.conversionMethod}</td>
+                            <td style={styles.td}>{conversion.effectiveFrom}</td>
+                            <td style={styles.td}>{conversion.effectiveTo || "-"}</td>
+                            <td style={styles.td}>{renderStatusBadge(conversion.isActive)}</td>
+                            <td style={styles.td}>
+                              {renderActions("materialUnitConversions", conversion)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+
+            {openPanels.materialUnitConversion && canManageMasters && (
+              <div style={styles.compactFormShell}>
+                <h3 style={styles.blockTitle}>Add Material Unit Conversion</h3>
+                <p style={styles.blockSubtitle}>
+                  Each record should represent one direction and one effective date range for a specific material and unit pair.
+                </p>
+
+                <form
+                  style={styles.form}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+
+                    if (
+                      !materialUnitConversionForm.materialId ||
+                      !materialUnitConversionForm.fromUnitId ||
+                      !materialUnitConversionForm.toUnitId ||
+                      !materialUnitConversionForm.conversionFactor ||
+                      !materialUnitConversionForm.effectiveFrom
+                    ) {
+                      setError(
+                        "Material, from unit, to unit, conversion factor, and effective from date are required"
+                      );
+                      setSuccess("");
+                      return;
+                    }
+
+                    handleCreate({
+                      url: "/masters/material-unit-conversions",
+                      payload: {
+                        materialId: Number(materialUnitConversionForm.materialId),
+                        fromUnitId: Number(materialUnitConversionForm.fromUnitId),
+                        toUnitId: Number(materialUnitConversionForm.toUnitId),
+                        conversionFactor: Number(materialUnitConversionForm.conversionFactor),
+                        conversionMethod: materialUnitConversionForm.conversionMethod,
+                        effectiveFrom: materialUnitConversionForm.effectiveFrom,
+                        effectiveTo: materialUnitConversionForm.effectiveTo || null,
+                        notes: materialUnitConversionForm.notes,
+                        isActive: materialUnitConversionForm.isActive === "true",
+                      },
+                      successMessage: "Material unit conversion added successfully",
+                      reset: () =>
+                        setMaterialUnitConversionForm({
+                          materialId: "",
+                          fromUnitId: "",
+                          toUnitId: "",
+                          conversionFactor: "",
+                          conversionMethod: "standard",
+                          effectiveFrom: "",
+                          effectiveTo: "",
+                          notes: "",
+                          isActive: "true",
+                        }),
+                      afterSuccess: loadMaterialUnitConversions,
+                    });
+                  }}
+                >
+                  <select
+                    name="materialId"
+                    value={materialUnitConversionForm.materialId}
+                    onChange={handleChange(setMaterialUnitConversionForm)}
+                    style={styles.input}
+                  >
+                    <option value="">Select Material</option>
+                    {safeMasters.materials.map((material) => (
+                      <option key={material.id} value={material.id}>
+                        {material.materialName}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    name="fromUnitId"
+                    value={materialUnitConversionForm.fromUnitId}
+                    onChange={handleChange(setMaterialUnitConversionForm)}
+                    style={styles.input}
+                  >
+                    <option value="">From Unit</option>
+                    {scopedUnits.map((unit) => (
+                      <option key={unit.id} value={unit.id}>
+                        {unit.unitCode} - {unit.unitName}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    name="toUnitId"
+                    value={materialUnitConversionForm.toUnitId}
+                    onChange={handleChange(setMaterialUnitConversionForm)}
+                    style={styles.input}
+                  >
+                    <option value="">To Unit</option>
+                    {scopedUnits.map((unit) => (
+                      <option key={unit.id} value={unit.id}>
+                        {unit.unitCode} - {unit.unitName}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    min="0.000001"
+                    step="0.000001"
+                    name="conversionFactor"
+                    placeholder="Conversion Factor"
+                    value={materialUnitConversionForm.conversionFactor}
+                    onChange={handleChange(setMaterialUnitConversionForm)}
+                    style={styles.input}
+                  />
+                  <select
+                    name="conversionMethod"
+                    value={materialUnitConversionForm.conversionMethod}
+                    onChange={handleChange(setMaterialUnitConversionForm)}
+                    style={styles.input}
+                  >
+                    <option value="standard">Standard</option>
+                    <option value="density_based">Density Based</option>
+                    <option value="vehicle_capacity_based">Vehicle Capacity Based</option>
+                    <option value="manual_defined">Manual Defined</option>
+                  </select>
+                  <input
+                    type="date"
+                    name="effectiveFrom"
+                    value={materialUnitConversionForm.effectiveFrom}
+                    onChange={handleChange(setMaterialUnitConversionForm)}
+                    style={styles.input}
+                  />
+                  <input
+                    type="date"
+                    name="effectiveTo"
+                    value={materialUnitConversionForm.effectiveTo}
+                    onChange={handleChange(setMaterialUnitConversionForm)}
+                    style={styles.input}
+                  />
+                  <select
+                    name="isActive"
+                    value={materialUnitConversionForm.isActive}
+                    onChange={handleChange(setMaterialUnitConversionForm)}
+                    style={styles.input}
+                  >
+                    <option value="true">Active</option>
+                    <option value="false">Inactive</option>
+                  </select>
+                  <textarea
+                    name="notes"
+                    placeholder="Notes"
+                    value={materialUnitConversionForm.notes}
+                    onChange={handleChange(setMaterialUnitConversionForm)}
+                    style={styles.textarea}
+                  />
+                  <button type="submit" style={styles.button} disabled={isSaving}>
+                    {isSaving ? "Saving..." : "Save Conversion"}
+                  </button>
+                </form>
+              </div>
+            )}
+          </SectionCard>
+        )}
+
         {shouldShowSection("shifts") && (
           <SectionCard title="Shifts">
             {renderWorkspaceHeader({
@@ -3275,6 +4064,19 @@ const styles = {
     outline: "none",
     background: "#fff",
     boxShadow: "0 1px 2px rgba(15,23,42,0.03)",
+  },
+  textarea: {
+    width: "100%",
+    minHeight: "110px",
+    padding: "13px 14px",
+    border: "1px solid #d1d5db",
+    borderRadius: "14px",
+    fontSize: "14px",
+    outline: "none",
+    background: "#fff",
+    boxShadow: "0 1px 2px rgba(15,23,42,0.03)",
+    resize: "vertical",
+    gridColumn: "1 / -1",
   },
   button: {
     padding: "12px 16px",

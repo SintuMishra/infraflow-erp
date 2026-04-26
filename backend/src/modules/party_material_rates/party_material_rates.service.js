@@ -2,6 +2,10 @@ const model = require("./party_material_rates.model");
 const { normalizeCompanyId } = require("../../utils/companyScope.util");
 const { plantExists, materialExists } = require("../dispatch/dispatch.model");
 const { getPartyById } = require("../parties/parties.model");
+const {
+  getUnitById,
+  convertFromTon,
+} = require("../material_unit_conversions/material_unit_conversions.service");
 
 const buildValidationError = (message, statusCode = 400) => {
   const error = new Error(message);
@@ -20,6 +24,7 @@ const allowedRateUnits = [
 ];
 const conversionRateUnits = ["per_cft", "per_brass", "per_cubic_meter", "per_trip", "other"];
 const allowedLoadingChargeBases = ["none", "fixed", "per_ton", "per_brass", "per_trip"];
+const allowedBillingBases = ["per_unit", "per_ton", "per_trip", "fixed"];
 
 const getDefaultRateUnitLabel = (rateUnit) => {
   if (rateUnit === "per_metric_ton") return "metric ton";
@@ -50,13 +55,32 @@ const normalizeRateUnit = (data = {}) => {
 
 const normalizeRatePayload = (data = {}) => {
   const loadingChargeBasis = String(data.loadingChargeBasis || "fixed").trim() || "fixed";
+  const billingBasis = String(data.billingBasis || "").trim() || null;
+  const rawRatePerTon = data.ratePerTon;
+  const rawPricePerUnit = data.pricePerUnit;
 
   return {
     plantId: Number(data.plantId),
     partyId: Number(data.partyId),
     materialId: Number(data.materialId),
-    ratePerTon: Number(data.ratePerTon),
+    ratePerTon:
+      rawRatePerTon === undefined || rawRatePerTon === null || rawRatePerTon === ""
+        ? null
+        : Number(rawRatePerTon),
     ...normalizeRateUnit(data),
+    billingBasis,
+    rateUnitId:
+      data.rateUnitId === undefined || data.rateUnitId === null || data.rateUnitId === ""
+        ? null
+        : Number(data.rateUnitId),
+    pricePerUnit:
+      rawPricePerUnit === undefined || rawPricePerUnit === null || rawPricePerUnit === ""
+        ? null
+        : Number(rawPricePerUnit),
+    conversionId:
+      data.conversionId === undefined || data.conversionId === null || data.conversionId === ""
+        ? null
+        : Number(data.conversionId),
     royaltyMode: String(data.royaltyMode || "").trim(),
     royaltyValue:
       data.royaltyValue === undefined || data.royaltyValue === null || data.royaltyValue === ""
@@ -92,8 +116,48 @@ const validate = (data) => {
     throw buildValidationError("Plant, Party, Material required");
   }
 
-  if (!Number.isFinite(data.ratePerTon) || data.ratePerTon <= 0) {
-    throw buildValidationError("Rate must be > 0");
+  if (data.billingBasis !== null && !allowedBillingBases.includes(data.billingBasis)) {
+    throw buildValidationError("Invalid billingBasis");
+  }
+
+  if (
+    data.ratePerTon !== null &&
+    (!Number.isFinite(data.ratePerTon) || data.ratePerTon <= 0)
+  ) {
+    throw buildValidationError("ratePerTon must be greater than 0");
+  }
+
+  if (
+    data.pricePerUnit !== null &&
+    (!Number.isFinite(data.pricePerUnit) || data.pricePerUnit <= 0)
+  ) {
+    throw buildValidationError("pricePerUnit must be greater than 0");
+  }
+
+  if (data.billingBasis === "per_unit") {
+    if (!Number.isInteger(data.rateUnitId) || data.rateUnitId <= 0) {
+      throw buildValidationError("rateUnitId is required when billingBasis is per_unit");
+    }
+
+    if (!Number.isFinite(data.pricePerUnit) || data.pricePerUnit <= 0) {
+      throw buildValidationError("pricePerUnit is required when billingBasis is per_unit");
+    }
+  }
+
+  if (data.billingBasis === "per_ton") {
+    const hasTonPrice =
+      (Number.isFinite(data.pricePerUnit) && data.pricePerUnit > 0) ||
+      (Number.isFinite(data.ratePerTon) && data.ratePerTon > 0);
+
+    if (!hasTonPrice) {
+      throw buildValidationError(
+        "pricePerUnit or ratePerTon is required when billingBasis is per_ton"
+      );
+    }
+  }
+
+  if (data.ratePerTon === null && data.pricePerUnit === null) {
+    throw buildValidationError("Rate must be greater than 0");
   }
 
   if (!allowedRateUnits.includes(data.rateUnit)) {
@@ -133,6 +197,64 @@ const validate = (data) => {
   } else if (data.tonsPerBrass !== null && (!Number.isFinite(data.tonsPerBrass) || data.tonsPerBrass <= 0)) {
     throw buildValidationError("tonsPerBrass must be greater than 0 when provided");
   }
+};
+
+const legacyRateUnitByUnitCode = {
+  TON: { rateUnit: "per_ton", rateUnitLabel: "ton", rateUnitsPerTon: 1 },
+  MT: { rateUnit: "per_metric_ton", rateUnitLabel: "metric ton", rateUnitsPerTon: 1 },
+  CFT: { rateUnit: "per_cft", rateUnitLabel: "CFT" },
+  BRASS: { rateUnit: "per_brass", rateUnitLabel: "brass" },
+  CUM: { rateUnit: "per_cubic_meter", rateUnitLabel: "cubic meter" },
+  TRIP: { rateUnit: "per_trip", rateUnitLabel: "trip" },
+};
+
+const hydrateLegacyCompatibilityFields = async (data) => {
+  if (data.billingBasis !== "per_unit") {
+    const resolvedRatePerTon =
+      data.ratePerTon !== null && Number.isFinite(data.ratePerTon) && data.ratePerTon > 0
+        ? data.ratePerTon
+        : data.pricePerUnit;
+
+    return {
+      ...data,
+      ratePerTon: resolvedRatePerTon,
+      pricePerUnit:
+        data.pricePerUnit !== null && Number.isFinite(data.pricePerUnit)
+          ? data.pricePerUnit
+          : resolvedRatePerTon,
+    };
+  }
+
+  const unit = await getUnitById(data.rateUnitId, data.companyId || null);
+  const unitCode = String(unit.unitCode || "").trim().toUpperCase();
+  const legacyMeta = legacyRateUnitByUnitCode[unitCode] || {
+    rateUnit: "other",
+    rateUnitLabel: unit.unitName || unit.unitCode || "custom unit",
+  };
+
+  let rateUnitsPerTon = 1;
+  let derivedConversionId = data.conversionId;
+
+  if (legacyMeta.rateUnit !== "per_ton" && legacyMeta.rateUnit !== "per_metric_ton") {
+    const conversion = await convertFromTon(
+      data.materialId,
+      1,
+      data.rateUnitId,
+      data.companyId || null,
+      data.effectiveFrom || null
+    );
+    rateUnitsPerTon = Number(conversion.calculatedQuantity);
+    derivedConversionId = data.conversionId || conversion.originalConversionId || conversion.conversionId;
+  }
+
+  return {
+    ...data,
+    ratePerTon: data.pricePerUnit,
+    rateUnit: legacyMeta.rateUnit,
+    rateUnitLabel: legacyMeta.rateUnitLabel,
+    rateUnitsPerTon,
+    conversionId: derivedConversionId,
+  };
 };
 
 const validateMasterLinks = async ({ plantId, partyId, materialId, companyId }) => {
@@ -184,7 +306,7 @@ const getRates = async (companyId = null) => {
 };
 
 const createRate = async (data) => {
-  const normalized = normalizeRatePayload(data);
+  const normalized = await hydrateLegacyCompatibilityFields(normalizeRatePayload(data));
   validate(normalized);
   await validateMasterLinks(normalized);
   await ensureNoActiveRateConflict(normalized);
@@ -192,7 +314,7 @@ const createRate = async (data) => {
 };
 
 const updateRate = async (id, data) => {
-  const normalized = normalizeRatePayload(data);
+  const normalized = await hydrateLegacyCompatibilityFields(normalizeRatePayload(data));
   validate(normalized);
   await validateMasterLinks(normalized);
   await ensureNoActiveRateConflict({

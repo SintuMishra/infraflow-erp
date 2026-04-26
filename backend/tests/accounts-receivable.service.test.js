@@ -192,3 +192,149 @@ test("createReceivableFromDispatch returns idempotent response when receivable a
     }
   );
 });
+
+test("createReceivableFromDispatch posts receivable using total invoice value from dispatch", async () => {
+  const voucherCalls = [];
+  const dispatchUpdates = [];
+
+  await withMockedModules(
+    "../src/modules/accounts_receivable/accounts_receivable.service.js",
+    [
+      [
+        "../src/config/db",
+        {
+          pool: { query: async () => ({ rows: [] }) },
+          withTransaction: async (work) =>
+            work({
+              query: async (query, params) => {
+                if (/FROM dispatch_reports/i.test(query)) {
+                  return {
+                    rows: [
+                      {
+                        id: 102,
+                        companyId: 1,
+                        status: "completed",
+                        partyId: 45,
+                        dispatchDate: "2026-04-18",
+                        invoiceNumber: "INV-102",
+                        invoiceDate: "2026-04-18",
+                        invoiceAmount: 5678.9,
+                        financeStatus: "ready",
+                        canPostToFinance: true,
+                        financePostingState: "queued",
+                        plantId: 11,
+                        vehicleId: 22,
+                      },
+                    ],
+                  };
+                }
+
+                if (/FROM party_master/i.test(query)) {
+                  return { rows: [{ id: 45 }] };
+                }
+
+                if (/FROM receivables/i.test(query) && /dispatch_report_id/i.test(query)) {
+                  return { rows: [] };
+                }
+
+                if (/FROM ledgers/i.test(query)) {
+                  if (Array.isArray(params) && Number(params[1]) === 501) {
+                    return {
+                      rows: [
+                        {
+                          id: 301,
+                          accountId: 501,
+                          ledgerName: "Party Receivable Ledger",
+                          partyId: 45,
+                          vendorId: null,
+                        },
+                      ],
+                    };
+                  }
+
+                  if (Array.isArray(params) && Number(params[1]) === 601) {
+                    return {
+                      rows: [
+                        {
+                          id: 302,
+                          accountId: 601,
+                          ledgerName: "Dispatch Revenue Ledger",
+                          partyId: null,
+                          vendorId: null,
+                        },
+                      ],
+                    };
+                  }
+                }
+
+                if (/INSERT INTO receivables/i.test(query)) {
+                  return {
+                    rows: [
+                      {
+                        id: 701,
+                        partyId: 45,
+                        dispatchReportId: 102,
+                        invoiceNumber: "INV-102",
+                        invoiceDate: "2026-04-18",
+                        dueDate: "2026-04-25",
+                        voucherId: 801,
+                        amount: 5678.9,
+                        outstandingAmount: 5678.9,
+                        status: "open",
+                        notes: "unit-aware dispatch",
+                      },
+                    ],
+                  };
+                }
+
+                if (/UPDATE dispatch_reports/i.test(query)) {
+                  dispatchUpdates.push({ query, params });
+                  return { rows: [] };
+                }
+
+                return { rows: [] };
+              },
+            }),
+        },
+      ],
+      [
+        "../src/modules/general_ledger/general_ledger.model",
+        {
+          findPostingRule: async () => ({
+            ruleCode: "DISPATCH_TO_RECEIVABLE",
+            voucherType: "sales_invoice",
+            debitAccountId: 501,
+            creditAccountId: 601,
+            requiresApproval: false,
+          }),
+          createVoucher: async (payload) => {
+            voucherCalls.push(payload);
+            return { id: 801, status: "draft" };
+          },
+          postVoucher: async () => ({
+            id: 801,
+            status: "posted",
+            voucherNumber: "SAL-20260418-0002",
+          }),
+          upsertFinanceSourceLink: async () => ({ id: 901 }),
+        },
+      ],
+    ],
+    async ({ createReceivableFromDispatch }) => {
+      const result = await createReceivableFromDispatch({
+        companyId: 1,
+        dispatchId: 102,
+        dueDate: "2026-04-25",
+        notes: "unit-aware dispatch",
+        userId: 7,
+      });
+
+      assert.equal(result.receivable.id, 701);
+      assert.equal(result.receivable.amount, 5678.9);
+      assert.equal(voucherCalls.length, 1);
+      assert.equal(voucherCalls[0].lines[0].debit, 5678.9);
+      assert.equal(voucherCalls[0].lines[1].credit, 5678.9);
+      assert.equal(dispatchUpdates.length, 1);
+    }
+  );
+});

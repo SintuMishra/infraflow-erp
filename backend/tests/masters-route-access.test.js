@@ -74,10 +74,12 @@ test("masters routes keep authenticate -> authorizeRoles -> controller middlewar
 });
 
 test("masters read routes allow admin and read-only operational roles", () => {
-  const readRoutes = [
-    { method: "get", path: "/" },
-    { method: "get", path: "/health-check" },
-  ];
+  const readRoutes = router.stack
+    .filter((layer) => layer.route && Object.keys(layer.route.methods || {})[0] === "get")
+    .map((layer) => ({
+      method: "get",
+      path: layer.route.path,
+    }));
   const allowedRoles = [
     "super_admin",
     "manager",
@@ -116,10 +118,7 @@ test("masters write routes are restricted to super_admin, manager, and hr", () =
       }
 
       const method = Object.keys(layer.route.methods || {})[0];
-      const isReadRoute =
-        method === "get" &&
-        (layer.route.path === "/" || layer.route.path === "/health-check");
-      return !isReadRoute;
+      return method !== "get";
     })
     .map((layer) => ({
       method: Object.keys(layer.route.methods || {})[0],

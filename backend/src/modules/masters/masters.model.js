@@ -207,6 +207,419 @@ const findConfigOptions = async (companyId = null) => {
   return result.rows;
 };
 
+const mapUnitMasterRow = (row) =>
+  row
+    ? {
+        ...row,
+        companyId: row.companyId !== null && row.companyId !== undefined ? Number(row.companyId) : null,
+        precisionScale:
+          row.precisionScale !== null && row.precisionScale !== undefined
+            ? Number(row.precisionScale)
+            : null,
+        isBaseUnit: Boolean(row.isBaseUnit),
+        isActive: Boolean(row.isActive),
+      }
+    : null;
+
+const mapMaterialUnitConversionRow = (row) =>
+  row
+    ? {
+        ...row,
+        companyId: row.companyId !== null && row.companyId !== undefined ? Number(row.companyId) : null,
+        materialId: row.materialId !== null && row.materialId !== undefined ? Number(row.materialId) : null,
+        fromUnitId: row.fromUnitId !== null && row.fromUnitId !== undefined ? Number(row.fromUnitId) : null,
+        toUnitId: row.toUnitId !== null && row.toUnitId !== undefined ? Number(row.toUnitId) : null,
+        conversionFactor:
+          row.conversionFactor !== null && row.conversionFactor !== undefined
+            ? Number(row.conversionFactor)
+            : null,
+        isActive: Boolean(row.isActive),
+      }
+    : null;
+
+const findUnits = async (companyId = null) => {
+  const query = `
+    SELECT
+      um.id,
+      um.company_id AS "companyId",
+      um.unit_code AS "unitCode",
+      um.unit_name AS "unitName",
+      um.dimension_type AS "dimensionType",
+      um.precision_scale AS "precisionScale",
+      um.is_base_unit AS "isBaseUnit",
+      um.is_active AS "isActive"
+    FROM public.unit_master um
+    WHERE ${companyId !== null ? `(um.company_id = $1 OR um.company_id IS NULL)` : `um.company_id IS NULL`}
+    ORDER BY
+      CASE WHEN um.company_id IS NULL THEN 1 ELSE 0 END,
+      um.dimension_type ASC,
+      um.unit_name ASC,
+      um.id ASC
+  `;
+
+  const result = await pool.query(query, companyId !== null ? [companyId] : []);
+  return result.rows.map(mapUnitMasterRow);
+};
+
+const findUnitByIdForScope = async (id, companyId = null) => {
+  const query = `
+    SELECT
+      um.id,
+      um.company_id AS "companyId",
+      um.unit_code AS "unitCode",
+      um.unit_name AS "unitName",
+      um.dimension_type AS "dimensionType",
+      um.precision_scale AS "precisionScale",
+      um.is_base_unit AS "isBaseUnit",
+      um.is_active AS "isActive"
+    FROM public.unit_master um
+    WHERE um.id = $1
+    ${companyId !== null ? `AND (um.company_id = $2 OR um.company_id IS NULL)` : `AND um.company_id IS NULL`}
+    LIMIT 1
+  `;
+
+  const values = companyId !== null ? [id, companyId] : [id];
+  const result = await pool.query(query, values);
+  return mapUnitMasterRow(result.rows[0] || null);
+};
+
+const insertUnit = async ({
+  unitCode,
+  unitName,
+  dimensionType,
+  precisionScale,
+  isBaseUnit,
+  isActive,
+  companyId,
+}) => {
+  const result = await pool.query(
+    `
+      INSERT INTO public.unit_master (
+        company_id,
+        unit_code,
+        unit_name,
+        dimension_type,
+        precision_scale,
+        is_base_unit,
+        is_active
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING
+        id,
+        company_id AS "companyId",
+        unit_code AS "unitCode",
+        unit_name AS "unitName",
+        dimension_type AS "dimensionType",
+        precision_scale AS "precisionScale",
+        is_base_unit AS "isBaseUnit",
+        is_active AS "isActive"
+    `,
+    [companyId || null, unitCode, unitName, dimensionType, precisionScale, isBaseUnit, isActive]
+  );
+
+  return mapUnitMasterRow(result.rows[0]);
+};
+
+const updateUnit = async ({
+  id,
+  unitCode,
+  unitName,
+  dimensionType,
+  precisionScale,
+  isBaseUnit,
+  isActive,
+  companyId,
+}) => {
+  const query = `
+    UPDATE public.unit_master
+    SET
+      unit_code = $1,
+      unit_name = $2,
+      dimension_type = $3,
+      precision_scale = $4,
+      is_base_unit = $5,
+      is_active = $6,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = $7
+    ${
+      companyId !== null
+        ? `AND (company_id = $8 OR company_id IS NULL)`
+        : `AND company_id IS NULL`
+    }
+    RETURNING
+      id,
+      company_id AS "companyId",
+      unit_code AS "unitCode",
+      unit_name AS "unitName",
+      dimension_type AS "dimensionType",
+      precision_scale AS "precisionScale",
+      is_base_unit AS "isBaseUnit",
+      is_active AS "isActive"
+  `;
+
+  const values =
+    companyId !== null
+      ? [unitCode, unitName, dimensionType, precisionScale, isBaseUnit, isActive, id, companyId]
+      : [unitCode, unitName, dimensionType, precisionScale, isBaseUnit, isActive, id];
+
+  const result = await pool.query(query, values);
+  return mapUnitMasterRow(result.rows[0] || null);
+};
+
+const findMaterialById = async (id, companyId = null) => {
+  const hasCompany = await hasColumn("material_master", "company_id");
+  const result = await pool.query(
+    `
+      SELECT
+        id,
+        material_name AS "materialName",
+        material_code AS "materialCode",
+        is_active AS "isActive"
+      FROM public.material_master
+      WHERE id = $1
+      ${hasCompany && companyId !== null ? `AND company_id = $2` : ""}
+      LIMIT 1
+    `,
+    buildScopedParams(hasCompany, companyId, [id])
+  );
+
+  return result.rows[0] || null;
+};
+
+const findMaterialUnitConversions = async (companyId = null) => {
+  const result = await pool.query(
+    `
+      SELECT
+        muc.id,
+        muc.company_id AS "companyId",
+        muc.material_id AS "materialId",
+        mm.material_name AS "materialName",
+        muc.from_unit_id AS "fromUnitId",
+        from_um.unit_code AS "fromUnitCode",
+        from_um.unit_name AS "fromUnitName",
+        muc.to_unit_id AS "toUnitId",
+        to_um.unit_code AS "toUnitCode",
+        to_um.unit_name AS "toUnitName",
+        muc.conversion_factor AS "conversionFactor",
+        muc.conversion_method AS "conversionMethod",
+        muc.effective_from AS "effectiveFrom",
+        muc.effective_to AS "effectiveTo",
+        muc.notes,
+        muc.is_active AS "isActive"
+      FROM public.material_unit_conversions muc
+      INNER JOIN public.material_master mm ON mm.id = muc.material_id
+      INNER JOIN public.unit_master from_um ON from_um.id = muc.from_unit_id
+      INNER JOIN public.unit_master to_um ON to_um.id = muc.to_unit_id
+      WHERE ${companyId !== null ? `(muc.company_id = $1 OR muc.company_id IS NULL)` : `muc.company_id IS NULL`}
+      ORDER BY
+        CASE WHEN muc.company_id IS NULL THEN 1 ELSE 0 END,
+        muc.material_id ASC,
+        muc.from_unit_id ASC,
+        muc.to_unit_id ASC,
+        muc.effective_from DESC,
+        muc.id DESC
+    `,
+    companyId !== null ? [companyId] : []
+  );
+
+  return result.rows.map(mapMaterialUnitConversionRow);
+};
+
+const insertMaterialUnitConversion = async ({
+  materialId,
+  fromUnitId,
+  toUnitId,
+  conversionFactor,
+  conversionMethod,
+  effectiveFrom,
+  effectiveTo,
+  notes,
+  isActive,
+  companyId,
+}) => {
+  const result = await pool.query(
+    `
+      INSERT INTO public.material_unit_conversions (
+        company_id,
+        material_id,
+        from_unit_id,
+        to_unit_id,
+        conversion_factor,
+        conversion_method,
+        effective_from,
+        effective_to,
+        notes,
+        is_active
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING
+        id,
+        company_id AS "companyId",
+        material_id AS "materialId",
+        from_unit_id AS "fromUnitId",
+        to_unit_id AS "toUnitId",
+        conversion_factor AS "conversionFactor",
+        conversion_method AS "conversionMethod",
+        effective_from AS "effectiveFrom",
+        effective_to AS "effectiveTo",
+        notes,
+        is_active AS "isActive"
+    `,
+    [
+      companyId || null,
+      materialId,
+      fromUnitId,
+      toUnitId,
+      conversionFactor,
+      conversionMethod,
+      effectiveFrom,
+      effectiveTo,
+      notes,
+      isActive,
+    ]
+  );
+
+  return mapMaterialUnitConversionRow(result.rows[0]);
+};
+
+const updateMaterialUnitConversion = async ({
+  id,
+  materialId,
+  fromUnitId,
+  toUnitId,
+  conversionFactor,
+  conversionMethod,
+  effectiveFrom,
+  effectiveTo,
+  notes,
+  isActive,
+  companyId,
+}) => {
+  const query = `
+    UPDATE public.material_unit_conversions
+    SET
+      material_id = $1,
+      from_unit_id = $2,
+      to_unit_id = $3,
+      conversion_factor = $4,
+      conversion_method = $5,
+      effective_from = $6,
+      effective_to = $7,
+      notes = $8,
+      is_active = $9,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = $10
+    ${companyId !== null ? `AND company_id = $11` : `AND company_id IS NULL`}
+    RETURNING
+      id,
+      company_id AS "companyId",
+      material_id AS "materialId",
+      from_unit_id AS "fromUnitId",
+      to_unit_id AS "toUnitId",
+      conversion_factor AS "conversionFactor",
+      conversion_method AS "conversionMethod",
+      effective_from AS "effectiveFrom",
+      effective_to AS "effectiveTo",
+      notes,
+      is_active AS "isActive"
+  `;
+
+  const values =
+    companyId !== null
+      ? [
+          materialId,
+          fromUnitId,
+          toUnitId,
+          conversionFactor,
+          conversionMethod,
+          effectiveFrom,
+          effectiveTo,
+          notes,
+          isActive,
+          id,
+          companyId,
+        ]
+      : [
+          materialId,
+          fromUnitId,
+          toUnitId,
+          conversionFactor,
+          conversionMethod,
+          effectiveFrom,
+          effectiveTo,
+          notes,
+          isActive,
+          id,
+        ];
+
+  const result = await pool.query(query, values);
+  return mapMaterialUnitConversionRow(result.rows[0] || null);
+};
+
+const findOverlappingActiveMaterialUnitConversion = async ({
+  idToIgnore = null,
+  materialId,
+  fromUnitId,
+  toUnitId,
+  effectiveFrom,
+  effectiveTo,
+  companyId,
+}) => {
+  const values = [
+    materialId,
+    fromUnitId,
+    toUnitId,
+    effectiveFrom,
+    effectiveTo,
+  ];
+  let nextIndex = values.length + 1;
+
+  let excludeClause = "";
+  if (idToIgnore !== null && idToIgnore !== undefined) {
+    excludeClause = `AND muc.id <> $${nextIndex}`;
+    values.push(idToIgnore);
+    nextIndex += 1;
+  }
+
+  const companyClause = companyId !== null ? `muc.company_id = $${nextIndex}` : `muc.company_id IS NULL`;
+  if (companyId !== null) {
+    values.push(companyId);
+  }
+
+  const result = await pool.query(
+    `
+      SELECT
+        muc.id,
+        muc.company_id AS "companyId",
+        muc.material_id AS "materialId",
+        muc.from_unit_id AS "fromUnitId",
+        muc.to_unit_id AS "toUnitId",
+        muc.conversion_factor AS "conversionFactor",
+        muc.conversion_method AS "conversionMethod",
+        muc.effective_from AS "effectiveFrom",
+        muc.effective_to AS "effectiveTo",
+        muc.is_active AS "isActive"
+      FROM public.material_unit_conversions muc
+      WHERE muc.is_active = TRUE
+        AND muc.material_id = $1
+        AND muc.from_unit_id = $2
+        AND muc.to_unit_id = $3
+        AND NOT (
+          (muc.effective_to IS NOT NULL AND muc.effective_to < $4::date)
+          OR
+          ($5::date IS NOT NULL AND muc.effective_from > $5::date)
+        )
+        ${excludeClause}
+        AND ${companyClause}
+      ORDER BY muc.effective_from DESC, muc.id DESC
+      LIMIT 1
+    `,
+    values
+  );
+
+  return mapMaterialUnitConversionRow(result.rows[0] || null);
+};
+
 const insertConfigOption = async ({
   configType,
   optionLabel,
@@ -817,6 +1230,15 @@ module.exports = {
   findShifts,
   findVehicleTypes,
   findConfigOptions,
+  findUnits,
+  findUnitByIdForScope,
+  insertUnit,
+  updateUnit,
+  findMaterialById,
+  findMaterialUnitConversions,
+  insertMaterialUnitConversion,
+  updateMaterialUnitConversion,
+  findOverlappingActiveMaterialUnitConversion,
   insertConfigOption,
   updateConfigOption,
   setConfigOptionStatus,

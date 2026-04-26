@@ -1,7 +1,13 @@
 const {
   getMasterData,
+  getUnits,
+  getMaterialUnitConversions,
   createConfigOption,
+  createUnitMaster,
+  createMaterialUnitConversionMaster,
   editConfigOption,
+  editUnitMaster,
+  editMaterialUnitConversionMaster,
   toggleConfigOption,
   createCrusherUnit,
   createMaterial,
@@ -69,6 +75,24 @@ const getMasterHealthCheckController = async (req, res) => {
   }
 };
 
+const getUnitsController = async (req, res) => {
+  try {
+    const data = await getUnits(req.companyId || null);
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to load units");
+  }
+};
+
+const getMaterialUnitConversionsController = async (req, res) => {
+  try {
+    const data = await getMaterialUnitConversions(req.companyId || null);
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to load material unit conversions");
+  }
+};
+
 const autoFillMaterialHsnSacController = async (req, res) => {
   try {
     const data = await autoFillMissingMaterialHsnSac(req.companyId || null);
@@ -120,6 +144,63 @@ const addConfigOption = async (req, res) => {
   }
 };
 
+const addUnitController = async (req, res) => {
+  try {
+    const data = await createUnitMaster({
+      ...req.body,
+      companyId: req.companyId || null,
+    });
+    await recordMasterAudit({
+      req,
+      action: "master.unit.created",
+      targetType: "unit",
+      targetId: data.id,
+      details: {
+        unitCode: data.unitCode,
+        unitName: data.unitName,
+        dimensionType: data.dimensionType,
+      },
+    });
+    return res.status(201).json({
+      success: true,
+      message: "Unit created successfully",
+      data,
+    });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to create unit");
+  }
+};
+
+const addMaterialUnitConversionController = async (req, res) => {
+  try {
+    const data = await createMaterialUnitConversionMaster({
+      ...req.body,
+      companyId: req.companyId || null,
+    });
+    await recordMasterAudit({
+      req,
+      action: "master.material_unit_conversion.created",
+      targetType: "material_unit_conversion",
+      targetId: data.id,
+      details: {
+        materialId: data.materialId,
+        fromUnitId: data.fromUnitId,
+        toUnitId: data.toUnitId,
+        conversionFactor: data.conversionFactor,
+        effectiveFrom: data.effectiveFrom,
+        effectiveTo: data.effectiveTo,
+      },
+    });
+    return res.status(201).json({
+      success: true,
+      message: "Material unit conversion created successfully",
+      data,
+    });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to create material unit conversion");
+  }
+};
+
 const editConfigOptionController = async (req, res) => {
   try {
     const data = await editConfigOption({
@@ -146,6 +227,69 @@ const editConfigOptionController = async (req, res) => {
     });
   } catch (error) {
     return sendControllerError(req, res, error, "Failed to update config option");
+  }
+};
+
+const editUnitController = async (req, res) => {
+  try {
+    const data = await editUnitMaster({
+      id: req.params.id,
+      companyId: req.companyId || null,
+      ...req.body,
+    });
+    ensureRecordFound(data, "Unit not found");
+    await recordMasterAudit({
+      req,
+      action: "master.unit.updated",
+      targetType: "unit",
+      targetId: data.id,
+      details: {
+        unitCode: data.unitCode,
+        unitName: data.unitName,
+        dimensionType: data.dimensionType,
+        isActive: data.isActive,
+      },
+    });
+    return res.status(200).json({
+      success: true,
+      message: "Unit updated successfully",
+      data,
+    });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to update unit");
+  }
+};
+
+const editMaterialUnitConversionController = async (req, res) => {
+  try {
+    const data = await editMaterialUnitConversionMaster({
+      id: req.params.id,
+      companyId: req.companyId || null,
+      ...req.body,
+    });
+    ensureRecordFound(data, "Material unit conversion not found");
+    await recordMasterAudit({
+      req,
+      action: "master.material_unit_conversion.updated",
+      targetType: "material_unit_conversion",
+      targetId: data.id,
+      details: {
+        materialId: data.materialId,
+        fromUnitId: data.fromUnitId,
+        toUnitId: data.toUnitId,
+        conversionFactor: data.conversionFactor,
+        effectiveFrom: data.effectiveFrom,
+        effectiveTo: data.effectiveTo,
+        isActive: data.isActive,
+      },
+    });
+    return res.status(200).json({
+      success: true,
+      message: "Material unit conversion updated successfully",
+      data,
+    });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to update material unit conversion");
   }
 };
 
@@ -511,8 +655,14 @@ const toggleVehicleTypeController = async (req, res) => {
 
 module.exports = {
   getMasters,
+  getUnitsController,
+  getMaterialUnitConversionsController,
   addConfigOption,
+  addUnitController,
+  addMaterialUnitConversionController,
   editConfigOptionController,
+  editUnitController,
+  editMaterialUnitConversionController,
   toggleConfigOptionController,
   addCrusherUnit,
   addMaterial,

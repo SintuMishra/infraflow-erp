@@ -1,8 +1,14 @@
 const express = require("express");
 const {
   getMasters,
+  getUnitsController,
+  getMaterialUnitConversionsController,
   addConfigOption,
+  addUnitController,
+  addMaterialUnitConversionController,
   editConfigOptionController,
+  editUnitController,
+  editMaterialUnitConversionController,
   toggleConfigOptionController,
   addCrusherUnit,
   addMaterial,
@@ -50,6 +56,32 @@ router.get(
   getMasterHealthCheckController
 );
 
+router.get(
+  "/units",
+  authenticate,
+  authorizeRoles(
+    "super_admin",
+    "manager",
+    "hr",
+    "crusher_supervisor",
+    "site_engineer"
+  ),
+  getUnitsController
+);
+
+router.get(
+  "/material-unit-conversions",
+  authenticate,
+  authorizeRoles(
+    "super_admin",
+    "manager",
+    "hr",
+    "crusher_supervisor",
+    "site_engineer"
+  ),
+  getMaterialUnitConversionsController
+);
+
 router.post(
   "/config-options",
   authenticate,
@@ -86,6 +118,20 @@ router.post(
 );
 
 router.post(
+  "/units",
+  authenticate,
+  authorizeRoles("super_admin", "manager", "hr"),
+  addUnitController
+);
+
+router.post(
+  "/material-unit-conversions",
+  authenticate,
+  authorizeRoles("super_admin", "manager", "hr"),
+  addMaterialUnitConversionController
+);
+
+router.post(
   "/shifts",
   authenticate,
   authorizeRoles("super_admin", "manager", "hr"),
@@ -118,6 +164,20 @@ router.patch(
   authenticate,
   authorizeRoles("super_admin", "manager", "hr"),
   editMaterialController
+);
+
+router.patch(
+  "/units/:id",
+  authenticate,
+  authorizeRoles("super_admin", "manager", "hr"),
+  editUnitController
+);
+
+router.patch(
+  "/material-unit-conversions/:id",
+  authenticate,
+  authorizeRoles("super_admin", "manager", "hr"),
+  editMaterialUnitConversionController
 );
 
 router.patch(
