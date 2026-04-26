@@ -271,6 +271,12 @@ if (env.nodeEnv === "production" && env.exposePasswordResetToken) {
 }
 
 if (env.nodeEnv === "production") {
+  if (env.passwordResetDeliveryMode === "token_response") {
+    throw new Error(
+      "PASSWORD_RESET_DELIVERY_MODE cannot be token_response in production"
+    );
+  }
+
   if (env.corsOrigin === "*") {
     throw new Error("CORS_ORIGIN cannot be * in production");
   }
@@ -302,6 +308,15 @@ if (env.nodeEnv === "production") {
         "ONBOARDING_BOOTSTRAP_SECRET must be a strong non-placeholder secret with minimum length 24 in production"
       );
     }
+  }
+
+  if (
+    env.passwordResetDeliveryMode === "webhook" &&
+    !env.passwordResetWebhookUrl
+  ) {
+    throw new Error(
+      "PASSWORD_RESET_WEBHOOK_URL is required when PASSWORD_RESET_DELIVERY_MODE=webhook in production"
+    );
   }
 }
 

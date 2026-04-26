@@ -161,3 +161,52 @@ test("env config blocks weak onboarding bootstrap secret when provided in produc
   process.env = originalEnv;
   delete require.cache[envModulePath];
 });
+
+test("env config blocks token_response password reset delivery in production", async () => {
+  const originalEnv = { ...process.env };
+
+  process.env.JWT_SECRET = "prod_jwt_secret_value_0123456789ABCDEF";
+  process.env.DB_HOST = "localhost";
+  process.env.DB_NAME = "construction_erp_db";
+  process.env.DB_USER = "postgres";
+  process.env.DB_PASSWORD = "postgres";
+  process.env.NODE_ENV = "production";
+  process.env.CORS_ORIGIN = "https://erp.sinsoftware.com";
+  process.env.EXPOSE_PASSWORD_RESET_TOKEN = "false";
+  process.env.PASSWORD_RESET_DELIVERY_MODE = "token_response";
+
+  delete require.cache[envModulePath];
+
+  assert.throws(
+    () => require("../src/config/env"),
+    /PASSWORD_RESET_DELIVERY_MODE cannot be token_response in production/
+  );
+
+  process.env = originalEnv;
+  delete require.cache[envModulePath];
+});
+
+test("env config requires password reset webhook url for webhook delivery in production", async () => {
+  const originalEnv = { ...process.env };
+
+  process.env.JWT_SECRET = "prod_jwt_secret_value_0123456789ABCDEF";
+  process.env.DB_HOST = "localhost";
+  process.env.DB_NAME = "construction_erp_db";
+  process.env.DB_USER = "postgres";
+  process.env.DB_PASSWORD = "postgres";
+  process.env.NODE_ENV = "production";
+  process.env.CORS_ORIGIN = "https://erp.sinsoftware.com";
+  process.env.EXPOSE_PASSWORD_RESET_TOKEN = "false";
+  process.env.PASSWORD_RESET_DELIVERY_MODE = "webhook";
+  delete process.env.PASSWORD_RESET_WEBHOOK_URL;
+
+  delete require.cache[envModulePath];
+
+  assert.throws(
+    () => require("../src/config/env"),
+    /PASSWORD_RESET_WEBHOOK_URL is required when PASSWORD_RESET_DELIVERY_MODE=webhook in production/
+  );
+
+  process.env = originalEnv;
+  delete require.cache[envModulePath];
+});

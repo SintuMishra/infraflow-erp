@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { getDefaultWorkspacePath } from "../utils/access";
+import { getStoredUser } from "../utils/auth";
 
 function ChangePasswordPage() {
   const navigate = useNavigate();
@@ -25,7 +26,7 @@ function ChangePasswordPage() {
       });
       const token = response.data?.data?.token;
       const refreshToken = response.data?.data?.refreshToken;
-      const existingUser = JSON.parse(localStorage.getItem("erp_user") || "null");
+      const existingUser = getStoredUser();
       const userPayload = response.data?.data?.user || null;
       const user = userPayload
         ? {

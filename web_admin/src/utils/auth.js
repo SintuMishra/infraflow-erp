@@ -3,6 +3,42 @@ import { normalizeRole } from "./roles";
 const TOKEN_KEY = "erp_token";
 const REFRESH_TOKEN_KEY = "erp_refresh_token";
 const USER_KEY = "erp_user";
+const AUTH_STORAGE_KEYS = [TOKEN_KEY, REFRESH_TOKEN_KEY, USER_KEY];
+
+const getBrowserStorage = (type) => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return type === "session" ? window.sessionStorage : window.localStorage;
+  } catch {
+    return null;
+  }
+};
+
+const getAuthStorage = () => {
+  const sessionStorageRef = getBrowserStorage("session");
+  const legacyLocalStorage = getBrowserStorage("local");
+
+  if (!sessionStorageRef) {
+    return legacyLocalStorage;
+  }
+
+  if (legacyLocalStorage) {
+    AUTH_STORAGE_KEYS.forEach((key) => {
+      const legacyValue = legacyLocalStorage.getItem(key);
+
+      if (legacyValue !== null && sessionStorageRef.getItem(key) === null) {
+        sessionStorageRef.setItem(key, legacyValue);
+      }
+
+      legacyLocalStorage.removeItem(key);
+    });
+  }
+
+  return sessionStorageRef;
+};
 
 const parseJwtPayload = (token) => {
   if (!token) return null;
@@ -32,22 +68,23 @@ export const isTokenExpired = (token, skewSeconds = 20) => {
 };
 
 export const getToken = () => {
-  return localStorage.getItem(TOKEN_KEY);
+  return getAuthStorage()?.getItem(TOKEN_KEY) || null;
 };
 
 export const getRefreshToken = () => {
-  return localStorage.getItem(REFRESH_TOKEN_KEY);
+  return getAuthStorage()?.getItem(REFRESH_TOKEN_KEY) || null;
 };
 
 export const getStoredUser = () => {
-  const raw = localStorage.getItem(USER_KEY);
+  const storage = getAuthStorage();
+  const raw = storage?.getItem(USER_KEY) || null;
 
   let storedUser = null;
   if (raw) {
     try {
       storedUser = JSON.parse(raw);
     } catch {
-      localStorage.removeItem(USER_KEY);
+      storage?.removeItem(USER_KEY);
     }
   }
 
@@ -76,23 +113,32 @@ export const getCurrentCompanyId = () => {
 };
 
 export const setSession = ({ token, refreshToken, user }) => {
+  const storage = getAuthStorage();
+  if (!storage) {
+    return;
+  }
+
   if (token) {
-    localStorage.setItem(TOKEN_KEY, token);
+    storage.setItem(TOKEN_KEY, token);
   }
 
   if (refreshToken) {
-    localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    storage.setItem(REFRESH_TOKEN_KEY, refreshToken);
   }
 
   if (user) {
-    localStorage.setItem(USER_KEY, JSON.stringify(user));
+    storage.setItem(USER_KEY, JSON.stringify(user));
   }
 };
 
 export const clearSession = () => {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
+  const sessionStorageRef = getBrowserStorage("session");
+  const legacyLocalStorage = getBrowserStorage("local");
+
+  AUTH_STORAGE_KEYS.forEach((key) => {
+    sessionStorageRef?.removeItem(key);
+    legacyLocalStorage?.removeItem(key);
+  });
 };
 
 export const isAuthenticated = () => {
