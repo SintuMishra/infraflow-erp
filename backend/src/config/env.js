@@ -270,12 +270,12 @@ if (env.nodeEnv === "production" && env.exposePasswordResetToken) {
   );
 }
 
-if (env.nodeEnv === "production") {
-  if (env.passwordResetDeliveryMode === "token_response") {
-    throw new Error(
-      "PASSWORD_RESET_DELIVERY_MODE cannot be token_response in production"
-    );
-  }
+  if (env.nodeEnv === "production") {
+    if (env.passwordResetDeliveryMode === "token_response") {
+      throw new Error(
+        "PASSWORD_RESET_DELIVERY_MODE cannot be token_response in production. Use webhook for industrial-grade recovery or disabled if password reset is not enabled yet."
+      );
+    }
 
   if (env.corsOrigin === "*") {
     throw new Error("CORS_ORIGIN cannot be * in production");
