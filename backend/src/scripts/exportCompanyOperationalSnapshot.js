@@ -70,6 +70,48 @@ const buildUpdateThenInsert = ({
     return section(title, "-- No rows found in local snapshot.");
   }
 
+  const seedBlock = `seed(${seedColumns.join(", ")}) AS (
+  VALUES
+${valuesBlock(rows, seedColumns)}
+)`;
+
+  if (!updateSql) {
+    return section(
+      title,
+      `${buildTargetCompanyCte(companyCode)},
+${seedBlock}
+${insertSql}`
+    );
+  }
+
+  return section(
+    title,
+    `${buildTargetCompanyCte(companyCode)},
+${seedBlock}
+${updateSql}
+
+${buildTargetCompanyCte(companyCode)},
+${seedBlock}
+${insertSql}`
+  );
+};
+
+const buildDeleteSection = ({
+  title,
+  companyCode,
+  seedColumns,
+  rows,
+  deleteSql,
+  deleteAllSql,
+}) => {
+  if (!rows.length) {
+    return section(
+      title,
+      `${buildTargetCompanyCte(companyCode)}
+${deleteAllSql}`
+    );
+  }
+
   return section(
     title,
     `${buildTargetCompanyCte(companyCode)},
@@ -77,14 +119,7 @@ seed(${seedColumns.join(", ")}) AS (
   VALUES
 ${valuesBlock(rows, seedColumns)}
 )
-${updateSql}
-
-${buildTargetCompanyCte(companyCode)},
-seed(${seedColumns.join(", ")}) AS (
-  VALUES
-${valuesBlock(rows, seedColumns)}
-)
-${insertSql}`
+${deleteSql}`
   );
 };
 
@@ -99,11 +134,23 @@ const fetchRows = async (query, params = []) => {
 };
 
 const main = async () => {
-  const companyIdArg = process.argv[2];
+  const args = process.argv.slice(2);
+  const companyIdArg = args.find((arg) => /^\d+$/.test(arg));
+  const modeArg = args.find((arg) => arg.startsWith("--mode="));
   const companyId = Number(companyIdArg || 2);
+  const snapshotMode = String(modeArg || "--mode=preserve")
+    .split("=")[1]
+    .trim()
+    .toLowerCase();
 
   if (!Number.isInteger(companyId) || companyId <= 0) {
     throw new Error("Company id must be a positive integer.");
+  }
+
+  if (!["preserve", "sync", "prune"].includes(snapshotMode)) {
+    throw new Error(
+      "Snapshot mode must be either --mode=preserve, --mode=sync, or --mode=prune."
+    );
   }
 
   const company = await fetchSingleRow(
@@ -126,8 +173,13 @@ const main = async () => {
     process.cwd(),
     "db",
     "admin",
-    `${today}_company_${companyId}_operational_master_snapshot.sql`
+    snapshotMode === "sync"
+      ? `${today}_company_${companyId}_operational_master_sync.sql`
+      : snapshotMode === "prune"
+        ? `${today}_company_${companyId}_operational_master_prune.sql`
+        : `${today}_company_${companyId}_operational_master_snapshot.sql`
   );
+  const maybeUpdate = (sql) => (snapshotMode === "sync" ? sql : null);
 
   const companyProfileRows = await fetchRows(
     `
@@ -149,7 +201,7 @@ const main = async () => {
       ifsc_code AS "ifscCode",
       terms_notes AS "termsNotes",
       is_active AS "isActive",
-      company_logo_url AS "companyLogoUrl"
+      NULL::text AS "companyLogoUrl"
     FROM public.company_profile
     WHERE company_id = $1
     `,
@@ -380,6 +432,7 @@ const main = async () => {
     `
     SELECT
       mm.material_code AS "materialCode",
+      mm.material_name AS "materialName",
       fu.unit_code AS "fromUnitCode",
       tu.unit_code AS "toUnitCode",
       muc.conversion_factor AS "conversionFactor",
@@ -404,6 +457,7 @@ const main = async () => {
       pl.plant_code AS "plantCode",
       pt.party_code AS "partyCode",
       mm.material_code AS "materialCode",
+      mm.material_name AS "materialName",
       pmr.effective_from::text AS "effectiveFrom",
       pmr.rate_per_ton AS "ratePerTon",
       pmr.royalty_mode AS "royaltyMode",
@@ -436,6 +490,7 @@ const main = async () => {
       pl.plant_code AS "plantCode",
       vm.vendor_name AS "vendorName",
       mm.material_code AS "materialCode",
+      mm.material_name AS "materialName",
       tr.rate_type AS "rateType",
       tr.rate_value AS "rateValue",
       tr.distance_km AS "distanceKm",
@@ -462,13 +517,778 @@ const main = async () => {
 -- Company: ${company.companyName}
 -- Company Code: ${companyCode}
 -- Source Company ID: ${companyId}
+-- Mode: ${snapshotMode}
 -- Purpose:
 -- Recreate locally-fed operational master/rate data in another database
--- without manual re-entry. This script only updates/inserts matching rows.
--- It does not delete unrelated target-company data.
+-- without manual re-entry.
+-- Preserve mode only inserts missing rows so already-fed target data stays intact.
+-- Sync mode updates matching rows and inserts missing rows.
+-- Prune mode deletes target-company rows that do not exist in the current local snapshot.
+-- The script never deletes unrelated target-company data.
 `);
 
-  chunks.push(
+  if (snapshotMode === "prune") {
+    chunks.push(
+      buildDeleteSection({
+        title: "Transport Rates Prune",
+        companyCode,
+        seedColumns: [
+          "plantCode",
+          "vendorName",
+          "materialCode",
+          "materialName",
+          "rateType",
+          "rateValue",
+          "distanceKm",
+          "isActive",
+          "rateUnitCode",
+          "billingBasis",
+          "minimumCharge",
+        ],
+        rows: transportRateRows,
+        deleteSql: `DELETE FROM public.transport_rates tr
+WHERE tr.company_id = (SELECT company_id FROM target_company)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.dispatch_reports dr
+    WHERE dr.transport_rate_id = tr.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM seed
+    WHERE tr.plant_id = (
+        SELECT pl.id
+        FROM public.plant_master pl
+        WHERE pl.company_id = (SELECT company_id FROM target_company)
+          AND LOWER(BTRIM(pl.plant_code)) = LOWER(BTRIM(seed.plantCode))
+        LIMIT 1
+      )
+      AND tr.vendor_id = (
+        SELECT vm.id
+        FROM public.vendor_master vm
+        WHERE vm.company_id = (SELECT company_id FROM target_company)
+          AND LOWER(BTRIM(vm.vendor_name)) = LOWER(BTRIM(seed.vendorName))
+        LIMIT 1
+      )
+      AND tr.material_id = (
+        SELECT mm.id
+        FROM public.material_master mm
+        WHERE mm.company_id = (SELECT company_id FROM target_company)
+          AND (
+            LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+            OR LOWER(BTRIM(mm.material_name)) = LOWER(BTRIM(seed.materialName))
+          )
+        LIMIT 1
+      )
+      AND COALESCE(LOWER(BTRIM(tr.rate_type)), '') = COALESCE(LOWER(BTRIM(seed.rateType)), '')
+      AND COALESCE(tr.distance_km, -1) = COALESCE(seed.distanceKm::numeric, -1)
+  );`,
+        deleteAllSql: `DELETE FROM public.transport_rates
+WHERE company_id = (SELECT company_id FROM target_company);`,
+      })
+    );
+
+    chunks.push(
+      buildDeleteSection({
+        title: "Party Material Rates Prune",
+        companyCode,
+        seedColumns: [
+          "plantCode",
+          "partyCode",
+          "materialCode",
+          "materialName",
+          "effectiveFrom",
+          "ratePerTon",
+          "royaltyMode",
+          "royaltyValue",
+          "loadingCharge",
+          "notes",
+          "isActive",
+          "tonsPerBrass",
+          "rateUnit",
+          "rateUnitLabel",
+          "rateUnitsPerTon",
+          "loadingChargeBasis",
+          "rateUnitCode",
+          "billingBasis",
+          "pricePerUnit",
+        ],
+        rows: partyRateRows,
+        deleteSql: `DELETE FROM public.party_material_rates pmr
+WHERE pmr.company_id = (SELECT company_id FROM target_company)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.dispatch_reports dr
+    WHERE dr.party_material_rate_id = pmr.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM seed
+    WHERE pmr.plant_id = (
+        SELECT pl.id
+        FROM public.plant_master pl
+        WHERE pl.company_id = (SELECT company_id FROM target_company)
+          AND LOWER(BTRIM(pl.plant_code)) = LOWER(BTRIM(seed.plantCode))
+        LIMIT 1
+      )
+      AND pmr.party_id = (
+        SELECT pt.id
+        FROM public.party_master pt
+        WHERE pt.company_id = (SELECT company_id FROM target_company)
+          AND LOWER(BTRIM(pt.party_code)) = LOWER(BTRIM(seed.partyCode))
+        LIMIT 1
+      )
+      AND pmr.material_id = (
+        SELECT mm.id
+        FROM public.material_master mm
+        WHERE mm.company_id = (SELECT company_id FROM target_company)
+          AND (
+            LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+            OR LOWER(BTRIM(mm.material_name)) = LOWER(BTRIM(seed.materialName))
+          )
+        LIMIT 1
+      )
+      AND COALESCE(pmr.effective_from::text, '') = COALESCE(seed.effectiveFrom, '')
+  );`,
+        deleteAllSql: `DELETE FROM public.party_material_rates
+WHERE company_id = (SELECT company_id FROM target_company);`,
+      })
+    );
+
+    chunks.push(
+      buildDeleteSection({
+        title: "Material Unit Conversions Prune",
+        companyCode,
+        seedColumns: [
+          "materialCode",
+          "materialName",
+          "fromUnitCode",
+          "toUnitCode",
+          "conversionFactor",
+          "conversionMethod",
+          "effectiveFrom",
+          "effectiveTo",
+          "notes",
+          "isActive",
+        ],
+        rows: conversionRows,
+        deleteSql: `DELETE FROM public.material_unit_conversions muc
+WHERE muc.company_id = (SELECT company_id FROM target_company)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.dispatch_reports dr
+    WHERE dr.conversion_id = muc.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.party_material_rates pmr
+    WHERE pmr.conversion_id = muc.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM seed
+    WHERE muc.material_id = (
+        SELECT mm.id
+        FROM public.material_master mm
+        WHERE mm.company_id = (SELECT company_id FROM target_company)
+          AND (
+            LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+            OR LOWER(BTRIM(mm.material_name)) = LOWER(BTRIM(seed.materialName))
+          )
+        LIMIT 1
+      )
+      AND muc.from_unit_id = (
+        SELECT um.id
+        FROM public.unit_master um
+        WHERE LOWER(BTRIM(um.unit_code)) = LOWER(BTRIM(seed.fromUnitCode))
+          AND (um.company_id IS NULL OR um.company_id = (SELECT company_id FROM target_company))
+        ORDER BY um.company_id NULLS FIRST, um.id
+        LIMIT 1
+      )
+      AND muc.to_unit_id = (
+        SELECT um.id
+        FROM public.unit_master um
+        WHERE LOWER(BTRIM(um.unit_code)) = LOWER(BTRIM(seed.toUnitCode))
+          AND (um.company_id IS NULL OR um.company_id = (SELECT company_id FROM target_company))
+        ORDER BY um.company_id NULLS FIRST, um.id
+        LIMIT 1
+      )
+      AND COALESCE(muc.effective_from::text, '') = COALESCE(seed.effectiveFrom, '')
+  );`,
+        deleteAllSql: `DELETE FROM public.material_unit_conversions
+WHERE company_id = (SELECT company_id FROM target_company);`,
+      })
+    );
+
+    chunks.push(
+      buildDeleteSection({
+        title: "Vehicles Prune",
+        companyCode,
+        seedColumns: [
+          "vehicleNumber",
+          "vehicleType",
+          "assignedDriver",
+          "status",
+          "ownershipType",
+          "vendorName",
+          "plantCode",
+          "vehicleCapacityTons",
+        ],
+        rows: vehicleRows,
+        deleteSql: `DELETE FROM public.vehicles vh
+WHERE vh.company_id = (SELECT company_id FROM target_company)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.dispatch_reports dr
+    WHERE dr.vehicle_id = vh.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.ledgers l
+    WHERE l.vehicle_id = vh.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.voucher_lines vl
+    WHERE vl.vehicle_id = vh.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM seed
+    WHERE LOWER(BTRIM(vh.vehicle_number)) = LOWER(BTRIM(seed.vehicleNumber))
+  );`,
+        deleteAllSql: `DELETE FROM public.vehicles
+WHERE company_id = (SELECT company_id FROM target_company);`,
+      })
+    );
+
+    chunks.push(
+      buildDeleteSection({
+        title: "Employees Prune",
+        companyCode,
+        seedColumns: [
+          "employeeCode",
+          "fullName",
+          "department",
+          "designation",
+          "status",
+          "relievingDate",
+          "remarks",
+          "mobileNumber",
+          "joiningDate",
+          "email",
+          "emergencyContactNumber",
+          "address",
+          "employmentType",
+          "idProofType",
+          "idProofNumber",
+        ],
+        rows: employeeRows,
+        deleteSql: `DELETE FROM public.employees emp
+WHERE emp.company_id = (SELECT company_id FROM target_company)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.purchase_requests pr
+    WHERE pr.requested_by_employee_id = emp.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.users u
+    WHERE u.employee_id = emp.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM seed
+    WHERE LOWER(BTRIM(emp.employee_code)) = LOWER(BTRIM(seed.employeeCode))
+  );`,
+        deleteAllSql: `DELETE FROM public.employees
+WHERE company_id = (SELECT company_id FROM target_company);`,
+      })
+    );
+
+    chunks.push(
+      buildDeleteSection({
+        title: "Party Master Prune",
+        companyCode,
+        seedColumns: [
+          "partyName",
+          "partyCode",
+          "contactPerson",
+          "mobileNumber",
+          "gstin",
+          "pan",
+          "addressLine1",
+          "addressLine2",
+          "city",
+          "stateName",
+          "stateCode",
+          "pincode",
+          "partyType",
+          "isActive",
+          "dispatchQuantityMode",
+          "defaultDispatchUnitCode",
+          "allowManualDispatchConversion",
+        ],
+        rows: partyRows,
+        deleteSql: `DELETE FROM public.party_master pm
+WHERE pm.company_id = (SELECT company_id FROM target_company)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.dispatch_reports dr
+    WHERE dr.party_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.ledgers l
+    WHERE l.party_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.party_material_rates pmr
+    WHERE pmr.party_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.party_orders po
+    WHERE po.party_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.payables p
+    WHERE p.party_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.receivables r
+    WHERE r.party_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.voucher_lines vl
+    WHERE vl.party_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM seed
+    WHERE LOWER(BTRIM(pm.party_code)) = LOWER(BTRIM(seed.partyCode))
+  );`,
+        deleteAllSql: `DELETE FROM public.party_master
+WHERE company_id = (SELECT company_id FROM target_company);`,
+      })
+    );
+
+    chunks.push(
+      buildDeleteSection({
+        title: "Vendor Master Prune",
+        companyCode,
+        seedColumns: [
+          "vendorName",
+          "vendorType",
+          "contactPerson",
+          "mobileNumber",
+          "address",
+          "isActive",
+        ],
+        rows: vendorRows,
+        deleteSql: `DELETE FROM public.vendor_master vm
+WHERE vm.company_id = (SELECT company_id FROM target_company)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.dispatch_reports dr
+    WHERE dr.transport_vendor_id = vm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.goods_receipts gr
+    WHERE gr.vendor_id = vm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.ledgers l
+    WHERE l.vendor_id = vm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.payables p
+    WHERE p.vendor_id = vm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.purchase_invoices pi
+    WHERE pi.vendor_id = vm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.purchase_orders po
+    WHERE po.vendor_id = vm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.purchase_request_line_supplier_quotes prlsq
+    WHERE prlsq.vendor_id = vm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.purchase_requests pr
+    WHERE pr.vendor_id = vm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.transport_rates tr
+    WHERE tr.vendor_id = vm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.vehicles vh
+    WHERE vh.vendor_id = vm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.voucher_lines vl
+    WHERE vl.vendor_id = vm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM seed
+    WHERE LOWER(BTRIM(vm.vendor_name)) = LOWER(BTRIM(seed.vendorName))
+  );`,
+        deleteAllSql: `DELETE FROM public.vendor_master
+WHERE company_id = (SELECT company_id FROM target_company);`,
+      })
+    );
+
+    chunks.push(
+      buildDeleteSection({
+        title: "Vehicle Type Master Prune",
+        companyCode,
+        seedColumns: ["typeName", "category", "isActive"],
+        rows: vehicleTypeRows,
+        deleteSql: `DELETE FROM public.vehicle_type_master vt
+WHERE vt.company_id = (SELECT company_id FROM target_company)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM seed
+    WHERE LOWER(BTRIM(vt.type_name)) = LOWER(BTRIM(seed.typeName))
+  );`,
+        deleteAllSql: `DELETE FROM public.vehicle_type_master
+WHERE company_id = (SELECT company_id FROM target_company);`,
+      })
+    );
+
+    chunks.push(
+      buildDeleteSection({
+        title: "Crusher Units Prune",
+        companyCode,
+        seedColumns: [
+          "unitName",
+          "unitCode",
+          "location",
+          "powerSourceType",
+          "isActive",
+          "plantType",
+        ],
+        rows: crusherRows,
+        deleteSql: `DELETE FROM public.crusher_units cu
+WHERE cu.company_id = (SELECT company_id FROM target_company)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.boulder_daily_reports bdr
+    WHERE bdr.crusher_unit_id = cu.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM seed
+    WHERE LOWER(BTRIM(cu.unit_code)) = LOWER(BTRIM(seed.unitCode))
+  );`,
+        deleteAllSql: `DELETE FROM public.crusher_units
+WHERE company_id = (SELECT company_id FROM target_company);`,
+      })
+    );
+
+    chunks.push(
+      buildDeleteSection({
+        title: "Plant Master Prune",
+        companyCode,
+        seedColumns: [
+          "plantName",
+          "plantCode",
+          "plantType",
+          "location",
+          "powerSourceType",
+          "isActive",
+        ],
+        rows: plantRows,
+        deleteSql: `DELETE FROM public.plant_master pm
+WHERE pm.company_id = (SELECT company_id FROM target_company)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.boulder_daily_reports bdr
+    WHERE bdr.plant_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.crusher_daily_reports cdr
+    WHERE cdr.plant_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.dispatch_reports dr
+    WHERE dr.plant_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.equipment_logs el
+    WHERE el.plant_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.ledgers l
+    WHERE l.plant_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.party_material_rates pmr
+    WHERE pmr.plant_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.party_orders po
+    WHERE po.plant_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.project_daily_reports pdr
+    WHERE pdr.plant_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.transport_rates tr
+    WHERE tr.plant_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.vehicles vh
+    WHERE vh.plant_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.voucher_lines vl
+    WHERE vl.plant_id = pm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM seed
+    WHERE LOWER(BTRIM(pm.plant_code)) = LOWER(BTRIM(seed.plantCode))
+  );`,
+        deleteAllSql: `DELETE FROM public.plant_master
+WHERE company_id = (SELECT company_id FROM target_company);`,
+      })
+    );
+
+    chunks.push(
+      buildDeleteSection({
+        title: "Material Master Prune",
+        companyCode,
+        seedColumns: [
+          "materialName",
+          "materialCode",
+          "category",
+          "unit",
+          "isActive",
+          "gstRate",
+          "hsnSacCode",
+        ],
+        rows: materialRows,
+        deleteSql: `DELETE FROM public.material_master mm
+WHERE mm.company_id = (SELECT company_id FROM target_company)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.dispatch_reports dr
+    WHERE dr.material_id = mm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.goods_receipt_lines grl
+    WHERE grl.material_id = mm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.material_unit_conversions muc
+    WHERE muc.material_id = mm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.party_material_rates pmr
+    WHERE pmr.material_id = mm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.party_orders po
+    WHERE po.material_id = mm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.purchase_invoice_lines pil
+    WHERE pil.material_id = mm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.purchase_order_lines pol
+    WHERE pol.material_id = mm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.purchase_request_lines prl
+    WHERE prl.material_id = mm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.transport_rates tr
+    WHERE tr.material_id = mm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM seed
+    WHERE LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+       OR LOWER(BTRIM(mm.material_name)) = LOWER(BTRIM(seed.materialName))
+  );`,
+        deleteAllSql: `DELETE FROM public.material_master
+WHERE company_id = (SELECT company_id FROM target_company);`,
+      })
+    );
+
+    chunks.push(
+      buildDeleteSection({
+        title: "Referenced Units Prune",
+        companyCode,
+        seedColumns: [
+          "scopeKey",
+          "unitCode",
+          "unitName",
+          "dimensionType",
+          "precisionScale",
+          "isBaseUnit",
+          "isActive",
+        ],
+        rows: unitRows,
+        deleteSql: `DELETE FROM public.unit_master um
+WHERE um.company_id = (SELECT company_id FROM target_company)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.dispatch_reports dr
+    WHERE dr.billing_unit_id_snapshot = um.id
+       OR dr.entered_unit_id = um.id
+       OR dr.source_vehicle_capacity_unit_id = um.id
+       OR dr.transport_unit_id_snapshot = um.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.material_unit_conversions muc
+    WHERE muc.from_unit_id = um.id
+       OR muc.to_unit_id = um.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.party_master pm
+    WHERE pm.default_dispatch_unit_id = um.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.party_material_rates pmr
+    WHERE pmr.rate_unit_id = um.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.transport_rates tr
+    WHERE tr.rate_unit_id = um.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM seed
+    WHERE seed.scopeKey = 'company'
+      AND LOWER(BTRIM(um.unit_code)) = LOWER(BTRIM(seed.unitCode))
+  );`,
+        deleteAllSql: `DELETE FROM public.unit_master
+WHERE company_id = (SELECT company_id FROM target_company);`,
+      })
+    );
+
+    chunks.push(
+      buildDeleteSection({
+        title: "Config Options Prune",
+        companyCode,
+        seedColumns: ["configType", "optionLabel", "optionValue", "sortOrder", "isActive"],
+        rows: configRows,
+        deleteSql: `DELETE FROM public.master_config_options mco
+WHERE mco.company_id = (SELECT company_id FROM target_company)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM seed
+    WHERE LOWER(BTRIM(mco.config_type)) = LOWER(BTRIM(seed.configType))
+      AND LOWER(BTRIM(COALESCE(mco.option_value, ''))) = LOWER(BTRIM(COALESCE(seed.optionValue, '')))
+  );`,
+        deleteAllSql: `DELETE FROM public.master_config_options
+WHERE company_id = (SELECT company_id FROM target_company);`,
+      })
+    );
+
+    chunks.push(
+      buildDeleteSection({
+        title: "Shift Master Prune",
+        companyCode,
+        seedColumns: ["shiftName", "startTime", "endTime", "isActive"],
+        rows: shiftRows,
+        deleteSql: `DELETE FROM public.shift_master sm
+WHERE sm.company_id = (SELECT company_id FROM target_company)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.boulder_daily_reports bdr
+    WHERE bdr.shift_id = sm.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM seed
+    WHERE LOWER(BTRIM(sm.shift_name)) = LOWER(BTRIM(seed.shiftName))
+  );`,
+        deleteAllSql: `DELETE FROM public.shift_master
+WHERE company_id = (SELECT company_id FROM target_company);`,
+      })
+    );
+
+    chunks.push(
+      buildDeleteSection({
+        title: "Company Profile Prune",
+        companyCode,
+        seedColumns: [
+          "companyName",
+          "branchName",
+          "addressLine1",
+          "addressLine2",
+          "city",
+          "stateName",
+          "stateCode",
+          "pincode",
+          "gstin",
+          "pan",
+          "mobile",
+          "email",
+          "bankName",
+          "bankAccount",
+          "ifscCode",
+          "termsNotes",
+          "isActive",
+          "companyLogoUrl",
+        ],
+        rows: companyProfileRows,
+        deleteSql: `DELETE FROM public.company_profile cp
+WHERE cp.company_id = (SELECT company_id FROM target_company)
+  AND NOT EXISTS (SELECT 1 FROM seed);`,
+        deleteAllSql: `DELETE FROM public.company_profile
+WHERE company_id = (SELECT company_id FROM target_company);`,
+      })
+    );
+  } else {
+    chunks.push(
     buildUpdateThenInsert({
       title: "Company Profile",
       companyCode,
@@ -493,7 +1313,7 @@ const main = async () => {
         "companyLogoUrl",
       ],
       rows: companyProfileRows,
-      updateSql: `UPDATE public.company_profile cp
+      updateSql: maybeUpdate(`UPDATE public.company_profile cp
 SET
   company_name = seed.companyName,
   branch_name = seed.branchName,
@@ -515,7 +1335,7 @@ SET
   company_logo_url = seed.companyLogoUrl,
   updated_at = CURRENT_TIMESTAMP
 FROM seed
-WHERE cp.company_id = (SELECT company_id FROM target_company);`,
+WHERE cp.company_id = (SELECT company_id FROM target_company);`),
       insertSql: `INSERT INTO public.company_profile (
   company_name,
   branch_name,
@@ -572,7 +1392,7 @@ WHERE NOT EXISTS (
       companyCode,
       seedColumns: ["shiftName", "startTime", "endTime", "isActive"],
       rows: shiftRows,
-      updateSql: `UPDATE public.shift_master sm
+      updateSql: maybeUpdate(`UPDATE public.shift_master sm
 SET
   start_time = seed.startTime::time,
   end_time = seed.endTime::time,
@@ -580,7 +1400,7 @@ SET
   updated_at = CURRENT_TIMESTAMP
 FROM seed
 WHERE sm.company_id = (SELECT company_id FROM target_company)
-  AND LOWER(BTRIM(sm.shift_name)) = LOWER(BTRIM(seed.shiftName));`,
+  AND LOWER(BTRIM(sm.shift_name)) = LOWER(BTRIM(seed.shiftName));`),
       insertSql: `INSERT INTO public.shift_master (
   shift_name,
   start_time,
@@ -610,16 +1430,16 @@ WHERE NOT EXISTS (
       companyCode,
       seedColumns: ["configType", "optionLabel", "optionValue", "sortOrder", "isActive"],
       rows: configRows,
-      updateSql: `UPDATE public.master_config_options mco
+      updateSql: maybeUpdate(`UPDATE public.master_config_options mco
 SET
   option_label = seed.optionLabel,
-  sort_order = seed.sortOrder,
+  sort_order = seed.sortOrder::integer,
   is_active = seed.isActive,
   updated_at = CURRENT_TIMESTAMP
 FROM seed
 WHERE mco.company_id = (SELECT company_id FROM target_company)
   AND LOWER(BTRIM(mco.config_type)) = LOWER(BTRIM(seed.configType))
-  AND LOWER(BTRIM(COALESCE(mco.option_value, ''))) = LOWER(BTRIM(COALESCE(seed.optionValue, '')));`,
+  AND LOWER(BTRIM(COALESCE(mco.option_value, ''))) = LOWER(BTRIM(COALESCE(seed.optionValue, '')));`),
       insertSql: `INSERT INTO public.master_config_options (
   config_type,
   option_label,
@@ -632,7 +1452,7 @@ SELECT
   seed.configType,
   seed.optionLabel,
   seed.optionValue,
-  seed.sortOrder,
+  seed.sortOrder::integer,
   seed.isActive,
   (SELECT company_id FROM target_company)
 FROM seed
@@ -659,7 +1479,7 @@ WHERE NOT EXISTS (
         "isActive",
       ],
       rows: plantRows,
-      updateSql: `UPDATE public.plant_master pm
+      updateSql: maybeUpdate(`UPDATE public.plant_master pm
 SET
   plant_name = seed.plantName,
   plant_type = seed.plantType,
@@ -669,7 +1489,7 @@ SET
   updated_at = CURRENT_TIMESTAMP
 FROM seed
 WHERE pm.company_id = (SELECT company_id FROM target_company)
-  AND LOWER(BTRIM(pm.plant_code)) = LOWER(BTRIM(seed.plantCode));`,
+  AND LOWER(BTRIM(pm.plant_code)) = LOWER(BTRIM(seed.plantCode));`),
       insertSql: `INSERT INTO public.plant_master (
   plant_name,
   plant_code,
@@ -710,7 +1530,7 @@ WHERE NOT EXISTS (
         "plantType",
       ],
       rows: crusherRows,
-      updateSql: `UPDATE public.crusher_units cu
+      updateSql: maybeUpdate(`UPDATE public.crusher_units cu
 SET
   unit_name = seed.unitName,
   location = seed.location,
@@ -720,7 +1540,7 @@ SET
   updated_at = CURRENT_TIMESTAMP
 FROM seed
 WHERE cu.company_id = (SELECT company_id FROM target_company)
-  AND LOWER(BTRIM(cu.unit_code)) = LOWER(BTRIM(seed.unitCode));`,
+  AND LOWER(BTRIM(cu.unit_code)) = LOWER(BTRIM(seed.unitCode));`),
       insertSql: `INSERT INTO public.crusher_units (
   unit_name,
   unit_code,
@@ -754,14 +1574,14 @@ WHERE NOT EXISTS (
       companyCode,
       seedColumns: ["typeName", "category", "isActive"],
       rows: vehicleTypeRows,
-      updateSql: `UPDATE public.vehicle_type_master vt
+      updateSql: maybeUpdate(`UPDATE public.vehicle_type_master vt
 SET
   category = seed.category,
   is_active = seed.isActive,
   updated_at = CURRENT_TIMESTAMP
 FROM seed
 WHERE vt.company_id = (SELECT company_id FROM target_company)
-  AND LOWER(BTRIM(vt.type_name)) = LOWER(BTRIM(seed.typeName));`,
+  AND LOWER(BTRIM(vt.type_name)) = LOWER(BTRIM(seed.typeName));`),
       insertSql: `INSERT INTO public.vehicle_type_master (
   type_name,
   category,
@@ -796,7 +1616,7 @@ WHERE NOT EXISTS (
         "isActive",
       ],
       rows: vendorRows,
-      updateSql: `UPDATE public.vendor_master vm
+      updateSql: maybeUpdate(`UPDATE public.vendor_master vm
 SET
   vendor_type = seed.vendorType,
   contact_person = seed.contactPerson,
@@ -806,7 +1626,7 @@ SET
   updated_at = CURRENT_TIMESTAMP
 FROM seed
 WHERE vm.company_id = (SELECT company_id FROM target_company)
-  AND LOWER(BTRIM(vm.vendor_name)) = LOWER(BTRIM(seed.vendorName));`,
+  AND LOWER(BTRIM(vm.vendor_name)) = LOWER(BTRIM(seed.vendorName));`),
       insertSql: `INSERT INTO public.vendor_master (
   vendor_name,
   vendor_type,
@@ -849,7 +1669,7 @@ WHERE NOT EXISTS (
         "vehicleCapacityTons",
       ],
       rows: vehicleRows,
-      updateSql: `UPDATE public.vehicles vh
+      updateSql: maybeUpdate(`UPDATE public.vehicles vh
 SET
   vehicle_type = seed.vehicleType,
   assigned_driver = seed.assignedDriver,
@@ -869,11 +1689,11 @@ SET
       AND LOWER(BTRIM(pm.plant_code)) = LOWER(BTRIM(seed.plantCode))
     LIMIT 1
   ),
-  vehicle_capacity_tons = seed.vehicleCapacityTons,
+  vehicle_capacity_tons = seed.vehicleCapacityTons::numeric,
   updated_at = CURRENT_TIMESTAMP
 FROM seed
 WHERE vh.company_id = (SELECT company_id FROM target_company)
-  AND LOWER(BTRIM(vh.vehicle_number)) = LOWER(BTRIM(seed.vehicleNumber));`,
+  AND LOWER(BTRIM(vh.vehicle_number)) = LOWER(BTRIM(seed.vehicleNumber));`),
       insertSql: `INSERT INTO public.vehicles (
   vehicle_number,
   vehicle_type,
@@ -905,7 +1725,7 @@ SELECT
       AND LOWER(BTRIM(pm.plant_code)) = LOWER(BTRIM(seed.plantCode))
     LIMIT 1
   ),
-  seed.vehicleCapacityTons,
+  seed.vehicleCapacityTons::numeric,
   (SELECT company_id FROM target_company)
 FROM seed
 WHERE NOT EXISTS (
@@ -941,7 +1761,7 @@ WHERE NOT EXISTS (
         "allowManualDispatchConversion",
       ],
       rows: partyRows,
-      updateSql: `UPDATE public.party_master pm
+      updateSql: maybeUpdate(`UPDATE public.party_master pm
 SET
   party_name = seed.partyName,
   contact_person = seed.contactPerson,
@@ -965,11 +1785,11 @@ SET
     ORDER BY um.company_id NULLS FIRST, um.id
     LIMIT 1
   ),
-  allow_manual_dispatch_conversion = seed.allowManualDispatchConversion,
+  allow_manual_dispatch_conversion = seed.allowManualDispatchConversion::boolean,
   updated_at = CURRENT_TIMESTAMP
 FROM seed
 WHERE pm.company_id = (SELECT company_id FROM target_company)
-  AND LOWER(BTRIM(pm.party_code)) = LOWER(BTRIM(seed.partyCode));`,
+  AND LOWER(BTRIM(pm.party_code)) = LOWER(BTRIM(seed.partyCode));`),
       insertSql: `INSERT INTO public.party_master (
   party_name,
   party_code,
@@ -1015,7 +1835,7 @@ SELECT
     ORDER BY um.company_id NULLS FIRST, um.id
     LIMIT 1
   ),
-  seed.allowManualDispatchConversion
+  seed.allowManualDispatchConversion::boolean
 FROM seed
 WHERE NOT EXISTS (
   SELECT 1
@@ -1048,7 +1868,7 @@ WHERE NOT EXISTS (
         "idProofNumber",
       ],
       rows: employeeRows,
-      updateSql: `UPDATE public.employees emp
+      updateSql: maybeUpdate(`UPDATE public.employees emp
 SET
   full_name = seed.fullName,
   department = seed.department,
@@ -1067,7 +1887,7 @@ SET
   updated_at = CURRENT_TIMESTAMP
 FROM seed
 WHERE emp.company_id = (SELECT company_id FROM target_company)
-  AND LOWER(BTRIM(emp.employee_code)) = LOWER(BTRIM(seed.employeeCode));`,
+  AND LOWER(BTRIM(emp.employee_code)) = LOWER(BTRIM(seed.employeeCode));`),
       insertSql: `INSERT INTO public.employees (
   employee_code,
   full_name,
@@ -1127,18 +1947,21 @@ WHERE NOT EXISTS (
         "hsnSacCode",
       ],
       rows: materialRows,
-      updateSql: `UPDATE public.material_master mm
+      updateSql: maybeUpdate(`UPDATE public.material_master mm
 SET
   material_name = seed.materialName,
   category = seed.category,
   unit = seed.unit,
   is_active = seed.isActive,
-  gst_rate = seed.gstRate,
+  gst_rate = seed.gstRate::numeric,
   hsn_sac_code = seed.hsnSacCode,
   updated_at = CURRENT_TIMESTAMP
 FROM seed
 WHERE mm.company_id = (SELECT company_id FROM target_company)
-  AND LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode));`,
+  AND (
+    LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+    OR LOWER(BTRIM(mm.material_name)) = LOWER(BTRIM(seed.materialName))
+  );`),
       insertSql: `INSERT INTO public.material_master (
   material_name,
   material_code,
@@ -1155,7 +1978,7 @@ SELECT
   seed.category,
   seed.unit,
   seed.isActive,
-  seed.gstRate,
+  seed.gstRate::numeric,
   seed.hsnSacCode,
   (SELECT company_id FROM target_company)
 FROM seed
@@ -1163,7 +1986,10 @@ WHERE NOT EXISTS (
   SELECT 1
   FROM public.material_master existing
   WHERE existing.company_id = (SELECT company_id FROM target_company)
-    AND LOWER(BTRIM(existing.material_code)) = LOWER(BTRIM(seed.materialCode))
+    AND (
+      LOWER(BTRIM(existing.material_code)) = LOWER(BTRIM(seed.materialCode))
+      OR LOWER(BTRIM(existing.material_name)) = LOWER(BTRIM(seed.materialName))
+    )
 );`,
     })
   );
@@ -1182,31 +2008,20 @@ WHERE NOT EXISTS (
         "isActive",
       ],
       rows: unitRows,
-      updateSql: `UPDATE public.unit_master um
+      updateSql: maybeUpdate(`UPDATE public.unit_master um
 SET
   unit_name = seed.unitName,
   dimension_type = seed.dimensionType,
-  precision_scale = seed.precisionScale,
+  precision_scale = seed.precisionScale::integer,
   is_base_unit = seed.isBaseUnit,
   is_active = seed.isActive,
   updated_at = CURRENT_TIMESTAMP
 FROM seed
 WHERE LOWER(BTRIM(um.unit_code)) = LOWER(BTRIM(seed.unitCode))
-  AND COALESCE(um.company_id, 0) = COALESCE(${buildUnitScopeSql("company")}, 0)
-  AND seed.scopeKey = 'company';
-
-UPDATE public.unit_master um
-SET
-  unit_name = seed.unitName,
-  dimension_type = seed.dimensionType,
-  precision_scale = seed.precisionScale,
-  is_base_unit = seed.isBaseUnit,
-  is_active = seed.isActive,
-  updated_at = CURRENT_TIMESTAMP
-FROM seed
-WHERE LOWER(BTRIM(um.unit_code)) = LOWER(BTRIM(seed.unitCode))
-  AND um.company_id IS NULL
-  AND seed.scopeKey = 'global';`,
+  AND (
+    (seed.scopeKey = 'company' AND um.company_id = (SELECT company_id FROM target_company))
+    OR (seed.scopeKey = 'global' AND um.company_id IS NULL)
+  );`),
       insertSql: `INSERT INTO public.unit_master (
   company_id,
   unit_code,
@@ -1221,7 +2036,7 @@ SELECT
   seed.unitCode,
   seed.unitName,
   seed.dimensionType,
-  seed.precisionScale,
+  seed.precisionScale::integer,
   seed.isBaseUnit,
   seed.isActive
 FROM seed
@@ -1243,6 +2058,7 @@ WHERE NOT EXISTS (
       companyCode,
       seedColumns: [
         "materialCode",
+        "materialName",
         "fromUnitCode",
         "toUnitCode",
         "conversionFactor",
@@ -1253,9 +2069,9 @@ WHERE NOT EXISTS (
         "isActive",
       ],
       rows: conversionRows,
-      updateSql: `UPDATE public.material_unit_conversions muc
+      updateSql: maybeUpdate(`UPDATE public.material_unit_conversions muc
 SET
-  conversion_factor = seed.conversionFactor,
+  conversion_factor = seed.conversionFactor::numeric,
   conversion_method = seed.conversionMethod,
   effective_to = seed.effectiveTo::date,
   notes = seed.notes,
@@ -1266,7 +2082,10 @@ WHERE muc.material_id = (
     SELECT mm.id
     FROM public.material_master mm
     WHERE mm.company_id = (SELECT company_id FROM target_company)
-      AND LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+      AND (
+        LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+        OR LOWER(BTRIM(mm.material_name)) = LOWER(BTRIM(seed.materialName))
+      )
     LIMIT 1
   )
   AND muc.from_unit_id = (
@@ -1285,7 +2104,7 @@ WHERE muc.material_id = (
     ORDER BY um.company_id NULLS FIRST, um.id
     LIMIT 1
   )
-  AND COALESCE(muc.effective_from::text, '') = COALESCE(seed.effectiveFrom, '');`,
+  AND COALESCE(muc.effective_from::text, '') = COALESCE(seed.effectiveFrom, '');`),
       insertSql: `INSERT INTO public.material_unit_conversions (
   company_id,
   material_id,
@@ -1304,7 +2123,10 @@ SELECT
     SELECT mm.id
     FROM public.material_master mm
     WHERE mm.company_id = (SELECT company_id FROM target_company)
-      AND LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+      AND (
+        LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+        OR LOWER(BTRIM(mm.material_name)) = LOWER(BTRIM(seed.materialName))
+      )
     LIMIT 1
   ),
   (
@@ -1323,7 +2145,7 @@ SELECT
     ORDER BY um.company_id NULLS FIRST, um.id
     LIMIT 1
   ),
-  seed.conversionFactor,
+  seed.conversionFactor::numeric,
   seed.conversionMethod,
   seed.effectiveFrom::date,
   seed.effectiveTo::date,
@@ -1337,7 +2159,10 @@ WHERE NOT EXISTS (
       SELECT mm.id
       FROM public.material_master mm
       WHERE mm.company_id = (SELECT company_id FROM target_company)
-        AND LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+        AND (
+          LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+          OR LOWER(BTRIM(mm.material_name)) = LOWER(BTRIM(seed.materialName))
+        )
       LIMIT 1
     )
     AND existing.from_unit_id = (
@@ -1369,6 +2194,7 @@ WHERE NOT EXISTS (
         "plantCode",
         "partyCode",
         "materialCode",
+        "materialName",
         "effectiveFrom",
         "ratePerTon",
         "royaltyMode",
@@ -1386,18 +2212,18 @@ WHERE NOT EXISTS (
         "pricePerUnit",
       ],
       rows: partyRateRows,
-      updateSql: `UPDATE public.party_material_rates pmr
+      updateSql: maybeUpdate(`UPDATE public.party_material_rates pmr
 SET
-  rate_per_ton = seed.ratePerTon,
+  rate_per_ton = seed.ratePerTon::numeric,
   royalty_mode = seed.royaltyMode,
-  royalty_value = seed.royaltyValue,
-  loading_charge = seed.loadingCharge,
+  royalty_value = seed.royaltyValue::numeric,
+  loading_charge = seed.loadingCharge::numeric,
   notes = seed.notes,
   is_active = seed.isActive,
-  tons_per_brass = seed.tonsPerBrass,
+  tons_per_brass = seed.tonsPerBrass::numeric,
   rate_unit = seed.rateUnit,
   rate_unit_label = seed.rateUnitLabel,
-  rate_units_per_ton = seed.rateUnitsPerTon,
+  rate_units_per_ton = seed.rateUnitsPerTon::numeric,
   loading_charge_basis = seed.loadingChargeBasis,
   rate_unit_id = (
     SELECT um.id
@@ -1408,7 +2234,7 @@ SET
     LIMIT 1
   ),
   billing_basis = seed.billingBasis,
-  price_per_unit = seed.pricePerUnit,
+  price_per_unit = seed.pricePerUnit::numeric,
   updated_at = CURRENT_TIMESTAMP
 FROM seed
 WHERE pmr.company_id = (SELECT company_id FROM target_company)
@@ -1430,10 +2256,13 @@ WHERE pmr.company_id = (SELECT company_id FROM target_company)
     SELECT mm.id
     FROM public.material_master mm
     WHERE mm.company_id = (SELECT company_id FROM target_company)
-      AND LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+      AND (
+        LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+        OR LOWER(BTRIM(mm.material_name)) = LOWER(BTRIM(seed.materialName))
+      )
     LIMIT 1
   )
-  AND COALESCE(pmr.effective_from::text, '') = COALESCE(seed.effectiveFrom, '');`,
+  AND COALESCE(pmr.effective_from::text, '') = COALESCE(seed.effectiveFrom, '');`),
       insertSql: `INSERT INTO public.party_material_rates (
   plant_id,
   party_id,
@@ -1474,20 +2303,23 @@ SELECT
     SELECT mm.id
     FROM public.material_master mm
     WHERE mm.company_id = (SELECT company_id FROM target_company)
-      AND LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+      AND (
+        LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+        OR LOWER(BTRIM(mm.material_name)) = LOWER(BTRIM(seed.materialName))
+      )
     LIMIT 1
   ),
-  seed.ratePerTon,
+  seed.ratePerTon::numeric,
   seed.royaltyMode,
-  seed.royaltyValue,
-  seed.loadingCharge,
+  seed.royaltyValue::numeric,
+  seed.loadingCharge::numeric,
   seed.notes,
   seed.isActive,
   (SELECT company_id FROM target_company),
-  seed.tonsPerBrass,
+  seed.tonsPerBrass::numeric,
   seed.rateUnit,
   seed.rateUnitLabel,
-  seed.rateUnitsPerTon,
+  seed.rateUnitsPerTon::numeric,
   seed.effectiveFrom::date,
   seed.loadingChargeBasis,
   (
@@ -1499,7 +2331,7 @@ SELECT
     LIMIT 1
   ),
   seed.billingBasis,
-  seed.pricePerUnit
+  seed.pricePerUnit::numeric
 FROM seed
 WHERE NOT EXISTS (
   SELECT 1
@@ -1523,7 +2355,10 @@ WHERE NOT EXISTS (
       SELECT mm.id
       FROM public.material_master mm
       WHERE mm.company_id = (SELECT company_id FROM target_company)
-        AND LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+        AND (
+          LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+          OR LOWER(BTRIM(mm.material_name)) = LOWER(BTRIM(seed.materialName))
+        )
       LIMIT 1
     )
     AND COALESCE(existing.effective_from::text, '') = COALESCE(seed.effectiveFrom, '')
@@ -1539,6 +2374,7 @@ WHERE NOT EXISTS (
         "plantCode",
         "vendorName",
         "materialCode",
+        "materialName",
         "rateType",
         "rateValue",
         "distanceKm",
@@ -1548,9 +2384,9 @@ WHERE NOT EXISTS (
         "minimumCharge",
       ],
       rows: transportRateRows,
-      updateSql: `UPDATE public.transport_rates tr
+      updateSql: maybeUpdate(`UPDATE public.transport_rates tr
 SET
-  rate_value = seed.rateValue,
+  rate_value = seed.rateValue::numeric,
   is_active = seed.isActive,
   rate_unit_id = (
     SELECT um.id
@@ -1561,7 +2397,7 @@ SET
     LIMIT 1
   ),
   billing_basis = seed.billingBasis,
-  minimum_charge = seed.minimumCharge,
+  minimum_charge = seed.minimumCharge::numeric,
   updated_at = CURRENT_TIMESTAMP
 FROM seed
 WHERE tr.company_id = (SELECT company_id FROM target_company)
@@ -1583,11 +2419,14 @@ WHERE tr.company_id = (SELECT company_id FROM target_company)
     SELECT mm.id
     FROM public.material_master mm
     WHERE mm.company_id = (SELECT company_id FROM target_company)
-      AND LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+      AND (
+        LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+        OR LOWER(BTRIM(mm.material_name)) = LOWER(BTRIM(seed.materialName))
+      )
     LIMIT 1
   )
   AND COALESCE(LOWER(BTRIM(tr.rate_type)), '') = COALESCE(LOWER(BTRIM(seed.rateType)), '')
-  AND COALESCE(tr.distance_km, -1) = COALESCE(seed.distanceKm, -1);`,
+  AND COALESCE(tr.distance_km, -1) = COALESCE(seed.distanceKm::numeric, -1);`),
       insertSql: `INSERT INTO public.transport_rates (
   plant_id,
   vendor_id,
@@ -1620,12 +2459,15 @@ SELECT
     SELECT mm.id
     FROM public.material_master mm
     WHERE mm.company_id = (SELECT company_id FROM target_company)
-      AND LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+      AND (
+        LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+        OR LOWER(BTRIM(mm.material_name)) = LOWER(BTRIM(seed.materialName))
+      )
     LIMIT 1
   ),
   seed.rateType,
-  seed.rateValue,
-  seed.distanceKm,
+  seed.rateValue::numeric,
+  seed.distanceKm::numeric,
   seed.isActive,
   (SELECT company_id FROM target_company),
   (
@@ -1637,7 +2479,7 @@ SELECT
     LIMIT 1
   ),
   seed.billingBasis,
-  seed.minimumCharge
+  seed.minimumCharge::numeric
 FROM seed
 WHERE NOT EXISTS (
   SELECT 1
@@ -1661,14 +2503,18 @@ WHERE NOT EXISTS (
       SELECT mm.id
       FROM public.material_master mm
       WHERE mm.company_id = (SELECT company_id FROM target_company)
-        AND LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+        AND (
+          LOWER(BTRIM(mm.material_code)) = LOWER(BTRIM(seed.materialCode))
+          OR LOWER(BTRIM(mm.material_name)) = LOWER(BTRIM(seed.materialName))
+        )
       LIMIT 1
     )
     AND COALESCE(LOWER(BTRIM(existing.rate_type)), '') = COALESCE(LOWER(BTRIM(seed.rateType)), '')
-    AND COALESCE(existing.distance_km, -1) = COALESCE(seed.distanceKm, -1)
+    AND COALESCE(existing.distance_km, -1) = COALESCE(seed.distanceKm::numeric, -1)
 );`,
     })
   );
+  }
 
   chunks.push("\nCOMMIT;\n");
 
