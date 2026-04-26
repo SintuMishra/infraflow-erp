@@ -1,9 +1,10 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../services/api";
 
 function ForgotPasswordPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [companyCode, setCompanyCode] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [mobileNumber, setMobileNumber] = useState("");
@@ -19,6 +20,23 @@ function ForgotPasswordPage() {
   const [error, setError] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const openedFromResetLink = Boolean(String(searchParams.get("token") || "").trim());
+
+  useEffect(() => {
+    const tokenFromUrl = String(searchParams.get("token") || "").trim();
+    const companyCodeFromUrl = String(searchParams.get("companyCode") || "").trim();
+
+    if (tokenFromUrl) {
+      setResetOtp((current) => current || tokenFromUrl);
+      setRequestMessage(
+        "Reset link detected. Enter your new password below to finish resetting your account."
+      );
+    }
+
+    if (companyCodeFromUrl) {
+      setCompanyCode((current) => current || companyCodeFromUrl.toUpperCase());
+    }
+  }, [searchParams]);
 
   const resolveCompanyContext = async () => {
     const normalizedCompanyCode = String(companyCode || "").trim().toUpperCase();
@@ -145,6 +163,11 @@ function ForgotPasswordPage() {
           <p style={styles.description}>
             Verify your account, receive OTP, and set a new password.
           </p>
+          {openedFromResetLink && (
+            <p style={styles.helperText}>
+              You opened a secure reset link. The OTP has been prefilled for this session.
+            </p>
+          )}
           <Link to="/login" style={styles.backLink}>
             Back to login
           </Link>
@@ -224,6 +247,12 @@ function ForgotPasswordPage() {
             <button type="submit" style={styles.button} disabled={requesting}>
               {requesting ? "Requesting..." : "Create Reset Request"}
             </button>
+
+            {openedFromResetLink && (
+              <p style={styles.helperText}>
+                Already have a reset link? You can skip this step and set your new password directly.
+              </p>
+            )}
           </form>
 
           <form style={styles.card} onSubmit={handleResetPassword}>
