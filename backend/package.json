@@ -32,6 +32,7 @@
     "smoke:owner-governance": "node src/scripts/smokeOwnerGovernanceFlow.js",
     "cleanup:example-data": "node src/scripts/cleanupExampleData.js",
     "seed:config-options": "node src/scripts/seedConfigOptions.js",
+    "export:company-snapshot": "node src/scripts/exportCompanyOperationalSnapshot.js",
     "verify:practical": "npm run verify:local && npm run test:finance:policy && npm run verify:go-live:local",
     "bootstrap:owner": "node src/scripts/bootstrapCompanyOwner.js",
     "reset:trial": "node src/scripts/resetTrialBaseline.js",
