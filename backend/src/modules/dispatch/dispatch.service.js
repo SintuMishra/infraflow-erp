@@ -26,6 +26,23 @@ const {
   getUnitById,
 } = require("../material_unit_conversions/material_unit_conversions.service");
 const { resolveReportDateRange } = require("../../utils/reportDateRange.util");
+const {
+  getCached,
+  invalidateCacheByPrefix,
+  buildCompanyScopedCachePrefix,
+} = require("../../utils/simpleCache.util");
+
+const DISPATCH_REPORT_CACHE_TTL_MS = 15_000;
+
+const buildDispatchReportCachePrefix = (companyId = null) =>
+  buildCompanyScopedCachePrefix("dispatch-reports", companyId);
+
+const buildDispatchReportCacheKey = (filters) =>
+  `${buildDispatchReportCachePrefix(filters.companyId)}${JSON.stringify(filters)}`;
+
+const invalidateDispatchReportCache = (companyId = null) => {
+  invalidateCacheByPrefix(buildDispatchReportCachePrefix(companyId));
+};
 
 const allowedSourceTypes = ["Crusher", "Project", "Plant", "Store"];
 const allowedStatuses = ["pending", "completed", "cancelled"];
@@ -82,26 +99,32 @@ const getDispatchReports = async ({
     limit,
   };
 
-  const [dispatchPage, summaryRow] = await Promise.all([
-    findAllDispatchReports(filters),
-    findDispatchReportSummary(filters),
-  ]);
+  return getCached(
+    buildDispatchReportCacheKey(filters),
+    DISPATCH_REPORT_CACHE_TTL_MS,
+    async () => {
+      const [dispatchPage, summaryRow] = await Promise.all([
+        findAllDispatchReports(filters),
+        findDispatchReportSummary(filters),
+      ]);
 
-  return {
-    items: dispatchPage.items,
-    summary: buildDispatchSummary(summaryRow),
-    pagination: {
-      total: dispatchPage.total,
-      page: dispatchPage.page,
-      limit: dispatchPage.limit,
-      totalPages: dispatchPage.total ? Math.ceil(dispatchPage.total / dispatchPage.limit) : 0,
-      hasPreviousPage: dispatchPage.page > 1,
-      hasNextPage:
-        dispatchPage.total
-          ? dispatchPage.page < Math.ceil(dispatchPage.total / dispatchPage.limit)
-          : false,
-    },
-  };
+      return {
+        items: dispatchPage.items,
+        summary: buildDispatchSummary(summaryRow),
+        pagination: {
+          total: dispatchPage.total,
+          page: dispatchPage.page,
+          limit: dispatchPage.limit,
+          totalPages: dispatchPage.total ? Math.ceil(dispatchPage.total / dispatchPage.limit) : 0,
+          hasPreviousPage: dispatchPage.page > 1,
+          hasNextPage:
+            dispatchPage.total
+              ? dispatchPage.page < Math.ceil(dispatchPage.total / dispatchPage.limit)
+              : false,
+        },
+      };
+    }
+  );
 };
 
 const getDispatchReportById = async (reportId, companyId = null) => {
@@ -1225,7 +1248,7 @@ const createDispatchReport = async ({
     party,
   });
 
-  return await withTransaction(async (db) => {
+  const created = await withTransaction(async (db) => {
     const completionInvoiceFields = await resolveCompletionInvoiceFields({
       status: finalStatus,
       dispatchDate,
@@ -1321,6 +1344,9 @@ const createDispatchReport = async ({
 
     return report;
   });
+
+  invalidateDispatchReportCache(companyId || null);
+  return created;
 };
 
 const editDispatchReport = async ({
@@ -1438,7 +1464,7 @@ const editDispatchReport = async ({
     party,
   });
 
-  return await withTransaction(async (db) => {
+  const updated = await withTransaction(async (db) => {
     const completionInvoiceFields = await resolveCompletionInvoiceFields({
       status: existingReport.status,
       dispatchDate,
@@ -1539,6 +1565,9 @@ const editDispatchReport = async ({
 
     return updatedReport;
   });
+
+  invalidateDispatchReportCache(companyId || null);
+  return updated;
 };
 
 const updateDispatchStatus = async ({ reportId, status, companyId }) => {
@@ -1577,7 +1606,7 @@ const updateDispatchStatus = async ({ reportId, status, companyId }) => {
     companyId: companyId || null,
   });
 
-  return await withTransaction(async (db) => {
+  const updated = await withTransaction(async (db) => {
     const completionInvoiceFields = await resolveCompletionInvoiceFields({
       status,
       dispatchDate: existingReport.dispatchDate,
@@ -1620,6 +1649,9 @@ const updateDispatchStatus = async ({ reportId, status, companyId }) => {
 
     return updatedReport;
   });
+
+  invalidateDispatchReportCache(companyId || null);
+  return updated;
 };
 
 module.exports = {

@@ -9,8 +9,24 @@ const {
 const { plantExists } = require("../dispatch/dispatch.model");
 const { resolveReportDateRange } = require("../../utils/reportDateRange.util");
 const { findShifts } = require("../masters/masters.model");
+const {
+  getCached,
+  invalidateCacheByPrefix,
+  buildCompanyScopedCachePrefix,
+} = require("../../utils/simpleCache.util");
 
 const ALLOWED_OPERATIONAL_STATUSES = ["running", "watch", "breakdown", "maintenance", "closed"];
+const CRUSHER_REPORT_CACHE_TTL_MS = 15_000;
+
+const buildCrusherReportCachePrefix = (companyId = null) =>
+  buildCompanyScopedCachePrefix("crusher-reports", companyId);
+
+const buildCrusherReportCacheKey = (filters) =>
+  `${buildCrusherReportCachePrefix(filters.companyId)}${JSON.stringify(filters)}`;
+
+const invalidateCrusherReportCache = (companyId = null) => {
+  invalidateCacheByPrefix(buildCrusherReportCachePrefix(companyId));
+};
 
 const createValidationError = (message) => {
   const error = new Error(message);
@@ -370,26 +386,34 @@ const getCrusherReports = async ({
     limit,
   };
 
-  const [reportPage, summaryRow, lookups] = await Promise.all([
-    findAllCrusherReports(filters),
-    findCrusherReportSummary(filters),
-    findCrusherReportLookups(companyId),
-  ]);
+  return getCached(
+    buildCrusherReportCacheKey(filters),
+    CRUSHER_REPORT_CACHE_TTL_MS,
+    async () => {
+      const [reportPage, summaryRow, lookups] = await Promise.all([
+        findAllCrusherReports(filters),
+        findCrusherReportSummary(filters),
+        findCrusherReportLookups(companyId),
+      ]);
 
-  return {
-    items: reportPage.items,
-    summary: buildCrusherSummary(summaryRow, reportPage.items),
-    lookups,
-    pagination: {
-      total: reportPage.total,
-      page: reportPage.page,
-      limit: reportPage.limit,
-      totalPages: reportPage.total ? Math.ceil(reportPage.total / reportPage.limit) : 0,
-      hasPreviousPage: reportPage.page > 1,
-      hasNextPage:
-        reportPage.total ? reportPage.page < Math.ceil(reportPage.total / reportPage.limit) : false,
-    },
-  };
+      return {
+        items: reportPage.items,
+        summary: buildCrusherSummary(summaryRow, reportPage.items),
+        lookups,
+        pagination: {
+          total: reportPage.total,
+          page: reportPage.page,
+          limit: reportPage.limit,
+          totalPages: reportPage.total ? Math.ceil(reportPage.total / reportPage.limit) : 0,
+          hasPreviousPage: reportPage.page > 1,
+          hasNextPage:
+            reportPage.total
+              ? reportPage.page < Math.ceil(reportPage.total / reportPage.limit)
+              : false,
+        },
+      };
+    }
+  );
 };
 
 const createCrusherReport = async (reportData) => {
@@ -413,7 +437,7 @@ const createCrusherReport = async (reportData) => {
     derivedTotalExpense,
   } = buildDerivedExpenseFields(normalized);
 
-  return insertCrusherReport({
+  const created = await insertCrusherReport({
     ...normalized,
     shift: resolvedShift,
     materialType: normalized.materialType || null,
@@ -427,6 +451,9 @@ const createCrusherReport = async (reportData) => {
     totalExpense: derivedTotalExpense,
     crusherUnitName: normalized.crusherUnitName || plant.plantName,
   });
+
+  invalidateCrusherReportCache(reportData.companyId || null);
+  return created;
 };
 
 const editCrusherReport = async (reportData) => {
@@ -450,7 +477,7 @@ const editCrusherReport = async (reportData) => {
     derivedTotalExpense,
   } = buildDerivedExpenseFields(normalized);
 
-  return updateCrusherReportById({
+  const updated = await updateCrusherReportById({
     id: reportData.id,
     companyId: reportData.companyId || null,
     ...normalized,
@@ -466,10 +493,15 @@ const editCrusherReport = async (reportData) => {
     totalExpense: derivedTotalExpense,
     crusherUnitName: normalized.crusherUnitName || plant.plantName,
   });
+
+  invalidateCrusherReportCache(reportData.companyId || null);
+  return updated;
 };
 
 const removeCrusherReport = async ({ id, companyId = null }) => {
-  return deleteCrusherReportById({ id, companyId });
+  const removed = await deleteCrusherReportById({ id, companyId });
+  invalidateCrusherReportCache(companyId);
+  return removed;
 };
 
 module.exports = {

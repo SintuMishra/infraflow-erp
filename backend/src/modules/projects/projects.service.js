@@ -9,6 +9,23 @@ const {
 const { plantExists } = require("../dispatch/dispatch.model");
 const { findShifts } = require("../masters/masters.model");
 const { resolveReportDateRange } = require("../../utils/reportDateRange.util");
+const {
+  getCached,
+  invalidateCacheByPrefix,
+  buildCompanyScopedCachePrefix,
+} = require("../../utils/simpleCache.util");
+
+const PROJECT_REPORT_CACHE_TTL_MS = 15_000;
+
+const buildProjectReportCachePrefix = (companyId = null) =>
+  buildCompanyScopedCachePrefix("project-reports", companyId);
+
+const buildProjectReportCacheKey = (filters) =>
+  `${buildProjectReportCachePrefix(filters.companyId)}${JSON.stringify(filters)}`;
+
+const invalidateProjectReportCache = (companyId = null) => {
+  invalidateCacheByPrefix(buildProjectReportCachePrefix(companyId));
+};
 
 const normalizeShiftValue = (value) =>
   String(value || "")
@@ -126,26 +143,34 @@ const getProjectReports = async ({
     limit,
   };
 
-  const [reportPage, lookups, summaryRow] = await Promise.all([
-    findAllProjectReports(filters),
-    findProjectReportLookups(companyId),
-    findProjectReportSummary(filters),
-  ]);
+  return getCached(
+    buildProjectReportCacheKey(filters),
+    PROJECT_REPORT_CACHE_TTL_MS,
+    async () => {
+      const [reportPage, lookups, summaryRow] = await Promise.all([
+        findAllProjectReports(filters),
+        findProjectReportLookups(companyId),
+        findProjectReportSummary(filters),
+      ]);
 
-  return {
-    items: reportPage.items,
-    summary: buildProjectReportSummary(summaryRow, reportPage.items),
-    lookups,
-    pagination: {
-      total: reportPage.total,
-      page: reportPage.page,
-      limit: reportPage.limit,
-      totalPages: reportPage.total ? Math.ceil(reportPage.total / reportPage.limit) : 0,
-      hasPreviousPage: reportPage.page > 1,
-      hasNextPage:
-        reportPage.total ? reportPage.page < Math.ceil(reportPage.total / reportPage.limit) : false,
-    },
-  };
+      return {
+        items: reportPage.items,
+        summary: buildProjectReportSummary(summaryRow, reportPage.items),
+        lookups,
+        pagination: {
+          total: reportPage.total,
+          page: reportPage.page,
+          limit: reportPage.limit,
+          totalPages: reportPage.total ? Math.ceil(reportPage.total / reportPage.limit) : 0,
+          hasPreviousPage: reportPage.page > 1,
+          hasNextPage:
+            reportPage.total
+              ? reportPage.page < Math.ceil(reportPage.total / reportPage.limit)
+              : false,
+        },
+      };
+    }
+  );
 };
 
 const createProjectReport = async (reportData) => {
@@ -170,11 +195,14 @@ const createProjectReport = async (reportData) => {
     shift: normalized.shift,
   });
 
-  return insertProjectReport({
+  const created = await insertProjectReport({
     ...normalized,
     createdBy: reportData.createdBy || null,
     companyId: reportData.companyId || null,
   });
+
+  invalidateProjectReportCache(reportData.companyId || null);
+  return created;
 };
 
 const editProjectReport = async (reportData) => {
@@ -199,15 +227,20 @@ const editProjectReport = async (reportData) => {
     shift: normalized.shift,
   });
 
-  return updateProjectReportById({
+  const updated = await updateProjectReportById({
     id: reportData.id,
     companyId: reportData.companyId || null,
     ...normalized,
   });
+
+  invalidateProjectReportCache(reportData.companyId || null);
+  return updated;
 };
 
 const removeProjectReport = async ({ id, companyId = null }) => {
-  return deleteProjectReportById({ id, companyId });
+  const removed = await deleteProjectReportById({ id, companyId });
+  invalidateProjectReportCache(companyId);
+  return removed;
 };
 
 module.exports = {
