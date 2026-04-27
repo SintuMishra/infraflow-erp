@@ -17,6 +17,7 @@ test("migration files are ordered and include production hardening migrations", 
     .sort((left, right) => left.localeCompare(right));
 
   assert.deepEqual(files, [
+    "000_legacy_core_schema_bootstrap.sql",
     "001_multi_company_foundation.sql",
     "002_auth_security_foundation.sql",
     "003_party_orders_foundation.sql",
