@@ -27,6 +27,12 @@ This hub is the single entry point for all project documentation. It removes amb
 6. `docs/finance-accounts-guide.md`
 7. `docs/role-permission-guide.md`
 
+### Sales, Handover, and Onboarding
+1. `docs/OWNER-HANDOVER-CHECKLIST-2026-04-27.md`
+2. `docs/PRICING-PACKAGE-SHEET-2026-04-27.md`
+3. `docs/PROFESSIONAL-DEMO-SCRIPT-2026-04-27.md`
+4. `docs/CLIENT-ONBOARDING-SOP-2026-04-27.md`
+
 ### Technical and Implementation
 1. `docs/developer-guide-professional.md`
 2. `docs/system-architecture-module-guide.md`

@@ -85,3 +85,26 @@ Capture and store:
 - verify command outputs
 - smoke output JSON
 - timestamped screenshots of key UI validations
+
+## Release completion note - April 27, 2026
+
+Production rollout completed successfully from the validated staging path.
+
+Summary:
+- Staging backend was deployed against infraflow_erp_staging
+- Staging frontend preview was pointed to the staging backend and validated
+- Functional staging checks passed for login, navigation, reads, writes, create, update, delete, logout, and refresh stability
+- Load testing passed at 25 VUs / 5m and, after optimization, at 60 VUs / 10m
+- Production Vercel API base URL was corrected to the live Render backend API
+- Production backend health and readiness checks passed
+- Live owner and client login flows were verified successfully
+- Exposed Postgres credential was rotated and replaced safely
+
+Final status:
+- GO-LIVE successful
+- Main branch aligned to the validated rollout commit
+- Staging validation branch retained temporarily as an audit/release trail during the observation window
+
+Post-release action:
+- Continue monitoring Render logs, DB metrics, and user login/report behavior for the next few business days
+- Delete the staging validation branch after the post-release observation window if no follow-up issues appear
