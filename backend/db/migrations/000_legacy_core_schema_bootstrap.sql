@@ -127,14 +127,28 @@ CREATE TABLE IF NOT EXISTS equipment_logs (
 
 CREATE TABLE IF NOT EXISTS transport_rates (
   id BIGSERIAL PRIMARY KEY,
-  rate NUMERIC(12, 2),
+  plant_id BIGINT,
+  vendor_id BIGINT,
+  material_id BIGINT,
+  rate_type VARCHAR(30),
+  rate_value NUMERIC(12, 2),
+  distance_km NUMERIC(12, 2),
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS party_material_rates (
   id BIGSERIAL PRIMARY KEY,
-  rate NUMERIC(12, 2),
+  plant_id BIGINT,
+  party_id BIGINT,
+  material_id BIGINT,
+  rate_per_ton NUMERIC(12, 2),
+  royalty_mode VARCHAR(30),
+  royalty_value NUMERIC(12, 2),
+  loading_charge NUMERIC(12, 2),
+  notes TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
