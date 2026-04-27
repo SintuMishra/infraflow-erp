@@ -13,6 +13,17 @@ ALTER TABLE public.equipment_logs
   ADD COLUMN IF NOT EXISTS created_by BIGINT,
   ADD COLUMN IF NOT EXISTS plant_id BIGINT;
 
-UPDATE public.equipment_logs
-SET usage_date = COALESCE(usage_date, log_date)
-WHERE usage_date IS NULL;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'equipment_logs'
+      AND column_name = 'log_date'
+  ) THEN
+    UPDATE public.equipment_logs
+    SET usage_date = COALESCE(usage_date, log_date)
+    WHERE usage_date IS NULL;
+  END IF;
+END $$;

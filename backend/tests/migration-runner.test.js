@@ -492,6 +492,18 @@ test("party material rate effective date migration adds effective-from date sele
   assert.match(sql, /CREATE INDEX IF NOT EXISTS idx_party_material_rates_effective_lookup/i);
 });
 
+test("legacy equipment log bootstrap migration guards legacy log_date backfill", async () => {
+  const migrationPath = path.resolve(
+    __dirname,
+    "../db/migrations/046a_legacy_equipment_logs_bootstrap.sql"
+  );
+  const sql = await fs.readFile(migrationPath, "utf8");
+
+  assert.match(sql, /information_schema\.columns/i);
+  assert.match(sql, /column_name = 'log_date'/i);
+  assert.match(sql, /UPDATE public\.equipment_logs/i);
+});
+
 test("equipment log manual vehicle migration adds optional correction-friendly reference fields", async () => {
   const migrationPath = path.resolve(
     __dirname,
