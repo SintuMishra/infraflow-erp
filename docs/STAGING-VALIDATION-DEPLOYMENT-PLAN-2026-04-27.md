@@ -273,3 +273,15 @@ Production go-live should require all of the following:
 - no sustained DB CPU spike
 - no cross-company data leaks
 - dispatch/report totals match expected company-scoped values
+
+## H. Staging Validation Outcome - April 27, 2026
+Post-optimization retest on April 27, 2026:
+- Added short-lived cache for dispatch, project, and crusher report list responses
+- k6 25 VUs / 5m after optimization: PASS
+- k6 60 VUs / 10m after optimization: PASS
+- 60 VUs latency target now met
+- Render logs remained clean during optimized 60 VUs run
+Updated decision:
+- GO for controlled production rollout, with continued monitoring after deploy
+
+
