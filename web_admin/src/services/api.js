@@ -8,7 +8,35 @@ import {
   setSession,
 } from "../utils/auth";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() || "/api";
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() || "";
+
+const isLocalFrontendHost = () => {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const hostname = String(window.location.hostname || "").trim().toLowerCase();
+  return hostname === "localhost" || hostname === "127.0.0.1";
+};
+
+const normalizeBaseUrl = (value) => String(value || "").trim().replace(/\/+$/, "");
+
+const resolveApiBaseUrl = () => {
+  if (configuredApiBaseUrl) {
+    return normalizeBaseUrl(configuredApiBaseUrl);
+  }
+
+  if (isLocalFrontendHost()) {
+    return "/api";
+  }
+
+  return "/api";
+};
+
+export const isHostedFrontendMissingApiBaseUrl = () =>
+  !configuredApiBaseUrl && !isLocalFrontendHost();
+
+const apiBaseUrl = resolveApiBaseUrl();
 const AUTH_REFRESH_PATH = "/auth/refresh";
 
 export const api = axios.create({

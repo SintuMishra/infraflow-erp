@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { api } from "../services/api";
+import { api, isHostedFrontendMissingApiBaseUrl } from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { getDefaultWorkspacePath } from "../utils/access";
 
@@ -223,6 +223,16 @@ function LoginPage({ loginMode = "default" }) {
         navigate(getDefaultWorkspacePath(user));
       }
     } catch (err) {
+      const status = err?.response?.status;
+      const normalizedMode = mode === "owner" || mode === "client" ? mode : "login";
+
+      if (status === 405 && isHostedFrontendMissingApiBaseUrl()) {
+        setError(
+          `${normalizedMode === "owner" ? "Owner" : normalizedMode === "client" ? "Client" : "Frontend"} login is pointed at the Vercel site instead of the backend API. Set VITE_API_BASE_URL in Vercel for this environment and redeploy.`
+        );
+        return;
+      }
+
       setError(
         err?.response?.data?.message ||
           "Login failed. Check backend and credentials."
