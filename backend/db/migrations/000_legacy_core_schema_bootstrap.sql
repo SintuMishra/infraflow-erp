@@ -121,6 +121,15 @@ CREATE TABLE IF NOT EXISTS vehicles (
 CREATE TABLE IF NOT EXISTS equipment_logs (
   id BIGSERIAL PRIMARY KEY,
   log_date DATE,
+  usage_date DATE,
+  equipment_name VARCHAR(255),
+  equipment_type VARCHAR(120),
+  site_name VARCHAR(255),
+  usage_hours NUMERIC(10, 2),
+  fuel_used NUMERIC(10, 2),
+  remarks TEXT,
+  created_by BIGINT,
+  plant_id BIGINT,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
