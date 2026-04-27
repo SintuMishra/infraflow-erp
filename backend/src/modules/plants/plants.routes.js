@@ -1,6 +1,7 @@
 const express = require("express");
 const {
   getAllPlants,
+  getPlantLookupController,
   addPlant,
   editPlantController,
   updatePlantStatusController,
@@ -14,6 +15,13 @@ const { authenticate } = require("../../middlewares/auth.middleware");
 const { authorizeRoles } = require("../../middlewares/role.middleware");
 
 const router = express.Router();
+
+router.get(
+  "/lookup",
+  authenticate,
+  authorizeRoles("super_admin", "manager", "hr", "crusher_supervisor", "site_engineer"),
+  getPlantLookupController
+);
 
 router.get(
   "/",

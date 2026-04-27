@@ -22,6 +22,87 @@ const findAllPlants = async (companyId = null) => {
   return result.rows;
 };
 
+const findPlantsPage = async ({ companyId = null, page = 1, limit = 25, search = "" } = {}) => {
+  const plantsHasCompany = await hasColumn("plant_master", "company_id");
+  const values = [];
+  const conditions = [];
+  let parameterIndex = 1;
+
+  if (plantsHasCompany && companyId !== null) {
+    values.push(companyId);
+    conditions.push(`company_id = $${parameterIndex}`);
+    parameterIndex += 1;
+  }
+
+  if (String(search || "").trim()) {
+    values.push(`%${String(search).trim().toLowerCase()}%`);
+    conditions.push(
+      `(LOWER(COALESCE(plant_name, '')) LIKE $${parameterIndex} OR LOWER(COALESCE(plant_code, '')) LIKE $${parameterIndex})`
+    );
+    parameterIndex += 1;
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const offset = (page - 1) * limit;
+  const queryValues = [...values, limit, offset];
+
+  const result = await pool.query(
+    `
+      SELECT
+        id,
+        plant_name AS "plantName",
+        plant_code AS "plantCode",
+        plant_type AS "plantType",
+        location,
+        power_source_type AS "powerSourceType",
+        is_active AS "isActive",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM plant_master
+      ${whereClause}
+      ORDER BY plant_name ASC, id ASC
+      LIMIT $${values.length + 1}
+      OFFSET $${values.length + 2}
+    `,
+    queryValues
+  );
+
+  const countResult = await pool.query(
+    `
+      SELECT COUNT(*)::int AS total
+      FROM plant_master
+      ${whereClause}
+    `,
+    values
+  );
+
+  return {
+    items: result.rows,
+    total: Number(countResult.rows[0]?.total || 0),
+    page,
+    limit,
+  };
+};
+
+const findPlantLookup = async (companyId = null) => {
+  const plantsHasCompany = await hasColumn("plant_master", "company_id");
+  const query = `
+    SELECT
+      id,
+      plant_name AS label,
+      plant_code AS code,
+      plant_type AS "plantType",
+      is_active AS "isActive"
+    FROM plant_master
+    WHERE is_active = true
+    ${plantsHasCompany && companyId !== null ? `AND company_id = $1` : ""}
+    ORDER BY plant_name ASC, id ASC
+  `;
+
+  const result = await pool.query(query, plantsHasCompany && companyId !== null ? [companyId] : []);
+  return result.rows;
+};
+
 const insertPlant = async ({
   plantName,
   plantCode,
@@ -145,6 +226,8 @@ const updatePlantStatus = async ({ plantId, isActive, companyId }) => {
 
 module.exports = {
   findAllPlants,
+  findPlantsPage,
+  findPlantLookup,
   insertPlant,
   updatePlant,
   updatePlantStatus,

@@ -32,6 +32,7 @@ This hub is the single entry point for all project documentation. It removes amb
 2. `docs/system-architecture-module-guide.md`
 3. `docs/developer-new-client-handover-quickstart.md`
 4. `docs/developer-new-client-handover-quickstart-hi.md`
+5. `docs/COMPANY-HIERARCHY-SAFE-UPGRADE-PLAN-2026-04-26.md`
 
 ### Deployment and Runtime
 1. `docs/low-cost-production-deployment.md`
@@ -45,6 +46,7 @@ This hub is the single entry point for all project documentation. It removes amb
 3. `docs/faq-troubleshooting-reference.md`
 4. `docs/operations-section-wise-troubleshooting.md`
 5. `docs/operations-section-wise-troubleshooting-hi.md`
+6. `docs/COMPANY-HIERARCHY-SAFE-UPGRADE-PLAN-2026-04-26.md`
 
 ### UAT and Evidence
 1. `docs/masters-role-uat-checklist.md`

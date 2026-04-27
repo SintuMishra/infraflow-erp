@@ -1,5 +1,7 @@
 const {
   findAllVehicles,
+  findVehiclesPage,
+  findVehicleLookup,
   insertVehicle,
   editVehicle,
   setVehicleStatus,
@@ -13,6 +15,11 @@ const {
   plantExists,
 } = require("./vehicles.model");
 const { withTransaction } = require("../../config/db");
+const {
+  getCached,
+  invalidateCacheByPrefix,
+  buildCompanyScopedCachePrefix,
+} = require("../../utils/simpleCache.util");
 
 const allowedOwnershipTypes = ["company", "attached_private", "transporter"];
 const allowedVehicleStatuses = ["active", "in_use", "inactive", "maintenance"];
@@ -224,6 +231,16 @@ const getVehiclesList = async (companyId = null) => {
   return await findAllVehicles(companyId);
 };
 
+const getVehiclesPage = async ({ companyId = null, page = 1, limit = 25, search = "" } = {}) =>
+  findVehiclesPage({ companyId, page, limit, search });
+
+const getVehicleLookupList = async (companyId = null) =>
+  getCached(
+    `${buildCompanyScopedCachePrefix("vehicles-lookup", companyId)}active`,
+    60_000,
+    () => findVehicleLookup(companyId)
+  );
+
 const createVehicleRecord = async ({
   vehicleNumber,
   vehicleType,
@@ -241,7 +258,7 @@ const createVehicleRecord = async ({
   validateVendorRequirement({ ownershipType, vendorId });
   validateVehicleCapacity(vehicleCapacityTons);
 
-  return await insertVehicle({
+  const created = await insertVehicle({
     vehicleNumber,
     vehicleType,
     assignedDriver,
@@ -257,6 +274,8 @@ const createVehicleRecord = async ({
         : Number(vehicleCapacityTons),
     companyId,
   });
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("vehicles-lookup", companyId));
+  return created;
 };
 
 const updateVehicleRecord = async ({
@@ -277,7 +296,7 @@ const updateVehicleRecord = async ({
   validateVendorRequirement({ ownershipType, vendorId });
   validateVehicleCapacity(vehicleCapacityTons);
 
-  return await editVehicle({
+  const updated = await editVehicle({
     vehicleId: Number(vehicleId),
     vehicleNumber,
     vehicleType,
@@ -294,16 +313,20 @@ const updateVehicleRecord = async ({
         : Number(vehicleCapacityTons),
     companyId,
   });
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("vehicles-lookup", companyId));
+  return updated;
 };
 
 const updateVehicleStatusRecord = async ({ vehicleId, status, companyId }) => {
   validateVehicleStatus(status);
 
-  return await setVehicleStatus({
+  const updated = await setVehicleStatus({
     vehicleId: Number(vehicleId),
     status,
     companyId,
   });
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("vehicles-lookup", companyId));
+  return updated;
 };
 
 const getEquipmentLogsList = async (companyId = null) => {
@@ -694,6 +717,8 @@ const deleteEquipmentLogRecord = async ({ logId, companyId }) => {
 
 module.exports = {
   getVehiclesList,
+  getVehiclesPage,
+  getVehicleLookupList,
   createVehicleRecord,
   updateVehicleRecord,
   updateVehicleStatusRecord,

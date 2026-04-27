@@ -1,6 +1,7 @@
 const {
   ORDER_STATUSES,
   getAllPartyOrders,
+  getPartyOrdersPage,
   getPartyOrderById,
   insertPartyOrder,
   updatePartyOrder,
@@ -9,6 +10,10 @@ const {
 } = require("./party_orders.model");
 const { plantExists, materialExists } = require("../dispatch/dispatch.model");
 const { getPartyById } = require("../parties/parties.model");
+const {
+  invalidateCacheByPrefix,
+  buildCompanyScopedCachePrefix,
+} = require("../../utils/simpleCache.util");
 
 const buildValidationError = (message, statusCode = 400) => {
   const error = new Error(message);
@@ -125,6 +130,9 @@ const getOrders = async (companyId = null) => {
   return await getAllPartyOrders(companyId);
 };
 
+const getOrdersPage = async ({ companyId = null, page = 1, limit = 25 } = {}) =>
+  getPartyOrdersPage({ companyId, page, limit });
+
 const getOrderById = async (orderId, companyId = null, options = {}) => {
   const order = await getPartyOrderById(Number(orderId), companyId, options);
 
@@ -177,7 +185,7 @@ const createOrder = async ({
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      return await insertPartyOrder({
+      const created = await insertPartyOrder({
         orderNumber: generatedOrderNumber,
         orderDate,
         partyId: Number(partyId),
@@ -191,6 +199,8 @@ const createOrder = async ({
         updatedBy,
         companyId: companyId || null,
       });
+      invalidateCacheByPrefix(buildCompanyScopedCachePrefix("party-orders", companyId || null));
+      return created;
     } catch (error) {
       if (error.code !== "23505" || manualOrderNumber) {
         throw error;
@@ -275,6 +285,7 @@ const editOrder = async (
     throw buildValidationError("Party order not found", 404);
   }
 
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("party-orders", companyId || null));
   return updated;
 };
 
@@ -300,11 +311,13 @@ const changeOrderStatus = async (
     throw buildValidationError("Party order not found", 404);
   }
 
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("party-orders", companyId || null));
   return updated;
 };
 
 module.exports = {
   getOrders,
+  getOrdersPage,
   getOrderById,
   createOrder,
   editOrder,

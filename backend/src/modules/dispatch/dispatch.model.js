@@ -450,17 +450,24 @@ const findAllDispatchReports = async (filters = {}) => {
     OFFSET ${offsetParam}
   `;
 
-  const countQuery = `
-    SELECT COUNT(*)::int AS total
-    FROM dispatch_reports dr
-    LEFT JOIN plant_master pm ON pm.id = dr.plant_id
-    LEFT JOIN material_master mm ON mm.id = dr.material_id
-    LEFT JOIN vehicles v ON v.id = dr.vehicle_id
-    LEFT JOIN vendor_master transport_vendor ON transport_vendor.id = dr.transport_vendor_id
-    LEFT JOIN party_master p ON p.id = dr.party_id
-    ${schemaCapabilities.includePartyOrder ? `LEFT JOIN party_orders po ON po.id = dr.party_order_id` : ""}
-    ${whereClause}
-  `;
+  const hasSearchText = Boolean(String(filters.search || "").trim());
+  const countQuery = hasSearchText
+    ? `
+      SELECT COUNT(*)::int AS total
+      FROM dispatch_reports dr
+      LEFT JOIN plant_master pm ON pm.id = dr.plant_id
+      LEFT JOIN material_master mm ON mm.id = dr.material_id
+      LEFT JOIN vehicles v ON v.id = dr.vehicle_id
+      LEFT JOIN vendor_master transport_vendor ON transport_vendor.id = dr.transport_vendor_id
+      LEFT JOIN party_master p ON p.id = dr.party_id
+      ${schemaCapabilities.includePartyOrder ? `LEFT JOIN party_orders po ON po.id = dr.party_order_id` : ""}
+      ${whereClause}
+    `
+    : `
+      SELECT COUNT(*)::int AS total
+      FROM dispatch_reports dr
+      ${whereClause}
+    `;
 
   const [result, countResult] = await Promise.all([
     pool.query(query, queryValues),

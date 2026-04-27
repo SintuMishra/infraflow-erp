@@ -36,6 +36,101 @@ const getAllParties = async (companyId = null) => {
   return result.rows.map(mapRow);
 };
 
+const getPartiesPage = async ({ companyId = null, page = 1, limit = 25, search = "" } = {}) => {
+  const partiesHasCompany = await hasColumn("party_master", "company_id");
+  const values = [];
+  const conditions = [];
+  let parameterIndex = 1;
+
+  if (partiesHasCompany && companyId !== null) {
+    values.push(companyId);
+    conditions.push(`company_id = $${parameterIndex}`);
+    parameterIndex += 1;
+  }
+
+  if (String(search || "").trim()) {
+    values.push(`%${String(search).trim().toLowerCase()}%`);
+    conditions.push(
+      `(
+        LOWER(COALESCE(party_name, '')) LIKE $${parameterIndex}
+        OR LOWER(COALESCE(party_code, '')) LIKE $${parameterIndex}
+        OR LOWER(COALESCE(contact_person, '')) LIKE $${parameterIndex}
+      )`
+    );
+    parameterIndex += 1;
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const offset = (page - 1) * limit;
+  const queryValues = [...values, limit, offset];
+
+  const result = await pool.query(
+    `
+      SELECT
+        id,
+        party_name,
+        party_code,
+        contact_person,
+        mobile_number,
+        gstin,
+        pan,
+        address_line1,
+        address_line2,
+        city,
+        state_name,
+        state_code,
+        pincode,
+        party_type,
+        is_active,
+        created_at,
+        updated_at
+      FROM party_master
+      ${whereClause}
+      ORDER BY party_name ASC, id DESC
+      LIMIT $${values.length + 1}
+      OFFSET $${values.length + 2}
+    `,
+    queryValues
+  );
+
+  const countResult = await pool.query(
+    `
+      SELECT COUNT(*)::int AS total
+      FROM party_master
+      ${whereClause}
+    `,
+    values
+  );
+
+  return {
+    items: result.rows.map(mapRow),
+    total: Number(countResult.rows[0]?.total || 0),
+    page,
+    limit,
+  };
+};
+
+const getPartyLookup = async (companyId = null) => {
+  const partiesHasCompany = await hasColumn("party_master", "company_id");
+  const result = await pool.query(
+    `
+      SELECT
+        id,
+        party_name AS label,
+        party_code AS code,
+        party_type AS "partyType",
+        is_active AS "isActive"
+      FROM party_master
+      WHERE is_active = true
+      ${partiesHasCompany && companyId !== null ? `AND company_id = $1` : ""}
+      ORDER BY party_name ASC, id DESC
+    `,
+    partiesHasCompany && companyId !== null ? [companyId] : []
+  );
+
+  return result.rows;
+};
+
 const getPartyById = async (partyId, companyId = null) => {
   const partiesHasCompany = await hasColumn("party_master", "company_id");
   const result = await pool.query(
@@ -200,6 +295,8 @@ const updatePartyStatus = async (partyId, isActive, companyId = null) => {
 
 module.exports = {
   getAllParties,
+  getPartiesPage,
+  getPartyLookup,
   getPartyById,
   insertParty,
   updateParty,

@@ -7,6 +7,7 @@ const {
   deleteCrusherReportById,
 } = require("./crusher.model");
 const { plantExists } = require("../dispatch/dispatch.model");
+const { resolveReportDateRange } = require("../../utils/reportDateRange.util");
 const { findShifts } = require("../masters/masters.model");
 
 const ALLOWED_OPERATIONAL_STATUSES = ["running", "watch", "breakdown", "maintenance", "closed"];
@@ -350,6 +351,11 @@ const getCrusherReports = async ({
   page = 1,
   limit = 25,
 } = {}) => {
+  const resolvedRange = resolveReportDateRange({
+    startDate,
+    endDate,
+    defaultDays: 30,
+  });
   const filters = {
     companyId,
     search,
@@ -358,8 +364,8 @@ const getCrusherReports = async ({
     crusherUnitName,
     materialType,
     operationalStatus,
-    startDate,
-    endDate,
+    startDate: resolvedRange.startDate,
+    endDate: resolvedRange.endDate,
     page,
     limit,
   };

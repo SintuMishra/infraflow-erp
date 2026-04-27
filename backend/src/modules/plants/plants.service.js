@@ -1,10 +1,17 @@
 const {
   findAllPlants,
+  findPlantsPage,
+  findPlantLookup,
   insertPlant,
   updatePlant,
   updatePlantStatus,
 } = require("./plants.model");
 const { normalizeCompanyId } = require("../../utils/companyScope.util");
+const {
+  getCached,
+  invalidateCacheByPrefix,
+  buildCompanyScopedCachePrefix,
+} = require("../../utils/simpleCache.util");
 
 const buildValidationError = (message, statusCode = 400) => {
   const error = new Error(message);
@@ -27,6 +34,20 @@ const getPlants = async (companyId = null) => {
   return await findAllPlants(companyId);
 };
 
+const getPlantsPage = async ({
+  companyId = null,
+  page = 1,
+  limit = 25,
+  search = "",
+} = {}) => findPlantsPage({ companyId, page, limit, search });
+
+const getPlantLookup = async (companyId = null) =>
+  getCached(
+    `${buildCompanyScopedCachePrefix("plants-lookup", companyId)}active`,
+    60_000,
+    () => findPlantLookup(companyId)
+  );
+
 const createPlant = async (payload) => {
   const normalizedPayload = normalizePlantPayload(payload);
 
@@ -34,7 +55,9 @@ const createPlant = async (payload) => {
     throw buildValidationError("plantName and plantType are required");
   }
 
-  return await insertPlant(normalizedPayload);
+  const created = await insertPlant(normalizedPayload);
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("plants-lookup", normalizedPayload.companyId));
+  return created;
 };
 
 const editPlant = async (payload) => {
@@ -53,6 +76,7 @@ const editPlant = async (payload) => {
     throw buildValidationError("Plant not found", 404);
   }
 
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("plants-lookup", normalizedPayload.companyId));
   return updated;
 };
 
@@ -67,11 +91,14 @@ const changePlantStatus = async (payload) => {
     throw buildValidationError("Plant not found", 404);
   }
 
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("plants-lookup", payload.companyId));
   return updated;
 };
 
 module.exports = {
   getPlants,
+  getPlantsPage,
+  getPlantLookup,
   createPlant,
   editPlant,
   changePlantStatus,

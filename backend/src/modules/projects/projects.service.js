@@ -8,6 +8,7 @@ const {
 } = require("./projects.model");
 const { plantExists } = require("../dispatch/dispatch.model");
 const { findShifts } = require("../masters/masters.model");
+const { resolveReportDateRange } = require("../../utils/reportDateRange.util");
 
 const normalizeShiftValue = (value) =>
   String(value || "")
@@ -107,6 +108,11 @@ const getProjectReports = async ({
   page = 1,
   limit = 25,
 } = {}) => {
+  const resolvedRange = resolveReportDateRange({
+    startDate,
+    endDate,
+    defaultDays: 30,
+  });
   const filters = {
     companyId,
     search,
@@ -114,8 +120,8 @@ const getProjectReports = async ({
     projectName,
     siteName,
     reportStatus,
-    startDate,
-    endDate,
+    startDate: resolvedRange.startDate,
+    endDate: resolvedRange.endDate,
     page,
     limit,
   };

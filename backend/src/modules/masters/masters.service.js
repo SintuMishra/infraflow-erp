@@ -1,9 +1,12 @@
 const {
   findCrusherUnits,
   findMaterials,
+  findMaterialsPage,
   findShifts,
   findVehicleTypes,
   findConfigOptions,
+  findConfigOptionsPage,
+  findMaterialLookup,
   findUnits,
   findUnitByIdForScope,
   insertUnit,
@@ -37,6 +40,11 @@ const {
 const { inferMaterialHsnSacCode } = require("../../utils/materialHsn.util");
 const { normalizeCompanyId } = require("../../utils/companyScope.util");
 const logger = require("../../utils/logger");
+const {
+  getCached,
+  invalidateCacheByPrefix,
+  buildCompanyScopedCachePrefix,
+} = require("../../utils/simpleCache.util");
 
 const allowedConfigTypes = [
   "plant_type",
@@ -103,22 +111,84 @@ const ensureMasterCanDeactivate = async ({
 };
 
 const getMasterData = async (companyId = null) => {
-  const [crusherUnits, materials, shifts, vehicleTypes, configRows] =
-    await Promise.all([
-      findCrusherUnits(companyId),
-      findMaterials(companyId),
-      findShifts(companyId),
-      findVehicleTypes(companyId),
-      findConfigOptions(companyId),
-    ]);
+  return getCached(
+    `${buildCompanyScopedCachePrefix("masters-bundle", companyId)}default`,
+    60_000,
+    async () => {
+      const [crusherUnits, materials, shifts, vehicleTypes, configRows] =
+        await Promise.all([
+          findCrusherUnits(companyId),
+          findMaterials(companyId),
+          findShifts(companyId),
+          findVehicleTypes(companyId),
+          findConfigOptions(companyId),
+        ]);
 
-  return {
-    crusherUnits,
-    materials,
-    shifts,
-    vehicleTypes,
-    configOptions: mapConfigOptions(configRows),
-  };
+      return {
+        crusherUnits,
+        materials,
+        shifts,
+        vehicleTypes,
+        configOptions: mapConfigOptions(configRows),
+      };
+    }
+  );
+};
+
+const getMaterialsPage = async ({ companyId = null, page = 1, limit = 25, search = "" } = {}) =>
+  findMaterialsPage({ companyId, page, limit, search });
+
+const getConfigOptionsPage = async ({ companyId = null, page = 1, limit = 25, search = "" } = {}) =>
+  findConfigOptionsPage({ companyId, page, limit, search });
+
+const getMasterLookupData = async (companyId = null) =>
+  getCached(
+    `${buildCompanyScopedCachePrefix("masters-lookup", companyId)}default`,
+    60_000,
+    async () => {
+      const [crusherUnits, materials, shifts, vehicleTypes, configRows] = await Promise.all([
+        findCrusherUnits(companyId),
+        findMaterialLookup(companyId),
+        findShifts(companyId),
+        findVehicleTypes(companyId),
+        findConfigOptions(companyId),
+      ]);
+
+      return {
+        crusherUnits: crusherUnits.map((item) => ({
+          id: item.id,
+          label: item.unitName,
+          code: item.unitCode,
+          isActive: item.isActive,
+        })),
+        materials,
+        shifts: shifts.map((item) => ({
+          id: item.id,
+          label: item.shiftName,
+          isActive: item.isActive,
+        })),
+        vehicleTypes: vehicleTypes.map((item) => ({
+          id: item.id,
+          label: item.typeName,
+          code: item.category,
+          isActive: item.isActive,
+        })),
+        configOptions: mapConfigOptions(configRows),
+      };
+    }
+  );
+
+const getMaterialLookupList = async (companyId = null) =>
+  getCached(
+    `${buildCompanyScopedCachePrefix("materials-lookup", companyId)}active`,
+    60_000,
+    () => findMaterialLookup(companyId)
+  );
+
+const invalidateMasterCache = (companyId = null) => {
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("masters-bundle", companyId));
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("masters-lookup", companyId));
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("materials-lookup", companyId));
 };
 
 const validateConfigType = (configType) => {
@@ -559,7 +629,9 @@ const createConfigOption = async (payload) => {
     message: "This configuration option already exists",
   });
 
-  return await insertConfigOption(normalized);
+  const record = await insertConfigOption(normalized);
+  invalidateMasterCache(normalized.companyId);
+  return record;
 };
 
 const editConfigOption = async (payload) => {
@@ -574,10 +646,16 @@ const editConfigOption = async (payload) => {
     message: "Another configuration option with this label already exists",
   });
 
-  return await updateConfigOption(normalized);
+  const record = await updateConfigOption(normalized);
+  invalidateMasterCache(normalized.companyId);
+  return record;
 };
 
-const toggleConfigOption = async (payload) => await setConfigOptionStatus(payload);
+const toggleConfigOption = async (payload) => {
+  const record = await setConfigOptionStatus(payload);
+  invalidateMasterCache(payload.companyId || null);
+  return record;
+};
 
 const createCrusherUnit = async (payload) => {
   const normalized = normalizeCrusherUnitPayload(payload);
@@ -589,7 +667,9 @@ const createCrusherUnit = async (payload) => {
     message: "A crusher unit with this name already exists",
   });
 
-  return await insertCrusherUnit(normalized);
+  const record = await insertCrusherUnit(normalized);
+  invalidateMasterCache(normalized.companyId);
+  return record;
 };
 
 const createMaterial = async (payload) => {
@@ -609,7 +689,9 @@ const createMaterial = async (payload) => {
     message: "A material with this code already exists",
   });
 
-  return await insertMaterial(normalized);
+  const record = await insertMaterial(normalized);
+  invalidateMasterCache(normalized.companyId);
+  return record;
 };
 
 const createShift = async (payload) => {
@@ -622,7 +704,9 @@ const createShift = async (payload) => {
     message: "A shift with this name already exists",
   });
 
-  return await insertShift(normalized);
+  const record = await insertShift(normalized);
+  invalidateMasterCache(normalized.companyId);
+  return record;
 };
 
 const createVehicleType = async (payload) => {
@@ -635,7 +719,9 @@ const createVehicleType = async (payload) => {
     message: "A vehicle type with this name already exists",
   });
 
-  return await insertVehicleType(normalized);
+  const record = await insertVehicleType(normalized);
+  invalidateMasterCache(normalized.companyId);
+  return record;
 };
 
 const isMissingUnitsSchemaError = (error) => {
@@ -696,7 +782,9 @@ const createUnitMaster = async (payload) => {
     message: "A unit with this name already exists",
   });
 
-  return await insertUnit(normalized);
+  const record = await insertUnit(normalized);
+  invalidateMasterCache(normalized.companyId);
+  return record;
 };
 
 const editUnitMaster = async (payload) => {
@@ -716,7 +804,9 @@ const editUnitMaster = async (payload) => {
     message: "Another unit with this name already exists",
   });
 
-  return await updateUnit(normalized);
+  const record = await updateUnit(normalized);
+  invalidateMasterCache(normalized.companyId);
+  return record;
 };
 
 const getMaterialUnitConversions = async (companyId = null) =>
@@ -743,7 +833,9 @@ const createMaterialUnitConversionMaster = async (payload) => {
   ]);
 
   await ensureNoActiveOverlappingConversion(normalized);
-  return await insertMaterialUnitConversion(normalized);
+  const record = await insertMaterialUnitConversion(normalized);
+  invalidateMasterCache(normalized.companyId);
+  return record;
 };
 
 const editMaterialUnitConversionMaster = async (payload) => {
@@ -770,7 +862,9 @@ const editMaterialUnitConversionMaster = async (payload) => {
     ...normalized,
     idToIgnore: normalized.id,
   });
-  return await updateMaterialUnitConversion(normalized);
+  const record = await updateMaterialUnitConversion(normalized);
+  invalidateMasterCache(normalized.companyId);
+  return record;
 };
 
 const editCrusherUnit = async (payload) => {
@@ -784,7 +878,9 @@ const editCrusherUnit = async (payload) => {
     message: "Another crusher unit with this name already exists",
   });
 
-  return await updateCrusherUnit(normalized);
+  const record = await updateCrusherUnit(normalized);
+  invalidateMasterCache(normalized.companyId);
+  return record;
 };
 
 const editMaterial = async (payload) => {
@@ -805,7 +901,9 @@ const editMaterial = async (payload) => {
     message: "Another material with this code already exists",
   });
 
-  return await updateMaterial(normalized);
+  const record = await updateMaterial(normalized);
+  invalidateMasterCache(normalized.companyId);
+  return record;
 };
 
 const editShift = async (payload) => {
@@ -819,7 +917,9 @@ const editShift = async (payload) => {
     message: "Another shift with this name already exists",
   });
 
-  return await updateShift(normalized);
+  const record = await updateShift(normalized);
+  invalidateMasterCache(normalized.companyId);
+  return record;
 };
 
 const editVehicleType = async (payload) => {
@@ -833,7 +933,9 @@ const editVehicleType = async (payload) => {
     message: "Another vehicle type with this name already exists",
   });
 
-  return await updateVehicleType(normalized);
+  const record = await updateVehicleType(normalized);
+  invalidateMasterCache(normalized.companyId);
+  return record;
 };
 
 const toggleCrusherUnit = async (payload) => {
@@ -847,7 +949,9 @@ const toggleCrusherUnit = async (payload) => {
         companyId: payload.companyId || null,
       }),
   });
-  return setCrusherUnitStatus(payload);
+  const record = await setCrusherUnitStatus(payload);
+  invalidateMasterCache(payload.companyId || null);
+  return record;
 };
 
 const toggleMaterial = async (payload) => {
@@ -861,7 +965,9 @@ const toggleMaterial = async (payload) => {
         companyId: payload.companyId || null,
       }),
   });
-  return setMaterialStatus(payload);
+  const record = await setMaterialStatus(payload);
+  invalidateMasterCache(payload.companyId || null);
+  return record;
 };
 
 const toggleShift = async (payload) => {
@@ -875,7 +981,9 @@ const toggleShift = async (payload) => {
         companyId: payload.companyId || null,
       }),
   });
-  return setShiftStatus(payload);
+  const record = await setShiftStatus(payload);
+  invalidateMasterCache(payload.companyId || null);
+  return record;
 };
 
 const toggleVehicleType = async (payload) => {
@@ -889,7 +997,9 @@ const toggleVehicleType = async (payload) => {
         companyId: payload.companyId || null,
       }),
   });
-  return setVehicleTypeStatus(payload);
+  const record = await setVehicleTypeStatus(payload);
+  invalidateMasterCache(payload.companyId || null);
+  return record;
 };
 
 const getMasterHealthCheck = async (companyId = null) => {
@@ -1126,6 +1236,11 @@ const autoFillMissingMaterialHsnSac = async (companyId = null) => {
 
 module.exports = {
   getMasterData,
+  getMaterialsPage,
+  getConfigOptionsPage,
+  getMasterLookupData,
+  getMaterialLookupList,
+  invalidateMasterCache,
   getUnits,
   getMaterialUnitConversions,
   createConfigOption,

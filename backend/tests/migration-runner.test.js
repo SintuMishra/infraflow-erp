@@ -68,6 +68,7 @@ test("migration files are ordered and include production hardening migrations", 
     "049_equipment_log_meter_unit.sql",
     "050_unit_conversion_dispatch_foundation.sql",
     "051_unit_master_seed_data.sql",
+    "052_performance_indexes_foundation.sql",
   ]);
 });
 

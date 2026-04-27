@@ -1,10 +1,17 @@
 const {
   getAllParties,
+  getPartiesPage,
+  getPartyLookup,
   getPartyById,
   insertParty,
   updateParty,
   updatePartyStatus,
 } = require("./parties.model");
+const {
+  getCached,
+  invalidateCacheByPrefix,
+  buildCompanyScopedCachePrefix,
+} = require("../../utils/simpleCache.util");
 
 const buildValidationError = (message, statusCode = 400) => {
   const error = new Error(message);
@@ -38,13 +45,25 @@ const listParties = async (companyId = null) => {
   return await getAllParties(companyId);
 };
 
+const listPartiesPage = async ({ companyId = null, page = 1, limit = 25, search = "" } = {}) =>
+  getPartiesPage({ companyId, page, limit, search });
+
+const listPartyLookup = async (companyId = null) =>
+  getCached(
+    `${buildCompanyScopedCachePrefix("parties-lookup", companyId)}active`,
+    60_000,
+    () => getPartyLookup(companyId)
+  );
+
 const createParty = async (payload) => {
   const normalizedPayload = normalizePartyPayload(payload);
   validatePartyPayload(normalizedPayload);
-  return await insertParty({
+  const created = await insertParty({
     ...normalizedPayload,
     companyId: payload.companyId || null,
   });
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("parties-lookup", payload.companyId || null));
+  return created;
 };
 
 const editParty = async (partyId, payload, companyId = null) => {
@@ -56,10 +75,12 @@ const editParty = async (partyId, payload, companyId = null) => {
     throw buildValidationError("Party not found", 404);
   }
 
-  return await updateParty(Number(partyId), {
+  const updated = await updateParty(Number(partyId), {
     ...normalizedPayload,
     companyId,
   });
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("parties-lookup", companyId));
+  return updated;
 };
 
 const changePartyStatus = async (partyId, isActive, companyId = null) => {
@@ -72,11 +93,15 @@ const changePartyStatus = async (partyId, isActive, companyId = null) => {
     throw buildValidationError("isActive must be provided as true or false");
   }
 
-  return await updatePartyStatus(Number(partyId), isActive, companyId);
+  const updated = await updatePartyStatus(Number(partyId), isActive, companyId);
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("parties-lookup", companyId));
+  return updated;
 };
 
 module.exports = {
   listParties,
+  listPartiesPage,
+  listPartyLookup,
   createParty,
   editParty,
   changePartyStatus,

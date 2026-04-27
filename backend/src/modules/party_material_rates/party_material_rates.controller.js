@@ -1,9 +1,37 @@
 const service = require("./party_material_rates.service");
 const { sendControllerError } = require("../../utils/http.util");
 const { recordAuditEvent } = require("../../utils/audit.util");
+const {
+  normalizePage,
+  normalizeLimit,
+  shouldUsePaginatedResponse,
+} = require("../../utils/pagination.util");
 
 const getAll = async (req, res) => {
   try {
+    if (shouldUsePaginatedResponse(req.query || {})) {
+      const pageData = await service.getRatesPage({
+        companyId: req.companyId || null,
+        page: normalizePage(req.query.page, 1),
+        limit: normalizeLimit(req.query.limit, 25, 100),
+      });
+
+      return res.json({
+        success: true,
+        data: pageData.items,
+        meta: {
+          pagination: {
+            total: pageData.total,
+            page: pageData.page,
+            limit: pageData.limit,
+            totalPages: pageData.total
+              ? Math.ceil(pageData.total / pageData.limit)
+              : 0,
+          },
+        },
+      });
+    }
+
     const data = await service.getRates(req.companyId || null);
     res.json({ success: true, data });
   } catch (e) {

@@ -3,6 +3,10 @@ const { normalizeCompanyId } = require("../../utils/companyScope.util");
 const { plantExists, materialExists } = require("../dispatch/dispatch.model");
 const { getPartyById } = require("../parties/parties.model");
 const {
+  invalidateCacheByPrefix,
+  buildCompanyScopedCachePrefix,
+} = require("../../utils/simpleCache.util");
+const {
   getUnitById,
   convertFromTon,
 } = require("../material_unit_conversions/material_unit_conversions.service");
@@ -305,12 +309,17 @@ const getRates = async (companyId = null) => {
   return await model.getAllRates(companyId);
 };
 
+const getRatesPage = async ({ companyId = null, page = 1, limit = 25 } = {}) =>
+  model.getRatesPage({ companyId, page, limit });
+
 const createRate = async (data) => {
   const normalized = await hydrateLegacyCompatibilityFields(normalizeRatePayload(data));
   validate(normalized);
   await validateMasterLinks(normalized);
   await ensureNoActiveRateConflict(normalized);
-  return await model.insertRate(normalized);
+  const created = await model.insertRate(normalized);
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("party-rates", normalized.companyId));
+  return created;
 };
 
 const updateRate = async (id, data) => {
@@ -327,6 +336,7 @@ const updateRate = async (id, data) => {
     throw buildValidationError("Party material rate not found", 404);
   }
 
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("party-rates", normalized.companyId));
   return updated;
 };
 
@@ -341,11 +351,13 @@ const changeStatus = async (id, isActive, companyId = null) => {
     throw buildValidationError("Party material rate not found", 404);
   }
 
+  invalidateCacheByPrefix(buildCompanyScopedCachePrefix("party-rates", companyId));
   return updated;
 };
 
 module.exports = {
   getRates,
+  getRatesPage,
   createRate,
   updateRate,
   changeStatus,

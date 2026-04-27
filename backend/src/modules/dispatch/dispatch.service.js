@@ -25,6 +25,7 @@ const {
   convertFromTon,
   getUnitById,
 } = require("../material_unit_conversions/material_unit_conversions.service");
+const { resolveReportDateRange } = require("../../utils/reportDateRange.util");
 
 const allowedSourceTypes = ["Crusher", "Project", "Plant", "Store"];
 const allowedStatuses = ["pending", "completed", "cancelled"];
@@ -65,6 +66,7 @@ const getDispatchReports = async ({
   page = 1,
   limit = 25,
 } = {}) => {
+  const resolvedRange = resolveReportDateRange({ dateFrom, dateTo, defaultDays: 30 });
   const filters = {
     companyId,
     search,
@@ -74,8 +76,8 @@ const getDispatchReports = async ({
     linkedOrderFilter,
     sourceType,
     status,
-    dateFrom,
-    dateTo,
+    dateFrom: resolvedRange.dateFrom,
+    dateTo: resolvedRange.dateTo,
     page,
     limit,
   };

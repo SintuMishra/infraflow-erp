@@ -1,9 +1,37 @@
 const service = require("./party_orders.service");
 const { sendControllerError } = require("../../utils/http.util");
 const { recordAuditEvent } = require("../../utils/audit.util");
+const {
+  normalizePage,
+  normalizeLimit,
+  shouldUsePaginatedResponse,
+} = require("../../utils/pagination.util");
 
 const getAllPartyOrdersController = async (req, res) => {
   try {
+    if (shouldUsePaginatedResponse(req.query || {})) {
+      const pageData = await service.getOrdersPage({
+        companyId: req.companyId || null,
+        page: normalizePage(req.query.page, 1),
+        limit: normalizeLimit(req.query.limit, 25, 100),
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: pageData.items,
+        meta: {
+          pagination: {
+            total: pageData.total,
+            page: pageData.page,
+            limit: pageData.limit,
+            totalPages: pageData.total
+              ? Math.ceil(pageData.total / pageData.limit)
+              : 0,
+          },
+        },
+      });
+    }
+
     const data = await service.getOrders(req.companyId || null);
     return res.status(200).json({ success: true, data });
   } catch (error) {

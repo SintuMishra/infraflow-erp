@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../services/api";
+import { getCachedResource } from "../services/clientCache";
 import AppShell from "../components/layout/AppShell";
 import SectionCard from "../components/dashboard/SectionCard";
 import { useMasters } from "../hooks/useMasters";
@@ -284,9 +285,6 @@ const getCompletionReadinessMeta = (report) => {
 const getQuantitySourceLabel = (value) =>
   QUANTITY_SOURCE_OPTIONS.find((option) => option.value === value)?.label || "Legacy Tons";
 
-const getListData = (response) =>
-  Array.isArray(response?.data?.data) ? response.data.data : [];
-
 const WarningList = ({ warnings, tone = "warn" }) => {
   if (!warnings.length) {
     return null;
@@ -465,15 +463,15 @@ function DispatchReportsPage() {
         unitsRes,
         materialConversionsRes,
       ] = await Promise.allSettled([
-        api.get("/plants"),
-        api.get("/vehicles"),
-        api.get("/vendors"),
-        api.get("/parties"),
-        api.get("/party-material-rates"),
-        api.get("/transport-rates"),
-        api.get("/party-orders"),
-        api.get("/masters/units"),
-        api.get("/masters/material-unit-conversions"),
+        getCachedResource("lookup:plants", 60_000, async () => (await api.get("/plants/lookup")).data?.data || []),
+        getCachedResource("lookup:vehicles", 60_000, async () => (await api.get("/vehicles/lookup")).data?.data || []),
+        getCachedResource("lookup:vendors", 60_000, async () => (await api.get("/vendors")).data?.data || []),
+        getCachedResource("lookup:parties", 60_000, async () => (await api.get("/parties/lookup")).data?.data || []),
+        getCachedResource("reference:party-rates", 60_000, async () => (await api.get("/party-material-rates")).data?.data || []),
+        getCachedResource("reference:transport-rates", 60_000, async () => (await api.get("/transport-rates")).data?.data || []),
+        getCachedResource("reference:party-orders", 60_000, async () => (await api.get("/party-orders")).data?.data || []),
+        getCachedResource("reference:units", 60_000, async () => (await api.get("/masters/units")).data?.data || []),
+        getCachedResource("reference:material-conversions", 60_000, async () => (await api.get("/masters/material-unit-conversions")).data?.data || []),
       ]);
 
       const requiredResponses = [
@@ -493,16 +491,16 @@ function DispatchReportsPage() {
         throw failedRequiredResponse.reason;
       }
 
-      setPlants(getListData(plantsRes.value));
-      setVehicles(getListData(vehiclesRes.value));
-      setVendors(getListData(vendorsRes.value));
-      setPartyRates(getListData(partyRatesRes.value));
-      setTransportRates(getListData(transportRatesRes.value));
-      setPartyOrders(getListData(partyOrdersRes.value));
-      setParties(getListData(partiesRes.value));
+      setPlants(plantsRes.value);
+      setVehicles(vehiclesRes.value);
+      setVendors(vendorsRes.value);
+      setPartyRates(partyRatesRes.value);
+      setTransportRates(transportRatesRes.value);
+      setPartyOrders(partyOrdersRes.value);
+      setParties(partiesRes.value);
 
       if (unitsRes.status === "fulfilled") {
-        setUnits(getListData(unitsRes.value));
+        setUnits(unitsRes.value);
         setUnitsWarning("");
       } else {
         setUnits([]);
@@ -512,7 +510,7 @@ function DispatchReportsPage() {
       }
 
       if (materialConversionsRes.status === "fulfilled") {
-        setMaterialUnitConversions(getListData(materialConversionsRes.value));
+        setMaterialUnitConversions(materialConversionsRes.value);
         setMaterialConversionsWarning("");
       } else {
         setMaterialUnitConversions([]);
@@ -626,7 +624,7 @@ function DispatchReportsPage() {
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       loadDispatchReports(page);
-    }, 250);
+    }, 300);
 
     return () => window.clearTimeout(timeoutId);
   }, [loadDispatchReports, page]);
@@ -1868,7 +1866,7 @@ function DispatchReportsPage() {
       setShowForm(false);
       setShowList(true);
       setPage(1);
-      await Promise.all([loadDispatchReports(1), loadReferenceData()]);
+      await loadDispatchReports(1);
     } catch (err) {
       setError(
         err?.response?.data?.message || "Failed to add dispatch report"
@@ -2031,7 +2029,7 @@ function DispatchReportsPage() {
 
       setSuccess("Dispatch report updated successfully");
       closeEditPanel();
-      await Promise.all([loadDispatchReports(page), loadReferenceData()]);
+      await loadDispatchReports(page);
     } catch (err) {
       setError(
         err?.response?.data?.message || "Failed to update dispatch report"
@@ -2058,7 +2056,7 @@ function DispatchReportsPage() {
       setStatusUpdatingId(report.id);
       await api.patch(`/dispatch-reports/${report.id}/status`, { status });
       setSuccess(`Dispatch status changed to ${status}`);
-      await Promise.all([loadDispatchReports(page), loadReferenceData()]);
+      await loadDispatchReports(page);
     } catch (err) {
       setError(
         err?.response?.data?.message || "Failed to update dispatch status"

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../services/api";
+import { getCachedResource } from "../services/clientCache";
 
 const emptyMastersState = {
   crusherUnits: [],
@@ -34,8 +35,11 @@ export function useMasters() {
         setLoadingMasters(true);
       }
 
-      const res = await api.get("/masters");
-      setMasters(res.data.data || emptyMastersState);
+      const data = await getCachedResource("masters:bundle", 60_000, async () => {
+        const res = await api.get("/masters");
+        return res.data.data || emptyMastersState;
+      });
+      setMasters(data);
       setMastersError("");
       setMastersLoadedAt(Date.now());
       hasLoadedOnceRef.current = true;

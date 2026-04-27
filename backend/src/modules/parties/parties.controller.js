@@ -1,14 +1,45 @@
 const {
   listParties,
+  listPartiesPage,
+  listPartyLookup,
   createParty,
   editParty,
   changePartyStatus,
 } = require("./parties.service");
 const { sendControllerError } = require("../../utils/http.util");
 const { recordAuditEvent } = require("../../utils/audit.util");
+const {
+  normalizePage,
+  normalizeLimit,
+  shouldUsePaginatedResponse,
+} = require("../../utils/pagination.util");
 
 const getAllPartiesController = async (req, res) => {
   try {
+    if (shouldUsePaginatedResponse(req.query || {})) {
+      const pageData = await listPartiesPage({
+        companyId: req.companyId || null,
+        page: normalizePage(req.query.page, 1),
+        limit: normalizeLimit(req.query.limit, 25, 100),
+        search: String(req.query.search || "").trim(),
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: pageData.items,
+        meta: {
+          pagination: {
+            total: pageData.total,
+            page: pageData.page,
+            limit: pageData.limit,
+            totalPages: pageData.total
+              ? Math.ceil(pageData.total / pageData.limit)
+              : 0,
+          },
+        },
+      });
+    }
+
     const data = await listParties(req.companyId || null);
 
     return res.status(200).json({
@@ -17,6 +48,18 @@ const getAllPartiesController = async (req, res) => {
     });
   } catch (error) {
     return sendControllerError(req, res, error, "Failed to load parties");
+  }
+};
+
+const getPartyLookupController = async (req, res) => {
+  try {
+    const data = await listPartyLookup(req.companyId || null);
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to load party lookup");
   }
 };
 
@@ -112,6 +155,7 @@ const updatePartyStatusController = async (req, res) => {
 
 module.exports = {
   getAllPartiesController,
+  getPartyLookupController,
   createPartyController,
   updatePartyController,
   updatePartyStatusController,

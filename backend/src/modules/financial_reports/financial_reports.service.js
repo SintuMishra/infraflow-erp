@@ -1,4 +1,5 @@
 const { pool } = require("../../config/db");
+const { resolveReportDateRange } = require("../../utils/reportDateRange.util");
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 const requireCompanyId = (companyId) => {
@@ -25,8 +26,9 @@ const normalizeDate = (value, label) => {
 };
 
 const normalizeDateRange = ({ dateFrom = "", dateTo = "" }) => {
-  const normalizedDateFrom = normalizeDate(dateFrom, "dateFrom");
-  const normalizedDateTo = normalizeDate(dateTo, "dateTo");
+  const resolvedRange = resolveReportDateRange({ dateFrom, dateTo, defaultDays: 30 });
+  const normalizedDateFrom = normalizeDate(resolvedRange.dateFrom, "dateFrom");
+  const normalizedDateTo = normalizeDate(resolvedRange.dateTo, "dateTo");
 
   if (normalizedDateFrom && normalizedDateTo && normalizedDateTo < normalizedDateFrom) {
     const error = new Error("dateTo cannot be earlier than dateFrom");

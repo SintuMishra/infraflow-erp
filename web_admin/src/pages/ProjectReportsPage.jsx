@@ -1,10 +1,12 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../services/api";
+import { getCachedResource } from "../services/clientCache";
 import AppShell from "../components/layout/AppShell";
 import SectionCard from "../components/dashboard/SectionCard";
 import { useAuth } from "../hooks/useAuth";
 import { useMasters } from "../hooks/useMasters";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { normalizeRole } from "../utils/roles";
 import { getProjectShiftOptions, normalizeShiftValue } from "../utils/shifts";
 import {
@@ -112,7 +114,7 @@ function ProjectReportsPage() {
   const [expandedReportId, setExpandedReportId] = useState(null);
   const [sectionVisibility, setSectionVisibility] = useState(INITIAL_SECTION_VISIBILITY);
 
-  const deferredSearch = useDeferredValue(search);
+  const debouncedSearch = useDebouncedValue(search, 300);
 
   useEffect(() => {
     setSearch(initialFilters.search);
@@ -217,8 +219,11 @@ function ProjectReportsPage() {
 
   async function loadPlants() {
     try {
-      const response = await api.get("/plants");
-      setPlants(response.data?.data || []);
+      const data = await getCachedResource("lookup:plants", 60_000, async () => {
+        const response = await api.get("/plants/lookup");
+        return response.data?.data || [];
+      });
+      setPlants(data);
     } catch (requestError) {
       setError(requestError?.response?.data?.message || "Failed to load plants");
     }
@@ -230,7 +235,7 @@ function ProjectReportsPage() {
 
   useEffect(() => {
     loadReports({
-      search: deferredSearch,
+      search: debouncedSearch,
       plantId: plantFilter,
       projectName: projectFilter,
       siteName: siteFilter,
@@ -239,11 +244,11 @@ function ProjectReportsPage() {
       endDate,
       page,
     });
-  }, [deferredSearch, endDate, page, plantFilter, projectFilter, reportStatusFilter, siteFilter, startDate]);
+  }, [debouncedSearch, endDate, page, plantFilter, projectFilter, reportStatusFilter, siteFilter, startDate]);
 
   useEffect(() => {
     setPage(1);
-  }, [deferredSearch, endDate, plantFilter, projectFilter, reportStatusFilter, siteFilter, startDate]);
+  }, [debouncedSearch, endDate, plantFilter, projectFilter, reportStatusFilter, siteFilter, startDate]);
 
   const normalizedReports = useMemo(() => {
     return reports.map((report) => ({
@@ -509,7 +514,7 @@ function ProjectReportsPage() {
       }
 
       await loadReports({
-        search: deferredSearch,
+        search: debouncedSearch,
         plantId: plantFilter,
         projectName: projectFilter,
         siteName: siteFilter,
@@ -598,7 +603,7 @@ function ProjectReportsPage() {
 
       resetForm();
       await loadReports({
-        search: deferredSearch,
+        search: debouncedSearch,
         plantId: plantFilter,
         projectName: projectFilter,
         siteName: siteFilter,

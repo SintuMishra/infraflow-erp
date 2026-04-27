@@ -1,6 +1,7 @@
 const express = require("express");
 const {
   getVehicles,
+  getVehicleLookup,
   createVehicle,
   updateVehicle,
   updateVehicleStatus,
@@ -22,6 +23,13 @@ const { authenticate } = require("../../middlewares/auth.middleware");
 const { authorizeRoles } = require("../../middlewares/role.middleware");
 
 const router = express.Router();
+
+router.get(
+  "/lookup",
+  authenticate,
+  authorizeRoles("super_admin", "manager", "hr", "crusher_supervisor", "site_engineer"),
+  getVehicleLookup
+);
 
 router.get(
   "/",

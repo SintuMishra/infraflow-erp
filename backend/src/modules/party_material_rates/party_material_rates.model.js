@@ -133,6 +133,41 @@ const getAllRates = async (companyId = null) => {
   return result.rows;
 };
 
+const getRatesPage = async ({ companyId = null, page = 1, limit = 25 } = {}) => {
+  const schema = await getRateSchemaFlags();
+  const baseQuery = buildBaseQuery(schema);
+  const values = schema.ratesHasCompany && companyId !== null ? [companyId] : [];
+  const offset = (page - 1) * limit;
+  const result = await pool.query(
+    `${baseQuery}
+      ${schema.ratesHasCompany && companyId !== null ? `WHERE pmr.company_id = $1` : ""}
+      ORDER BY ${
+        schema.ratesHasEffectiveFrom
+          ? `pmr.effective_from DESC NULLS LAST, pmr.id DESC`
+          : `pmr.id DESC`
+      }
+      LIMIT $${values.length + 1}
+      OFFSET $${values.length + 2}`,
+    [...values, limit, offset]
+  );
+
+  const countResult = await pool.query(
+    `
+      SELECT COUNT(*)::int AS total
+      FROM party_material_rates pmr
+      ${schema.ratesHasCompany && companyId !== null ? `WHERE pmr.company_id = $1` : ""}
+    `,
+    values
+  );
+
+  return {
+    items: result.rows,
+    total: Number(countResult.rows[0]?.total || 0),
+    page,
+    limit,
+  };
+};
+
 const findActiveRateConflict = async ({
   plantId,
   partyId,
@@ -436,6 +471,7 @@ const toggleStatus = async (id, isActive, companyId = null) => {
 
 module.exports = {
   getAllRates,
+  getRatesPage,
   findActiveRateConflict,
   insertRate,
   updateRate,

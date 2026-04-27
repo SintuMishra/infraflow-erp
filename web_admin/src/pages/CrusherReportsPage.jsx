@@ -1,10 +1,12 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../services/api";
+import { getCachedResource } from "../services/clientCache";
 import AppShell from "../components/layout/AppShell";
 import SectionCard from "../components/dashboard/SectionCard";
 import { useMasters } from "../hooks/useMasters";
 import { useAuth } from "../hooks/useAuth";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import {
   formatDisplayDate,
   getTodayDateValue,
@@ -117,7 +119,7 @@ function CrusherReportsPage() {
   const [expandedReportId, setExpandedReportId] = useState(null);
   const [sectionVisibility, setSectionVisibility] = useState(INITIAL_SECTION_VISIBILITY);
 
-  const deferredSearch = useDeferredValue(search);
+  const debouncedSearch = useDebouncedValue(search, 300);
   const autoCalculatedElectricityKwh = useMemo(
     () =>
       calculateDerivedElectricityKwhInput(
@@ -269,8 +271,11 @@ function CrusherReportsPage() {
 
   async function loadPlants() {
     try {
-      const response = await api.get("/plants");
-      setPlants(response.data?.data || []);
+      const data = await getCachedResource("lookup:plants", 60_000, async () => {
+        const response = await api.get("/plants/lookup");
+        return response.data?.data || [];
+      });
+      setPlants(data);
     } catch (requestError) {
       setError(requestError?.response?.data?.message || "Failed to load plants");
     }
@@ -282,7 +287,7 @@ function CrusherReportsPage() {
 
   useEffect(() => {
     loadReports({
-      search: deferredSearch,
+      search: debouncedSearch,
       plantId: plantFilter,
       shift: shiftFilter,
       crusherUnitName: unitFilter,
@@ -292,11 +297,11 @@ function CrusherReportsPage() {
       endDate,
       page,
     });
-  }, [deferredSearch, endDate, materialFilter, page, plantFilter, shiftFilter, startDate, statusFilter, unitFilter]);
+  }, [debouncedSearch, endDate, materialFilter, page, plantFilter, shiftFilter, startDate, statusFilter, unitFilter]);
 
   useEffect(() => {
     setPage(1);
-  }, [deferredSearch, endDate, materialFilter, plantFilter, shiftFilter, startDate, statusFilter, unitFilter]);
+  }, [debouncedSearch, endDate, materialFilter, plantFilter, shiftFilter, startDate, statusFilter, unitFilter]);
 
   const normalizedReports = useMemo(
     () =>
@@ -715,7 +720,7 @@ function CrusherReportsPage() {
       }
 
       await loadReports({
-        search: deferredSearch,
+        search: debouncedSearch,
         plantId: plantFilter,
         shift: shiftFilter,
         crusherUnitName: unitFilter,
@@ -871,7 +876,7 @@ function CrusherReportsPage() {
 
       resetForm();
       await loadReports({
-        search: deferredSearch,
+        search: debouncedSearch,
         plantId: plantFilter,
         shift: shiftFilter,
         crusherUnitName: unitFilter,

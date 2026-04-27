@@ -1,5 +1,7 @@
 const {
   getVehiclesList,
+  getVehiclesPage,
+  getVehicleLookupList,
   createVehicleRecord,
   updateVehicleRecord,
   updateVehicleStatusRecord,
@@ -10,9 +12,38 @@ const {
   deleteEquipmentLogRecord,
 } = require("./vehicles.service");
 const { sendControllerError } = require("../../utils/http.util");
+const {
+  normalizePage,
+  normalizeLimit,
+  shouldUsePaginatedResponse,
+} = require("../../utils/pagination.util");
 
 const getVehicles = async (req, res) => {
   try {
+    if (shouldUsePaginatedResponse(req.query || {})) {
+      const pageData = await getVehiclesPage({
+        companyId: req.companyId || null,
+        page: normalizePage(req.query.page, 1),
+        limit: normalizeLimit(req.query.limit, 25, 100),
+        search: String(req.query.search || "").trim(),
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: pageData.items,
+        meta: {
+          pagination: {
+            total: pageData.total,
+            page: pageData.page,
+            limit: pageData.limit,
+            totalPages: pageData.total
+              ? Math.ceil(pageData.total / pageData.limit)
+              : 0,
+          },
+        },
+      });
+    }
+
     const vehicles = await getVehiclesList(req.companyId || null);
 
     return res.status(200).json({
@@ -21,6 +52,19 @@ const getVehicles = async (req, res) => {
     });
   } catch (error) {
     return sendControllerError(req, res, error, "Failed to load vehicles");
+  }
+};
+
+const getVehicleLookup = async (req, res) => {
+  try {
+    const vehicles = await getVehicleLookupList(req.companyId || null);
+
+    return res.status(200).json({
+      success: true,
+      data: vehicles,
+    });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to load vehicles lookup");
   }
 };
 
@@ -184,6 +228,7 @@ const deleteEquipmentLog = async (req, res) => {
 
 module.exports = {
   getVehicles,
+  getVehicleLookup,
   createVehicle,
   updateVehicle,
   updateVehicleStatus,

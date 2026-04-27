@@ -6,8 +6,12 @@ const { getAllPartyOrders } = require("../party_orders/party_orders.model");
 const { findAllDispatchReports } = require("../dispatch/dispatch.model");
 const { getAllRates } = require("../party_material_rates/party_material_rates.model");
 const { getAllParties } = require("../parties/parties.model");
+const {
+  getCached,
+  buildCompanyScopedCachePrefix,
+} = require("../../utils/simpleCache.util");
 
-const getDashboardSummary = async (companyId = null) => {
+const buildDashboardSummary = async (companyId = null) => {
   const [
     employeesHasCompany,
     plantsHasCompany,
@@ -301,6 +305,25 @@ const getDashboardSummary = async (companyId = null) => {
       equipmentHoursToday: Number(todayEquipmentHoursResult.rows[0].total),
     },
   };
+};
+
+const getDashboardSummary = async (companyId = null) => {
+  const cacheScopeFlags = await Promise.all([
+    hasColumn("employees", "company_id"),
+    hasColumn("plant_master", "company_id"),
+    hasColumn("crusher_daily_reports", "company_id"),
+    hasColumn("dispatch_reports", "company_id"),
+    hasColumn("vehicles", "company_id"),
+    hasColumn("project_daily_reports", "company_id"),
+    hasColumn("equipment_logs", "company_id"),
+  ]);
+  const cacheSignature = cacheScopeFlags.map((flag) => (flag ? "1" : "0")).join("");
+
+  return getCached(
+    `${buildCompanyScopedCachePrefix("dashboard-summary", companyId)}${cacheSignature}`,
+    20_000,
+    () => buildDashboardSummary(companyId)
+  );
 };
 
 const toDateOnlyValue = (value) => formatDateOnly(value) || "";

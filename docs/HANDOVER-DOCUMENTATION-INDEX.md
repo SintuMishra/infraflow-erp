@@ -33,6 +33,7 @@ This index defines the approved handover packet and exact reading order for busi
 2. `docs/developer-guide-professional.md`
 3. `docs/developer-new-client-handover-quickstart.md`
 4. `docs/developer-new-client-handover-quickstart-hi.md`
+5. `docs/COMPANY-HIERARCHY-SAFE-UPGRADE-PLAN-2026-04-26.md`
 
 ### Step 5: Deployment and Runtime Readiness
 1. `docs/low-cost-production-deployment.md`
@@ -48,6 +49,7 @@ This index defines the approved handover packet and exact reading order for busi
 6. `docs/masters-release-checklist.md`
 7. `docs/masters-role-uat-checklist.md`
 8. `docs/masters-uat-evidence-2026-04-17.md`
+9. `docs/COMPANY-HIERARCHY-SAFE-UPGRADE-PLAN-2026-04-26.md`
 
 ### Step 7: Post-Go-Live Product Expansion Planning
 1. `docs/PHASE1-ERP-EXPANSION-ROADMAP-2026-04-22.md`

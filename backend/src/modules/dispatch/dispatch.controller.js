@@ -7,6 +7,7 @@ const {
 } = require("./dispatch.service");
 const { sendControllerError } = require("../../utils/http.util");
 const { recordAuditEvent } = require("../../utils/audit.util");
+const { resolveReportDateRange } = require("../../utils/reportDateRange.util");
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const ALLOWED_SOURCE_TYPES = ["Crusher", "Project", "Plant", "Store"];
@@ -120,16 +121,27 @@ const normalizeDispatchQueryFilters = (query = {}) => {
 const getAllDispatchReports = async (req, res) => {
   try {
     const filters = normalizeDispatchQueryFilters(req.query || {});
+    const resolvedRange = resolveReportDateRange({
+      dateFrom: filters.dateFrom,
+      dateTo: filters.dateTo,
+      defaultDays: 30,
+    });
     const reports = await getDispatchReports({
       companyId: req.companyId || null,
       ...filters,
+      dateFrom: resolvedRange.dateFrom,
+      dateTo: resolvedRange.dateTo,
     });
 
     return res.status(200).json({
       success: true,
       data: reports.items,
       meta: {
-        filters,
+        filters: {
+          ...filters,
+          dateFrom: resolvedRange.dateFrom,
+          dateTo: resolvedRange.dateTo,
+        },
         summary: reports.summary,
         pagination: reports.pagination,
       },

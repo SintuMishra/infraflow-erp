@@ -1,5 +1,9 @@
 const {
   getMasterData,
+  getMaterialsPage,
+  getConfigOptionsPage,
+  getMasterLookupData,
+  getMaterialLookupList,
   getUnits,
   getMaterialUnitConversions,
   createConfigOption,
@@ -26,6 +30,7 @@ const {
 } = require("./masters.service");
 const { sendControllerError } = require("../../utils/http.util");
 const { recordAuditEvent } = require("../../utils/audit.util");
+const { normalizePage, normalizeLimit } = require("../../utils/pagination.util");
 
 const recordMasterAudit = async ({
   req,
@@ -60,6 +65,76 @@ const getMasters = async (req, res) => {
     return res.status(200).json({ success: true, data });
   } catch (error) {
     return sendControllerError(req, res, error, "Failed to load master data");
+  }
+};
+
+const getMasterLookupController = async (req, res) => {
+  try {
+    const data = await getMasterLookupData(req.companyId || null);
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to load master lookups");
+  }
+};
+
+const getMaterialsPageController = async (req, res) => {
+  try {
+    const pageData = await getMaterialsPage({
+      companyId: req.companyId || null,
+      page: normalizePage(req.query.page, 1),
+      limit: normalizeLimit(req.query.limit, 25, 100),
+      search: String(req.query.search || "").trim(),
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: pageData.items,
+      meta: {
+        pagination: {
+          total: pageData.total,
+          page: pageData.page,
+          limit: pageData.limit,
+          totalPages: pageData.total ? Math.ceil(pageData.total / pageData.limit) : 0,
+        },
+      },
+    });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to load materials");
+  }
+};
+
+const getMaterialLookupController = async (req, res) => {
+  try {
+    const data = await getMaterialLookupList(req.companyId || null);
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to load material lookup");
+  }
+};
+
+const getConfigOptionsPageController = async (req, res) => {
+  try {
+    const pageData = await getConfigOptionsPage({
+      companyId: req.companyId || null,
+      page: normalizePage(req.query.page, 1),
+      limit: normalizeLimit(req.query.limit, 25, 100),
+      search: String(req.query.search || "").trim(),
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: pageData.items,
+      meta: {
+        pagination: {
+          total: pageData.total,
+          page: pageData.page,
+          limit: pageData.limit,
+          totalPages: pageData.total ? Math.ceil(pageData.total / pageData.limit) : 0,
+        },
+      },
+    });
+  } catch (error) {
+    return sendControllerError(req, res, error, "Failed to load config options");
   }
 };
 
@@ -655,6 +730,10 @@ const toggleVehicleTypeController = async (req, res) => {
 
 module.exports = {
   getMasters,
+  getMasterLookupController,
+  getMaterialsPageController,
+  getMaterialLookupController,
+  getConfigOptionsPageController,
   getUnitsController,
   getMaterialUnitConversionsController,
   addConfigOption,

@@ -6,6 +6,7 @@ const {
 } = require("./projects.service");
 const { sendControllerError } = require("../../utils/http.util");
 const { recordAuditEvent } = require("../../utils/audit.util");
+const { resolveReportDateRange } = require("../../utils/reportDateRange.util");
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -88,16 +89,27 @@ const recordProjectReportAudit = async ({
 const getAllProjectReports = async (req, res) => {
   try {
     const filters = normalizeReportQueryFilters(req.query || {});
+    const resolvedRange = resolveReportDateRange({
+      startDate: filters.startDate,
+      endDate: filters.endDate,
+      defaultDays: 30,
+    });
     const reports = await getProjectReports({
       companyId: req.companyId || null,
       ...filters,
+      startDate: resolvedRange.startDate,
+      endDate: resolvedRange.endDate,
     });
 
     return res.status(200).json({
       success: true,
       data: reports.items,
       meta: {
-        filters,
+        filters: {
+          ...filters,
+          startDate: resolvedRange.startDate,
+          endDate: resolvedRange.endDate,
+        },
         summary: reports.summary,
         lookups: reports.lookups,
         pagination: reports.pagination,

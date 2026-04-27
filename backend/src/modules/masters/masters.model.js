@@ -147,6 +147,67 @@ const findMaterials = async (companyId = null) => {
   return result.rows;
 };
 
+const findMaterialsPage = async ({ companyId = null, page = 1, limit = 25, search = "" } = {}) => {
+  const hasCompany = await hasColumn("material_master", "company_id");
+  const hasHsnSacCode = await hasColumn("material_master", "hsn_sac_code");
+  const values = [];
+  const conditions = [];
+  let parameterIndex = 1;
+
+  if (hasCompany && companyId !== null) {
+    values.push(companyId);
+    conditions.push(`company_id = $${parameterIndex}`);
+    parameterIndex += 1;
+  }
+
+  if (String(search || "").trim()) {
+    values.push(`%${String(search).trim().toLowerCase()}%`);
+    conditions.push(
+      `(LOWER(COALESCE(material_name, '')) LIKE $${parameterIndex} OR LOWER(COALESCE(material_code, '')) LIKE $${parameterIndex})`
+    );
+    parameterIndex += 1;
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const offset = (page - 1) * limit;
+
+  const result = await pool.query(
+    `
+      SELECT
+        id,
+        material_name AS "materialName",
+        material_code AS "materialCode",
+        ${hasHsnSacCode ? `hsn_sac_code AS "hsnSacCode",` : `NULL::text AS "hsnSacCode",`}
+        category,
+        unit,
+        gst_rate AS "gstRate",
+        is_active AS "isActive"
+      FROM material_master
+      ${whereClause}
+      ORDER BY material_name ASC, id ASC
+      LIMIT $${values.length + 1}
+      OFFSET $${values.length + 2}
+    `,
+    [...values, limit, offset]
+  );
+
+  const countResult = await pool.query(
+    `
+      SELECT COUNT(*)::int AS total
+      FROM material_master
+      ${whereClause}
+    `,
+    values
+  );
+
+  return {
+    items: result.rows,
+    total: Number(countResult.rows[0]?.total || 0),
+    page,
+    limit,
+  };
+};
+
 const findShifts = async (companyId = null) => {
   const hasCompany = await hasColumn("shift_master", "company_id");
   const query = `
@@ -204,6 +265,85 @@ const findConfigOptions = async (companyId = null) => {
     query,
     buildScopedParams(hasCompany, companyId, [])
   );
+  return result.rows;
+};
+
+const findConfigOptionsPage = async ({ companyId = null, page = 1, limit = 25, search = "" } = {}) => {
+  const hasCompany = await hasColumn("master_config_options", "company_id");
+  const values = [];
+  const conditions = [];
+  let parameterIndex = 1;
+
+  if (hasCompany && companyId !== null) {
+    values.push(companyId);
+    conditions.push(`company_id = $${parameterIndex}`);
+    parameterIndex += 1;
+  }
+
+  if (String(search || "").trim()) {
+    values.push(`%${String(search).trim().toLowerCase()}%`);
+    conditions.push(
+      `(LOWER(COALESCE(config_type, '')) LIKE $${parameterIndex} OR LOWER(COALESCE(option_label, '')) LIKE $${parameterIndex} OR LOWER(COALESCE(option_value, '')) LIKE $${parameterIndex})`
+    );
+    parameterIndex += 1;
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const offset = (page - 1) * limit;
+  const result = await pool.query(
+    `
+      SELECT
+        id,
+        config_type AS "configType",
+        option_label AS "optionLabel",
+        option_value AS "optionValue",
+        sort_order AS "sortOrder",
+        is_active AS "isActive"
+      FROM master_config_options
+      ${whereClause}
+      ORDER BY config_type ASC, sort_order ASC, option_label ASC
+      LIMIT $${values.length + 1}
+      OFFSET $${values.length + 2}
+    `,
+    [...values, limit, offset]
+  );
+
+  const countResult = await pool.query(
+    `
+      SELECT COUNT(*)::int AS total
+      FROM master_config_options
+      ${whereClause}
+    `,
+    values
+  );
+
+  return {
+    items: result.rows,
+    total: Number(countResult.rows[0]?.total || 0),
+    page,
+    limit,
+  };
+};
+
+const findMaterialLookup = async (companyId = null) => {
+  const hasCompany = await hasColumn("material_master", "company_id");
+  const result = await pool.query(
+    `
+      SELECT
+        id,
+        material_name AS label,
+        material_code AS code,
+        category,
+        unit,
+        is_active AS "isActive"
+      FROM material_master
+      WHERE is_active = true
+      ${hasCompany && companyId !== null ? `AND company_id = $1` : ""}
+      ORDER BY material_name ASC, id ASC
+    `,
+    buildScopedParams(hasCompany, companyId, [])
+  );
+
   return result.rows;
 };
 
@@ -1227,9 +1367,12 @@ const getShiftUsageSummary = async ({ id, companyId }) => {
 module.exports = {
   findCrusherUnits,
   findMaterials,
+  findMaterialsPage,
   findShifts,
   findVehicleTypes,
   findConfigOptions,
+  findConfigOptionsPage,
+  findMaterialLookup,
   findUnits,
   findUnitByIdForScope,
   insertUnit,

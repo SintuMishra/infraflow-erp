@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { resolveReportDateRange } = require("../src/utils/reportDateRange.util");
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret";
 process.env.DB_HOST = process.env.DB_HOST || "localhost";
@@ -697,6 +698,8 @@ test("dispatch service forwards company scope through list, read, create, and st
     }
   );
 
+  const expectedRange = resolveReportDateRange({});
+
   assert.deepEqual(calls.findAllDispatchReports, [
     {
       companyId: 77,
@@ -707,8 +710,8 @@ test("dispatch service forwards company scope through list, read, create, and st
       linkedOrderFilter: "",
       sourceType: "",
       status: "",
-      dateFrom: "",
-      dateTo: "",
+      dateFrom: expectedRange.dateFrom,
+      dateTo: expectedRange.dateTo,
       page: 1,
       limit: 25,
     },
@@ -723,8 +726,8 @@ test("dispatch service forwards company scope through list, read, create, and st
       linkedOrderFilter: "",
       sourceType: "",
       status: "",
-      dateFrom: "",
-      dateTo: "",
+      dateFrom: expectedRange.dateFrom,
+      dateTo: expectedRange.dateTo,
       page: 1,
       limit: 25,
     },

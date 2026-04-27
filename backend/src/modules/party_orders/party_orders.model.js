@@ -200,6 +200,91 @@ const getAllPartyOrders = async (companyId = null, db = pool) => {
   return result.rows.map(mapOrderRow);
 };
 
+const getPartyOrdersPage = async ({ companyId = null, page = 1, limit = 25 } = {}, db = pool) => {
+  if (!(await isPartyOrdersAvailable(db))) {
+    return {
+      items: [],
+      total: 0,
+      page,
+      limit,
+    };
+  }
+
+  const ordersHasCompany = await hasColumn("party_orders", "company_id", db);
+  const dispatchHasCompany = await hasColumn("dispatch_reports", "company_id", db);
+  const dispatchHasPartyOrder = await hasColumn("dispatch_reports", "party_order_id", db);
+  const values = [];
+
+  if (ordersHasCompany && companyId !== null) {
+    values.push(companyId);
+  }
+
+  const offset = (page - 1) * limit;
+  const limitPlaceholder = `$${values.length + 1}`;
+  const offsetPlaceholder = `$${values.length + 2}`;
+
+  const listQuery = dispatchHasPartyOrder
+    ? `
+      ${buildBaseQuery({
+        companyScoped: ordersHasCompany && companyId !== null,
+        dispatchScoped: dispatchHasCompany && companyId !== null,
+      })}
+      ORDER BY po.order_date DESC, po.id DESC
+      LIMIT ${limitPlaceholder}
+      OFFSET ${offsetPlaceholder}
+    `
+    : `
+      SELECT
+        po.id,
+        po.order_number AS "orderNumber",
+        po.order_date AS "orderDate",
+        po.party_id AS "partyId",
+        p.party_name AS "partyName",
+        p.party_code AS "partyCode",
+        po.plant_id AS "plantId",
+        pm.plant_name AS "plantName",
+        po.material_id AS "materialId",
+        mm.material_name AS "materialName",
+        po.ordered_quantity_tons AS "orderedQuantityTons",
+        po.target_dispatch_date AS "targetDispatchDate",
+        po.remarks,
+        po.status,
+        po.created_by AS "createdBy",
+        po.updated_by AS "updatedBy",
+        po.company_id AS "companyId",
+        po.created_at AS "createdAt",
+        po.updated_at AS "updatedAt",
+        0::numeric AS "plannedQuantityTons",
+        0::numeric AS "completedQuantityTons"
+      FROM party_orders po
+      JOIN party_master p ON p.id = po.party_id
+      JOIN plant_master pm ON pm.id = po.plant_id
+      JOIN material_master mm ON mm.id = po.material_id
+      ${ordersHasCompany && companyId !== null ? `WHERE po.company_id = $1` : ""}
+      ORDER BY po.order_date DESC, po.id DESC
+      LIMIT ${limitPlaceholder}
+      OFFSET ${offsetPlaceholder}
+    `;
+
+  const countQuery = `
+    SELECT COUNT(*)::int AS total
+    FROM party_orders po
+    ${ordersHasCompany && companyId !== null ? `WHERE po.company_id = $1` : ""}
+  `;
+
+  const [listResult, countResult] = await Promise.all([
+    db.query(listQuery, [...values, limit, offset]),
+    db.query(countQuery, values),
+  ]);
+
+  return {
+    items: listResult.rows.map(mapOrderRow),
+    total: Number(countResult.rows[0]?.total || 0),
+    page,
+    limit,
+  };
+};
+
 const getPartyOrderById = async (
   orderId,
   companyId = null,
@@ -467,6 +552,7 @@ const updatePartyOrderStatus = async (
 module.exports = {
   ORDER_STATUSES,
   getAllPartyOrders,
+  getPartyOrdersPage,
   getPartyOrderById,
   insertPartyOrder,
   updatePartyOrder,

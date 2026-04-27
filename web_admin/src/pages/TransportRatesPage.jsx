@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../services/api";
+import { getCachedResource } from "../services/clientCache";
 import AppShell from "../components/layout/AppShell";
 import SectionCard from "../components/dashboard/SectionCard";
 import { useAuth } from "../hooks/useAuth";
@@ -57,9 +58,6 @@ const getPerUnitCompatibilityNote = (rate, units) => {
 
 const getListData = (response) =>
   Array.isArray(response?.data?.data) ? response.data.data : [];
-
-const getMaterialsData = (response) =>
-  Array.isArray(response?.data?.data?.materials) ? response.data.data.materials : [];
 
 function TransportRatesPage() {
   const { currentUser } = useAuth();
@@ -123,10 +121,10 @@ function TransportRatesPage() {
     try {
       const [ratesRes, vendorsRes, plantsRes, mastersRes, unitsRes] = await Promise.allSettled([
         api.get("/transport-rates"),
-        api.get("/vendors"),
-        api.get("/plants"),
-        api.get("/masters"),
-        api.get("/masters/units"),
+        getCachedResource("lookup:vendors", 60_000, async () => (await api.get("/vendors")).data?.data || []),
+        getCachedResource("lookup:plants", 60_000, async () => (await api.get("/plants/lookup")).data?.data || []),
+        getCachedResource("lookup:materials", 60_000, async () => (await api.get("/masters/materials/lookup")).data?.data || []),
+        getCachedResource("reference:units", 60_000, async () => (await api.get("/masters/units")).data?.data || []),
       ]);
 
       const requiredResponses = [ratesRes, vendorsRes, plantsRes, mastersRes];
@@ -139,12 +137,12 @@ function TransportRatesPage() {
       }
 
       setRates(getListData(ratesRes.value));
-      setVendors(getListData(vendorsRes.value));
-      setPlants(getListData(plantsRes.value));
-      setMaterials(getMaterialsData(mastersRes.value));
+      setVendors(vendorsRes.value);
+      setPlants(plantsRes.value);
+      setMaterials(mastersRes.value);
 
       if (unitsRes.status === "fulfilled") {
-        setUnits(getListData(unitsRes.value));
+        setUnits(unitsRes.value);
         setUnitsWarning("");
       } else {
         setUnits([]);

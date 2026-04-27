@@ -1,6 +1,10 @@
 const express = require("express");
 const {
   getMasters,
+  getMasterLookupController,
+  getMaterialsPageController,
+  getMaterialLookupController,
+  getConfigOptionsPageController,
   getUnitsController,
   getMaterialUnitConversionsController,
   addConfigOption,
@@ -31,6 +35,19 @@ const { authorizeRoles } = require("../../middlewares/role.middleware");
 const router = express.Router();
 
 router.get(
+  "/lookup",
+  authenticate,
+  authorizeRoles(
+    "super_admin",
+    "manager",
+    "hr",
+    "crusher_supervisor",
+    "site_engineer"
+  ),
+  getMasterLookupController
+);
+
+router.get(
   "/",
   authenticate,
   authorizeRoles(
@@ -41,6 +58,45 @@ router.get(
     "site_engineer"
   ),
   getMasters
+);
+
+router.get(
+  "/materials",
+  authenticate,
+  authorizeRoles(
+    "super_admin",
+    "manager",
+    "hr",
+    "crusher_supervisor",
+    "site_engineer"
+  ),
+  getMaterialsPageController
+);
+
+router.get(
+  "/materials/lookup",
+  authenticate,
+  authorizeRoles(
+    "super_admin",
+    "manager",
+    "hr",
+    "crusher_supervisor",
+    "site_engineer"
+  ),
+  getMaterialLookupController
+);
+
+router.get(
+  "/config-options",
+  authenticate,
+  authorizeRoles(
+    "super_admin",
+    "manager",
+    "hr",
+    "crusher_supervisor",
+    "site_engineer"
+  ),
+  getConfigOptionsPageController
 );
 
 router.get(

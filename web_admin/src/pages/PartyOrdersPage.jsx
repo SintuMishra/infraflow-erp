@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../services/api";
+import { getCachedResource } from "../services/clientCache";
 import AppShell from "../components/layout/AppShell";
 import SectionCard from "../components/dashboard/SectionCard";
 import { useMasters } from "../hooks/useMasters";
@@ -158,13 +159,13 @@ function PartyOrdersPage() {
     try {
       const [ordersRes, plantsRes, partiesRes] = await Promise.all([
         api.get("/party-orders"),
-        api.get("/plants"),
-        api.get("/parties"),
+        getCachedResource("lookup:plants", 60_000, async () => (await api.get("/plants/lookup")).data?.data || []),
+        getCachedResource("lookup:parties", 60_000, async () => (await api.get("/parties/lookup")).data?.data || []),
       ]);
 
       setOrders(ordersRes.data?.data || []);
-      setPlants(plantsRes.data?.data || []);
-      setParties(partiesRes.data?.data || []);
+      setPlants(plantsRes);
+      setParties(partiesRes);
       setError("");
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to load party orders");

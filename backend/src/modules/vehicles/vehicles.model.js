@@ -138,6 +138,82 @@ const findAllVehicles = async (companyId = null) => {
   return result.rows.map((row) => normalizeVehicleRow(row));
 };
 
+const findVehiclesPage = async ({ companyId = null, page = 1, limit = 25, search = "" } = {}) => {
+  const vehiclesHasCompany = await hasColumn("vehicles", "company_id");
+  const values = [];
+  const conditions = [];
+  let parameterIndex = 1;
+
+  if (vehiclesHasCompany && companyId !== null) {
+    values.push(companyId);
+    conditions.push(`v.company_id = $${parameterIndex}`);
+    parameterIndex += 1;
+  }
+
+  if (String(search || "").trim()) {
+    values.push(`%${String(search).trim().toLowerCase()}%`);
+    conditions.push(
+      `(
+        LOWER(COALESCE(v.vehicle_number, '')) LIKE $${parameterIndex}
+        OR LOWER(COALESCE(v.vehicle_type, '')) LIKE $${parameterIndex}
+        OR LOWER(COALESCE(v.assigned_driver, '')) LIKE $${parameterIndex}
+      )`
+    );
+    parameterIndex += 1;
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const offset = (page - 1) * limit;
+  const queryValues = [...values, limit, offset];
+  const result = await pool.query(
+    `
+      ${baseVehicleSelect}
+      ${whereClause}
+      ORDER BY v.id DESC
+      LIMIT $${values.length + 1}
+      OFFSET $${values.length + 2}
+    `,
+    queryValues
+  );
+
+  const countResult = await pool.query(
+    `
+      SELECT COUNT(*)::int AS total
+      FROM vehicles v
+      ${whereClause}
+    `,
+    values
+  );
+
+  return {
+    items: result.rows.map((row) => normalizeVehicleRow(row)),
+    total: Number(countResult.rows[0]?.total || 0),
+    page,
+    limit,
+  };
+};
+
+const findVehicleLookup = async (companyId = null) => {
+  const vehiclesHasCompany = await hasColumn("vehicles", "company_id");
+  const result = await pool.query(
+    `
+      SELECT
+        v.id,
+        v.vehicle_number AS label,
+        v.vehicle_type AS code,
+        v.status,
+        v.vehicle_capacity_tons AS "vehicleCapacityTons"
+      FROM vehicles v
+      WHERE v.status <> 'inactive'
+      ${vehiclesHasCompany && companyId !== null ? `AND v.company_id = $1` : ""}
+      ORDER BY v.vehicle_number ASC, v.id DESC
+    `,
+    vehiclesHasCompany && companyId !== null ? [companyId] : []
+  );
+
+  return result.rows;
+};
+
 const insertVehicle = async ({
   vehicleNumber,
   vehicleType,
@@ -635,6 +711,8 @@ const plantExists = async (plantId, companyId = null) => {
 
 module.exports = {
   findAllVehicles,
+  findVehiclesPage,
+  findVehicleLookup,
   insertVehicle,
   editVehicle,
   setVehicleStatus,
