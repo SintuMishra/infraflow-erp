@@ -935,6 +935,8 @@ Testing, smoke workflows, deployment checks and migration validation are maintai
 
 Architecture, operations, deployment, troubleshooting and handover documentation are maintained within the repository.
 
+For product usage and operator workflows, see the [InfraFlow ERP User Manual](docs/USER_MANUAL.md).
+
 ---
 
 # Current Engineering Improvements
@@ -946,7 +948,7 @@ Areas planned for continued improvement include:
 - deeper deployment automation
 - additional frontend automated testing
 - further RBAC administration refinement
-- CI/CD automation
+- deeper CI coverage and deployment automation
 - expanded operational monitoring
 
 ---
