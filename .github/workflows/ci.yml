@@ -20,6 +20,19 @@ jobs:
     name: Backend Tests
     runs-on: ubuntu-latest
 
+    # CI-only configuration.
+    # These values are intentionally non-production and contain no real credentials.
+    env:
+      NODE_ENV: test
+      JWT_SECRET: ci-only-infraflow-jwt-secret-2026-not-for-production
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_NAME: infraflow_ci_test
+      DB_USER: infraflow_ci
+      DB_PASSWORD: infraflow_ci_password
+      DB_SSL: "false"
+      ENFORCE_COMPANY_SCOPE: "false"
+
     defaults:
       run:
         working-directory: backend
