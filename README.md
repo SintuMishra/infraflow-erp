@@ -46,6 +46,12 @@ Instead of treating the application as a collection of independent CRUD screens,
 
 The project focuses on the engineering concerns behind business software: **data isolation, authorization, transactional workflows, database evolution, validation, auditability, deployment, testing, and operational readiness**.
 
+### Product Preview
+
+The operations dashboard provides a unified view of plant activity, operational status, business metrics, and company-scoped ERP workflows.
+
+![InfraFlow ERP Operations Dashboard](assets/screenshots/operations-dashboard.png)
+
 ---
 
 ## Architecture
@@ -188,6 +194,12 @@ Major areas include:
 
 Finance-specific testing also covers concurrency and policy behavior.
 
+### Financial Control Workspace
+
+The accounting workspace brings ledger activity, receivables, payables, trial-balance visibility, and accounting-period controls into a unified finance interface.
+
+![InfraFlow ERP Accounts Dashboard](assets/screenshots/accounts-dashboard.png)
+
 ---
 
 ## Commercial & Dispatch Workflows
@@ -206,6 +218,12 @@ Construction-specific commercial operations include:
 - material conversion support
 
 The database migration history preserves the evolution of these workflows rather than relying on ad-hoc database changes.
+
+### Dispatch Control Center
+
+Operational reporting connects dispatch activity with plant, project, vehicle, party, material, and commercial data.
+
+![InfraFlow ERP Dispatch Control Center](assets/screenshots/dispatch-control-center.png)
 
 ---
 
@@ -238,6 +256,12 @@ JWT Session
 ```
 
 This architecture reduces the risk of accidental cross-company access in a multi-company ERP environment.
+
+### Tenant Onboarding
+
+Administrative onboarding supports controlled company provisioning and company-scoped platform access.
+
+![InfraFlow ERP Tenant Onboarding](assets/screenshots/tenant-onboarding.png)
 
 ---
 
@@ -276,6 +300,14 @@ Business Service
 ```
 
 The application also includes rate-limiting and authentication-related test coverage.
+
+---
+
+### Governance & Auditability
+
+Administrative activity is surfaced through an audit workspace that supports operational traceability across platform actions.
+
+![InfraFlow ERP Audit Command Center](assets/screenshots/audit-command-center.png)
 
 ---
 
