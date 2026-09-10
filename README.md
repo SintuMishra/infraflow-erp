@@ -945,10 +945,9 @@ Areas planned for continued improvement include:
 
 - centralized observability
 - longer-duration production-like load testing
-- deeper deployment automation
+- deeper CI/CD and deployment automation
 - additional frontend automated testing
 - further RBAC administration refinement
-- deeper CI coverage and deployment automation
 - expanded operational monitoring
 
 ---

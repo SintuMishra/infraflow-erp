@@ -5,9 +5,9 @@
 A practical guide for company owners, managers, operators, administration,
 procurement teams, accounts teams, and other authorized business users.
 
-> **Documentation edition:** Public repository edition  
-> **Last updated:** September 2026  
-> **Audience:** Non-technical and operational users  
+> **Documentation edition:** Public repository edition
+> **Last updated:** September 2026
+> **Audience:** Non-technical and operational users
 > **Security note:** All names, companies, phone numbers, banking details,
 > identifiers, and credentials shown in examples are fictional or sanitized.
 > Never place real passwords, access tokens, bootstrap secrets, database
