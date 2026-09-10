@@ -6,6 +6,7 @@
 
 A production-oriented full-stack ERP designed to connect construction operations, commercial workflows, procurement, finance, reporting, governance, and multi-company data management in one system.
 
+[![CI](https://github.com/SintuMishra/infraflow-erp/actions/workflows/ci.yml/badge.svg)](https://github.com/SintuMishra/infraflow-erp/actions/workflows/ci.yml)
 [![React](https://img.shields.io/badge/React-19-20232A?style=flat-square&logo=react&logoColor=61DAFB)](https://react.dev/)
 [![Node.js](https://img.shields.io/badge/Node.js-Express-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
